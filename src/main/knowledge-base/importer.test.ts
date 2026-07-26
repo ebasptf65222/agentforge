@@ -1,7 +1,9 @@
-// AgentForge P4-02: 文档导入协调器测试
+// AgentForge 文档导入协调器测试
+// P4-02: 基础导入测试
+// P5-02: 异步解析支持测试
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -41,7 +43,7 @@ const { getKbChunksByDocumentId, countKbChunks } = await import('../db/repos/kb-
 
 import { AppError, ErrorCodes } from '../utils/error'
 
-describe('importer (P4-02)', () => {
+describe('importer (P4-02 + P5-02)', () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'agentforge-importer-test-'))
     testDb = new Database(join(tempDir, 'test.db'))
@@ -51,7 +53,7 @@ describe('importer (P4-02)', () => {
 
     // 创建测试文件目录
     testFilesDir = join(tempDir, 'files')
-    mkdtempSync(testFilesDir)
+    mkdirSync(testFilesDir, { recursive: true })
   })
 
   afterEach(() => {
@@ -69,7 +71,7 @@ describe('importer (P4-02)', () => {
   // ─── importDocument ───────────────────────────────────────────
 
   describe('importDocument', () => {
-    it('should import a markdown file and create chunks', () => {
+    it('should import a markdown file and create chunks', async () => {
       const content = `# Test Document
 
 This is the first paragraph with some content.
@@ -82,7 +84,7 @@ More text here for testing purposes.`
 
       const filePath = createTestFile('test.md', content)
 
-      const result = importDocument(filePath, 'test.md', 'markdown')
+      const result = await importDocument(filePath, 'test.md', 'markdown')
 
       expect(result.documentId).toBeTruthy()
       expect(result.fileName).toBe('test.md')
@@ -99,37 +101,37 @@ More text here for testing purposes.`
       expect(chunks).toHaveLength(result.chunkCount)
     })
 
-    it('should import a txt file', () => {
+    it('should import a txt file', async () => {
       const content = 'Line 1\nLine 2\nLine 3'
       const filePath = createTestFile('test.txt', content)
 
-      const result = importDocument(filePath, 'test.txt', 'txt')
+      const result = await importDocument(filePath, 'test.txt', 'txt')
 
       expect(result.status).toBe('ready')
       expect(result.chunkCount).toBeGreaterThan(0)
     })
 
-    it('should import a csv file', () => {
+    it('should import a csv file', async () => {
       const content = 'name,age\nAlice,30\nBob,25'
       const filePath = createTestFile('test.csv', content)
 
-      const result = importDocument(filePath, 'test.csv', 'csv')
+      const result = await importDocument(filePath, 'test.csv', 'csv')
 
       expect(result.status).toBe('ready')
       expect(result.chunkCount).toBeGreaterThan(0)
     })
 
-    it('should handle empty file', () => {
+    it('should handle empty file', async () => {
       const filePath = createTestFile('empty.md', '')
 
-      const result = importDocument(filePath, 'empty.md', 'markdown')
+      const result = await importDocument(filePath, 'empty.md', 'markdown')
 
       expect(result.status).toBe('ready')
       expect(result.chunkCount).toBe(0)
       expect(result.totalTokens).toBe(0)
     })
 
-    it('should handle large file with multiple chunks', () => {
+    it('should handle large file with multiple chunks', async () => {
       // 生成一个大文件（会被分成多个分块）
       const lines: string[] = []
       for (let i = 0; i < 200; i++) {
@@ -138,7 +140,7 @@ More text here for testing purposes.`
       const content = lines.join('\n')
       const filePath = createTestFile('large.md', content)
 
-      const result = importDocument(filePath, 'large.md', 'markdown', {
+      const result = await importDocument(filePath, 'large.md', 'markdown', {
         chunking: { strategy: 'fixed', chunkSize: 100, overlap: 10 },
       })
 
@@ -149,11 +151,11 @@ More text here for testing purposes.`
       expect(chunks).toHaveLength(result.chunkCount)
     })
 
-    it('should use paragraph strategy when specified', () => {
+    it('should use paragraph strategy when specified', async () => {
       const content = 'Paragraph 1\n\nParagraph 2\n\nParagraph 3'
       const filePath = createTestFile('para.md', content)
 
-      const result = importDocument(filePath, 'para.md', 'markdown', {
+      const result = await importDocument(filePath, 'para.md', 'markdown', {
         chunking: { strategy: 'paragraph', chunkSize: 500 },
       })
 
@@ -162,10 +164,10 @@ More text here for testing purposes.`
       expect(result.chunkCount).toBeGreaterThanOrEqual(1)
     })
 
-    it('should mark document as error when file does not exist', () => {
+    it('should mark document as error when file does not exist', async () => {
       const filePath = join(testFilesDir, 'nonexistent.md')
 
-      expect(() => importDocument(filePath, 'nonexistent.md', 'markdown')).toThrow(AppError)
+      await expect(importDocument(filePath, 'nonexistent.md', 'markdown')).rejects.toThrow(AppError)
 
       // 文档记录应该存在但状态为 error
       const docs = listKbDocuments()
@@ -174,13 +176,14 @@ More text here for testing purposes.`
       expect(docs[0].errorMessage).toBeDefined()
     })
 
-    it('should throw for unsupported file types like pdf', () => {
-      const filePath = createTestFile('test.pdf', 'fake pdf content')
+    it('should throw KB_INDEX_ERROR for invalid PDF content', async () => {
+      const filePath = createTestFile('test.pdf', 'fake pdf content - not a real PDF')
 
-      expect(() => importDocument(filePath, 'test.pdf', 'pdf')).toThrow(AppError)
       try {
-        importDocument(filePath, 'test.pdf', 'pdf')
+        await importDocument(filePath, 'test.pdf', 'pdf')
+        expect.unreachable('Should have thrown an error')
       } catch (error) {
+        expect(error).toBeInstanceOf(AppError)
         expect((error as AppError).code).toBe(ErrorCodes.KB_INDEX_ERROR)
       }
     })
@@ -189,21 +192,20 @@ More text here for testing purposes.`
   // ─── reimportDocument ─────────────────────────────────────────
 
   describe('reimportDocument', () => {
-    it('should reimport and update chunks', () => {
+    it('should reimport and update chunks', async () => {
       const content = 'Original content\nMore original'
       const filePath = createTestFile('reimport.md', content)
 
       // 首次导入
-      const firstResult = importDocument(filePath, 'reimport.md', 'markdown', {
+      const firstResult = await importDocument(filePath, 'reimport.md', 'markdown', {
         chunking: { strategy: 'fixed', chunkSize: 50, overlap: 5 },
       })
-      const firstChunkCount = firstResult.chunkCount
 
       // 修改文件内容
       writeFileSync(filePath, 'Updated content with completely new text here.', 'utf-8')
 
       // 重新导入
-      const secondResult = reimportDocument(firstResult.documentId, {
+      const secondResult = await reimportDocument(firstResult.documentId, {
         chunking: { strategy: 'fixed', chunkSize: 50, overlap: 5 },
       })
 
@@ -219,19 +221,19 @@ More text here for testing purposes.`
       expect(chunks.some((c) => c.content.includes('Updated'))).toBe(true)
     })
 
-    it('should throw for nonexistent document', () => {
-      expect(() => reimportDocument('nonexistent')).toThrow(AppError)
+    it('should throw for nonexistent document', async () => {
+      await expect(reimportDocument('nonexistent')).rejects.toThrow(AppError)
     })
   })
 
   // ─── removeDocument ───────────────────────────────────────────
 
   describe('removeDocument', () => {
-    it('should remove document and all chunks', () => {
+    it('should remove document and all chunks', async () => {
       const content = 'Test content\nMore content'
       const filePath = createTestFile('remove.md', content)
 
-      const result = importDocument(filePath, 'remove.md', 'markdown')
+      const result = await importDocument(filePath, 'remove.md', 'markdown')
       const docId = result.documentId
 
       expect(countKbChunks(docId)).toBeGreaterThan(0)

@@ -10,6 +10,7 @@ import { registerSystemHandlers } from './system'
 import { registerMcpHandlers } from './mcp'
 import { registerAgentHandlers } from './agent'
 import { registerSkillHandlers } from './skill'
+import { registerKbHandlers } from './knowledge-base'
 
 /**
  * 注册所有 IPC handlers。
@@ -40,4 +41,7 @@ export function registerIpcHandlers(): void {
 
   // ─── Skill 域 (P3-02) ──────────────────────────────────────────
   registerSkillHandlers()
+
+  // ─── Knowledge Base 域 (P4/P5) ─────────────────────────────────
+  registerKbHandlers()
 }

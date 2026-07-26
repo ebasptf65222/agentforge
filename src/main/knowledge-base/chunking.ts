@@ -107,7 +107,7 @@ export function chunkByFixedSize(text: string, options: ChunkingOptions): Chunk[
     chunks.push({
       content: currentChunk.trim(),
       tokenCount: currentTokens,
-      chunkIndex: chunkIndex++,
+      chunkIndex,
     })
   }
 
@@ -196,9 +196,12 @@ function getOverlapText(text: string, overlapTokens: number): string {
   const sentenceMatches = [...searchText.matchAll(/[.!?。！？]\s+/g)]
   if (sentenceMatches.length > 0) {
     const lastMatch = sentenceMatches[sentenceMatches.length - 1]
-    const candidate = searchText.slice(lastMatch.index! + lastMatch[0].length)
-    if (estimateTokens(candidate) >= overlapTokens * 0.5) {
-      return candidate
+    const matchIndex = lastMatch.index
+    if (matchIndex !== undefined) {
+      const candidate = searchText.slice(matchIndex + lastMatch[0].length)
+      if (estimateTokens(candidate) >= overlapTokens * 0.5) {
+        return candidate
+      }
     }
   }
 

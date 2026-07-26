@@ -431,3 +431,69 @@ pnpm test   → 857 tests passed (38 files)
 pnpm lint   → 0 errors (2 warnings 为已有 better-sqlite3 类型声明问题)
 pnpm format:check → 通过
 ```
+
+---
+
+## P5: 发布打磨
+
+### P5-01: 知识库 IPC 层
+
+**任务**: 实现 KB IPC handlers，连接 KB 后端与渲染进程
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/ipc/knowledge-base.ts` | 新增 | 9 个 IPC handler（import/list/get/delete/reimport/search/index/reindex/stats），含参数校验和统一错误处理 |
+| `src/main/ipc/index.ts` | 修改 | 注册 `registerKbHandlers()` |
+
+**IPC 通道**:
+
+| 通道 | 功能 | 参数 |
+|------|------|------|
+| `kb:import` | 导入文档 | filePath, fileName, fileType, chunking? |
+| `kb:list` | 列出文档 | status? |
+| `kb:get` | 获取文档详情 | id |
+| `kb:delete` | 删除文档 | id |
+| `kb:reimport` | 重新导入 | id, chunking? |
+| `kb:search` | 语义搜索 | query, topK?, documentId?, threshold? |
+| `kb:index` | 生成嵌入 | id, batchSize? |
+| `kb:reindex` | 重新索引 | id, batchSize? |
+| `kb:stats` | 统计信息 | 无 |
+
+**关键技术决策**:
+- 统一参数校验：`assertNonEmptyString` / `assertFileType` / `assertOptionalNumber`
+- 所有 handler 包裹在 try/catch 中，`AppError` 透传，其他错误包装为 `INTERNAL_ERROR`
+- 注册函数幂等（`registered` 标志位）
+- 所有 handler 函数添加显式返回类型
+
+---
+
+### P5-02: 完善 PDF/DOCX/XLSX 文档解析器
+
+**任务**: 将 P4 中的 stub 解析器替换为完整实现，支持 PDF/DOCX/XLSX 二进制格式解析
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/knowledge-base/parser.ts` | 重写 | 异步解析器：PDF (unpdf)、DOCX (mammoth)、XLSX (exceljs) |
+| `src/main/knowledge-base/parser.test.ts` | 新增 | 解析器测试（PDF/DOCX/XLSX 各类型，含 mock 和真实文件测试） |
+| `src/main/knowledge-base/importer.ts` | 修改 | `importDocument` / `reimportDocument` 转为 async，支持 await parseDocument |
+| `src/main/knowledge-base/importer.test.ts` | 修改 | 测试转为 async/await，修复目录创建和断言问题 |
+| `src/main/knowledge-base/chunking.ts` | 修改 | 修复 no-useless-assignment 和 no-non-null-assertion lint 错误 |
+| `src/main/knowledge-base/chunking.test.ts` | 修改 | 修正长行和 overlap 测试断言 |
+| `src/main/ipc/knowledge-base.ts` | 修改 | handleImport/handleReimport 改为 async/await |
+| `package.json` | 修改 | 新增依赖：unpdf、mammoth、exceljs |
+
+**关键技术决策**:
+- **动态导入**：`await import('unpdf')` / `await import('mammoth')` / `await import('exceljs')`，避免初始加载开销
+- **PDF 解析**：使用 unpdf（基于 pdfjs-dist），`extractText(buffer, { mergePages: true })` 提取全文
+- **DOCX 解析**：使用 mammoth 的 `extractRawText({ path })`，输出纯文本
+- **XLSX 解析**：使用 exceljs 逐工作表逐行读取，单元格对象类型处理（富文本、公式结果、超链接）
+- **文本规范化**：统一换行符（\r\n → \n），压缩多余空行（3+ → 2）
+- **错误传播**：解析失败时通过 AppError 传播，importDocument 捕获后更新文档状态为 error
+
+### P5 验证
+
+```
+pnpm test   → 947 tests passed (43 files)
+pnpm lint   → 0 errors, 0 warnings
+pnpm format → 通过
+```

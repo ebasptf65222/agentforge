@@ -1,9 +1,16 @@
-// AgentForge P4-02: 文档导入协调器
+// AgentForge 文档导入协调器
 // 协调解析 → 分块 → 存储的完整导入流程
+// P4-02: 基础导入流程
+// P5-02: 支持 PDF/DOCX/XLSX 异步解析
 
 import type { KbDocument } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
-import { createKbDocument, updateKbDocument, deleteKbDocument } from '../db/repos/kb-document'
+import {
+  createKbDocument,
+  updateKbDocument,
+  deleteKbDocument,
+  getKbDocumentById,
+} from '../db/repos/kb-document'
 import { batchCreateKbChunks, deleteKbChunksByDocumentId } from '../db/repos/kb-chunk'
 import { parseDocument } from './parser'
 import { chunkText } from './chunking'
@@ -28,7 +35,7 @@ export interface ImportResult {
  * 导入文档到知识库。
  * 完整流程：
  * 1. 创建文档记录（status = indexing）
- * 2. 解析文件内容
+ * 2. 解析文件内容（异步，支持 PDF/DOCX/XLSX）
  * 3. 文本分块
  * 4. 存储分块到数据库
  * 5. 更新文档状态为 ready
@@ -40,18 +47,18 @@ export interface ImportResult {
  * @returns 导入结果
  * @throws {AppError} KB_INDEX_ERROR - 导入失败
  */
-export function importDocument(
+export async function importDocument(
   filePath: string,
   fileName: string,
   fileType: KbDocument['fileType'],
   options: ImportOptions = {},
-): ImportResult {
+): Promise<ImportResult> {
   // 1. 创建文档记录
   const doc = createKbDocument({ filePath, fileName, fileType })
 
   try {
-    // 2. 解析文件
-    const parseResult = parseDocument(filePath, fileType)
+    // 2. 解析文件（异步）
+    const parseResult = await parseDocument(filePath, fileType)
 
     // 3. 文本分块
     const chunkingOpts: ChunkingOptions = options.chunking ?? {
@@ -115,9 +122,11 @@ export function importDocument(
  * @param options - 导入选项
  * @returns 导入结果
  */
-export function reimportDocument(documentId: string, options: ImportOptions = {}): ImportResult {
+export async function reimportDocument(
+  documentId: string,
+  options: ImportOptions = {},
+): Promise<ImportResult> {
   // 获取文档信息
-  const { getKbDocumentById } = require('../db/repos/kb-document')
   const doc = getKbDocumentById(documentId)
 
   // 删除旧分块
@@ -132,8 +141,8 @@ export function reimportDocument(documentId: string, options: ImportOptions = {}
   })
 
   try {
-    // 重新解析
-    const parseResult = parseDocument(doc.filePath, doc.fileType)
+    // 重新解析（异步）
+    const parseResult = await parseDocument(doc.filePath, doc.fileType)
 
     // 重新分块
     const chunkingOpts: ChunkingOptions = options.chunking ?? {
