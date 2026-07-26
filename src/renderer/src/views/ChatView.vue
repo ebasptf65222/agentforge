@@ -49,6 +49,10 @@ function handleOpenSettings(): void {
   uiStore.setCurrentView('settings')
 }
 
+function handleOpenKb(): void {
+  uiStore.setCurrentView('kb')
+}
+
 async function handleSelectConversation(id: string): Promise<void> {
   await chatStore.selectConversation(id)
 }
@@ -82,6 +86,7 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '260px')
         :collapsed="uiStore.sidebarCollapsed"
         @new-chat="handleNewChat"
         @settings="handleOpenSettings"
+        @open-kb="handleOpenKb"
       />
       <ConversationList
         :conversations="chatStore.conversations"

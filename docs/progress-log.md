@@ -522,6 +522,39 @@ pnpm format:check → 通过
 - Preload 使用 `Record<string, unknown>` 参数类型（运行时透传），类型安全由 electron-api.ts 保证
 - KB IPC handler 的 `KbStats` 改为从 shared 导入，消除类型重复定义
 
+---
+
+### P5-04: 知识库管理 UI
+
+**任务**: 创建知识库前端管理界面，实现文档导入、列表、搜索、索引操作
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/renderer/src/stores/kb.ts` | 新增 | KB Pinia store：文档列表、统计、导入/删除/重导入、搜索/索引 |
+| `src/renderer/src/views/KbView.vue` | 新增 | KB 管理视图：头部统计、工具栏、文档列表表格、导入弹窗、语义搜索面板 |
+| `src/renderer/src/App.vue` | 修改 | 新增 KbView 路由分支 |
+| `src/renderer/src/stores/ui.ts` | 修改 | ViewName 类型新增 `'kb'` |
+| `src/renderer/src/components/Sidebar/SidebarHeader.vue` | 修改 | 新增知识库导航按钮（展开和折叠两种状态） |
+| `src/renderer/src/views/ChatView.vue` | 修改 | 处理 `open-kb` 事件，切换到 KB 视图 |
+
+**UI 功能**:
+
+| 功能 | 说明 |
+|------|------|
+| 文档列表 | 表格展示：文件名、类型徽章、分块数、状态徽章、导入时间、操作按钮 |
+| 导入弹窗 | 文件选择器 + 类型自动检测 + 分块策略配置（fixed/paragraph、chunkSize、overlap） |
+| 语义搜索 | 查询输入 + Top-K 结果展示（文件名、相似度百分比、内容片段） |
+| 文档操作 | 重新导入、生成嵌入、重新索引、删除 |
+| 统计信息 | 头部显示：文档数 / 分块数 / 已索引数 |
+| 导航 | 侧边栏头部知识库按钮，返回按钮 |
+
+**关键技术决策**:
+- Store 封装所有 IPC 调用，统一错误处理和 toast 提示
+- 导入弹窗使用原生模态（非 Naive UI），保持轻量
+- 文件类型自动检测：根据扩展名映射到 fileType
+- 索引状态使用 `Set<string>` 跟踪正在索引的文档 ID
+- 搜索结果内容使用 `-webkit-line-clamp` 限制为 3 行
+
 ### P5 验证
 
 ```

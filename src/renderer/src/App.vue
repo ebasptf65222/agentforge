@@ -1,6 +1,7 @@
 <template>
   <div class="app">
     <ChatView v-if="uiStore.currentView === 'chat'" />
+    <KbView v-else-if="uiStore.currentView === 'kb'" />
     <SettingsView v-else />
   </div>
 </template>
@@ -8,6 +9,7 @@
 <script setup lang="ts">
 import { useUiStore } from '@/stores/ui'
 import ChatView from '@/views/ChatView.vue'
+import KbView from '@/views/KbView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 
 const uiStore = useUiStore()
