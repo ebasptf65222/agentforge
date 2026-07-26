@@ -597,3 +597,36 @@ pnpm lint     → 0 errors, 0 warnings
 pnpm build    → 通过 (electron-vite build)
 pnpm pack:dir → 通过 (electron-builder --dir, Linux x64)
 ```
+
+---
+
+## P5-06: 项目 README 与发布文档 (2026-07-26)
+
+**任务**: 创建项目 README.md，涵盖功能特性、技术栈、项目结构、快速开始、打包发布、数据库 Schema、配置说明和开发指南
+
+### 修改文件列表
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `README.md` | 新增 | 完整项目文档：功能特性、技术栈、项目结构、快速开始、打包发布、数据库 Schema、配置说明、开发指南 |
+| `AGENT.md` | 修改 | 更新当前任务状态 → P5-06 |
+
+### 文档内容覆盖
+
+1. **功能特性**: AI 对话、Agent 引擎、工具系统、MCP 集成、Skills 系统、本地知识库、安全与隐私
+2. **技术栈**: 完整依赖版本表（运行时、前端、数据库、构建工具、测试、代码规范、打包）
+3. **文档解析依赖**: PDF/DOCX/XLSX/Markdown/TXT/CSV 对应库说明
+4. **项目结构**: main/preload/renderer/shared 完整目录树
+5. **快速开始**: 环境要求、安装、开发、构建、测试、代码规范
+6. **打包发布**: 跨平台打包命令与支持平台表
+7. **数据库 Schema**: 8 张表说明
+8. **配置说明**: 环境变量与应用设置
+9. **开发指南**: Git 提交规范、新增工具、新增模型适配器
+
+### 验证步骤
+
+```
+pnpm test  → 947 tests passed
+pnpm lint  → 通过
+pnpm build → 通过
+```
