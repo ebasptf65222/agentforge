@@ -408,10 +408,26 @@ pnpm format:check → 通过
 - 向量维度不匹配时取最小公共维度，增强兼容性
 - 文件名缓存减少搜索时的数据库查询次数
 
+---
+
+### P4-04: KB 搜索工具集成到 Agent
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/tools/kb-search.ts` | 新增 | 知识库语义搜索工具（kb_search），封装 semanticSearch 供 Agent 调用 |
+| `src/main/tools/kb-search.test.ts` | 新增 | 20 个单元测试（定义验证 + 执行逻辑 + 错误处理） |
+| `src/main/tools/registry-init.ts` | 修改 | 注册 kb_search 到内置工具列表 |
+
+**关键技术决策**:
+- 工具风险等级 `low`：只读操作，无需用户审批
+- 参数：query（必需）、topK（1-20）、documentId（限定文档）、threshold（0-1）
+- 结果格式化：包含相似度百分比、来源文件名、内容片段，便于 LLM 理解
+- 与 Agent 无缝集成：prompt builder 动态从 ToolRegistry 获取定义，注册后自动可用
+
 ### P4 验证
 
 ```
-pnpm test   → 837 tests passed (37 files，含 35 个新增 KB 测试)
+pnpm test   → 857 tests passed (38 files)
 pnpm lint   → 0 errors (2 warnings 为已有 better-sqlite3 类型声明问题)
 pnpm format:check → 通过
 ```

@@ -7,6 +7,7 @@ import { webScrapeTool } from './web-scrape'
 import { fileReadTool } from './file-read'
 import { fileWriteTool } from './file-write'
 import { directoryListTool } from './directory-list'
+import { kbSearchTool } from './kb-search'
 
 /**
  * 初始化并注册所有内置工具到全局 ToolRegistry。
@@ -19,4 +20,5 @@ export function initBuiltinTools(): void {
   registry.registerBuiltin(fileReadTool)
   registry.registerBuiltin(fileWriteTool)
   registry.registerBuiltin(directoryListTool)
+  registry.registerBuiltin(kbSearchTool)
 }
