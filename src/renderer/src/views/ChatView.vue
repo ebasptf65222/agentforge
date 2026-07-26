@@ -12,6 +12,8 @@ import { useChat } from '@/composables/use-chat'
 import { useAgent } from '@/composables/use-agent'
 import SidebarHeader from '@/components/Sidebar/SidebarHeader.vue'
 import ConversationList from '@/components/Sidebar/ConversationList.vue'
+import FileTreePanel from '@/components/Sidebar/FileTreePanel.vue'
+import FilePreview from '@/components/Sidebar/FilePreview.vue'
 import MessageList from '@/components/ChatPanel/MessageList.vue'
 import ChatInput from '@/components/ChatPanel/ChatInput.vue'
 import ExecutionPanel from '@/components/Agent/ExecutionPanel.vue'
@@ -63,6 +65,10 @@ function handleOpenSettings(): void {
 
 function handleOpenKb(): void {
   uiStore.setCurrentView('kb')
+}
+
+function handleOpenFiles(): void {
+  uiStore.toggleFilePanel()
 }
 
 async function handleSelectConversation(id: string): Promise<void> {
@@ -119,6 +125,7 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
         @new-chat="handleNewChat"
         @settings="handleOpenSettings"
         @open-kb="handleOpenKb"
+        @open-files="handleOpenFiles"
       />
       <ConversationList
         :conversations="chatStore.conversations"
@@ -142,6 +149,15 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
         <MenuOutlined />
       </NIcon>
     </button>
+
+    <!-- File Panel (WS-05) -->
+    <aside
+      v-if="uiStore.filePanelVisible"
+      class="chat-view__file-panel"
+    >
+      <FileTreePanel />
+      <FilePreview />
+    </aside>
 
     <!-- Main chat panel -->
     <main class="chat-view__main">
@@ -223,5 +239,14 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
   flex-direction: column;
   min-width: 0;
   background-color: var(--af-bg, #0f172a);
+}
+
+.chat-view__file-panel {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--af-border, #374151);
+  overflow: hidden;
 }
 </style>

@@ -3,7 +3,7 @@
 
 import { computed } from 'vue'
 import { NIcon } from 'naive-ui'
-import { BookOutlined, SettingsOutlined, AddOutlined } from '@vicons/material'
+import { BookOutlined, SettingsOutlined, AddOutlined, FolderOutlined } from '@vicons/material'
 import AppButton from '@/components/common/AppButton.vue'
 
 const props = defineProps<{
@@ -15,6 +15,7 @@ const emit = defineEmits<{
   'new-chat': []
   settings: []
   'open-kb': []
+  'open-files': []
 }>()
 
 const newChatLabel = computed(() => (props.collapsed ? '' : '新建对话'))
@@ -25,6 +26,17 @@ const newChatLabel = computed(() => (props.collapsed ? '' : '新建对话'))
     <div v-if="!collapsed" class="sidebar-header__row">
       <h1 class="sidebar-header__title">AgentForge</h1>
       <div class="sidebar-header__nav">
+        <button
+          class="sidebar-header__icon-btn"
+          type="button"
+          title="工作区文件"
+          aria-label="工作区文件"
+          @click="emit('open-files')"
+        >
+          <NIcon :size="16" aria-hidden="true">
+            <FolderOutlined />
+          </NIcon>
+        </button>
         <button
           class="sidebar-header__icon-btn"
           type="button"
@@ -61,6 +73,17 @@ const newChatLabel = computed(() => (props.collapsed ? '' : '新建对话'))
       </span>
     </AppButton>
     <div v-if="collapsed" class="sidebar-header__nav">
+      <button
+        class="sidebar-header__icon-btn"
+        type="button"
+        title="工作区文件"
+        aria-label="工作区文件"
+        @click="emit('open-files')"
+      >
+        <NIcon :size="16" aria-hidden="true">
+          <FolderOutlined />
+        </NIcon>
+      </button>
       <button
         class="sidebar-header__icon-btn"
         type="button"

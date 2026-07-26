@@ -11,6 +11,9 @@ export const useUiStore = defineStore('ui', () => {
   /** Whether the sidebar is collapsed (P1-12) */
   const sidebarCollapsed = ref(false)
 
+  /** Whether the workspace file panel is visible (WS-05) */
+  const filePanelVisible = ref(false)
+
   function setCurrentView(view: ViewName): void {
     currentView.value = view
   }
@@ -25,11 +28,24 @@ export const useUiStore = defineStore('ui', () => {
     sidebarCollapsed.value = collapsed
   }
 
+  /** Toggle the file panel visibility (WS-05) */
+  function toggleFilePanel(): void {
+    filePanelVisible.value = !filePanelVisible.value
+  }
+
+  /** Set the file panel visibility (WS-05) */
+  function setFilePanelVisible(visible: boolean): void {
+    filePanelVisible.value = visible
+  }
+
   return {
     currentView,
     sidebarCollapsed,
+    filePanelVisible,
     setCurrentView,
     toggleSidebar,
     setSidebarCollapsed,
+    toggleFilePanel,
+    setFilePanelVisible,
   }
 })

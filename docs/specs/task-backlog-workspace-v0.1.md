@@ -101,7 +101,7 @@ WS-01 → WS-02 → WS-03 → WS-04 → WS-05
 | 字段 | 内容 |
 |------|------|
 | **任务 ID** | WS-05 |
-| **状态** | pending |
+| **状态** | done |
 | **标题** | 侧边栏文件树面板 + 文件预览组件 |
 | **目标** | 在聊天界面侧边栏添加文件树面板，支持浏览工作区文件和预览文本文件 |
 | **依赖任务** | WS-03, WS-04 |
@@ -160,5 +160,5 @@ WS-01 → WS-02 → WS-03 → WS-04 → WS-05
 | WS-02 | done | 2026-07-26 | path-guard 模块 + 4 个工作区错误码 + 28 个单元测试 |
 | WS-03 | done | 2026-07-26 | 7 个 ws_* 工具 + 7 个 IPC 通道 + preload workspace API + electron-api 类型声明 |
 | WS-04 | done | 2026-07-26 | WorkspaceConfig 组件 + SettingsView 新增工作区 Tab + 排除规则编辑 + autoRestore 开关 |
-| WS-05 | pending | — | — |
+| WS-05 | done | 2026-07-26 | FileTreePanel + FilePreview + FileTreeNodeItem 递归组件 + workspace store + ui store filePanelVisible + ChatView 集成 + SidebarHeader 文件按钮 |
 | WS-06 | pending | — | — |
