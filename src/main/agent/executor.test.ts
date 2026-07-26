@@ -56,9 +56,7 @@ function createMockTool(
   }
 }
 
-function createMockToolMap(
-  tools: RegisteredTool[],
-): Map<string, RegisteredTool> {
+function createMockToolMap(tools: RegisteredTool[]): Map<string, RegisteredTool> {
   const map = new Map<string, RegisteredTool>()
   for (const tool of tools) {
     map.set(tool.definition.name, tool)
@@ -355,7 +353,10 @@ Action: {"type": "tool", "tool": "web_search", "arguments": {"query": "test"}}`,
           _abortSignal?: AbortSignal,
         ): AsyncGenerator<StreamChunk, void, unknown> {
           await new Promise((resolve) => setTimeout(resolve, 100))
-          yield { type: 'text', content: 'Thought: thinking\nAction: {"type":"finish","summary":"done"}' }
+          yield {
+            type: 'text',
+            content: 'Thought: thinking\nAction: {"type":"finish","summary":"done"}',
+          }
           yield { type: 'text', content: '', done: true }
         }
       }

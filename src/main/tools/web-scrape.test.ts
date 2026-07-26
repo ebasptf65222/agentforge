@@ -132,9 +132,7 @@ describe('web_scrape tool', () => {
 
   describe('execute validation', () => {
     beforeEach(() => {
-      globalThis.fetch = vi
-        .fn()
-        .mockResolvedValue({ ok: true, text: async () => '<p>hi</p>' })
+      globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => '<p>hi</p>' })
     })
 
     it('should throw VALIDATION_ERROR when url is empty', async () => {
@@ -158,10 +156,7 @@ describe('web_scrape tool', () => {
     })
 
     it('should throw INVALID_URL when url uses file:// protocol', async () => {
-      await expectAppErrorAsync(
-        webScrapeTool.execute({ url: 'file:///etc/passwd' }),
-        'INVALID_URL',
-      )
+      await expectAppErrorAsync(webScrapeTool.execute({ url: 'file:///etc/passwd' }), 'INVALID_URL')
     })
 
     it('should throw INVALID_URL when url uses javascript: protocol', async () => {
@@ -273,13 +268,19 @@ describe('web_scrape tool', () => {
     it('should throw TOOL_EXECUTION_ERROR on non-ok response', async () => {
       mockFetch.mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' })
 
-      await expectAppErrorAsync(webScrapeTool.execute({ url: 'https://example.com' }), 'TOOL_EXECUTION_ERROR')
+      await expectAppErrorAsync(
+        webScrapeTool.execute({ url: 'https://example.com' }),
+        'TOOL_EXECUTION_ERROR',
+      )
     })
 
     it('should throw TOOL_EXECUTION_ERROR on network error', async () => {
       mockFetch.mockRejectedValue(new Error('Network error'))
 
-      await expectAppErrorAsync(webScrapeTool.execute({ url: 'https://example.com' }), 'TOOL_EXECUTION_ERROR')
+      await expectAppErrorAsync(
+        webScrapeTool.execute({ url: 'https://example.com' }),
+        'TOOL_EXECUTION_ERROR',
+      )
     })
 
     it('should throw TOOL_EXECUTION_ERROR on AbortError (timeout)', async () => {
@@ -287,7 +288,10 @@ describe('web_scrape tool', () => {
       abortError.name = 'AbortError'
       mockFetch.mockRejectedValue(abortError)
 
-      await expectAppErrorAsync(webScrapeTool.execute({ url: 'https://example.com' }), 'TOOL_EXECUTION_ERROR')
+      await expectAppErrorAsync(
+        webScrapeTool.execute({ url: 'https://example.com' }),
+        'TOOL_EXECUTION_ERROR',
+      )
     })
 
     it('should throw FILE_TOO_LARGE when Content-Length header exceeds limit', async () => {

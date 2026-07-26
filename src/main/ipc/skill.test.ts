@@ -42,14 +42,8 @@ vi.mock('electron', () => ({
 
 // ─── Import after mocks ─────────────────────────────────────────
 
-const {
-  handleList,
-  handleGet,
-  handleGetByName,
-  handleCreate,
-  handleUpdate,
-  handleDelete,
-} = await import('./skill')
+const { handleList, handleGet, handleGetByName, handleCreate, handleUpdate, handleDelete } =
+  await import('./skill')
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -265,14 +259,13 @@ describe('skill IPC handlers', () => {
         allowedTools: [],
       })
 
-      expect(mockCreateSkill).toHaveBeenCalledWith(
-        expect.objectContaining({ trigger: 'auto' }),
-      )
+      expect(mockCreateSkill).toHaveBeenCalledWith(expect.objectContaining({ trigger: 'auto' }))
     })
 
     it('should throw VALIDATION_ERROR when name is missing', () => {
       expectAppError(
-        () => handleCreate({ displayName: 'Test', description: 'd', prompt: 'p', allowedTools: [] }),
+        () =>
+          handleCreate({ displayName: 'Test', description: 'd', prompt: 'p', allowedTools: [] }),
         ErrorCodes.VALIDATION_ERROR,
       )
     })
@@ -406,10 +399,7 @@ describe('skill IPC handlers', () => {
     })
 
     it('should throw VALIDATION_ERROR when prompt is empty string', () => {
-      expectAppError(
-        () => handleUpdate({ id: 'skill-1', prompt: '' }),
-        ErrorCodes.VALIDATION_ERROR,
-      )
+      expectAppError(() => handleUpdate({ id: 'skill-1', prompt: '' }), ErrorCodes.VALIDATION_ERROR)
     })
 
     it('should throw VALIDATION_ERROR for invalid trigger', () => {

@@ -113,8 +113,7 @@ const agent = {
 // ─── MCP 命名空间 (P2-08) ───────────────────────────────────────
 
 const mcp = {
-  add: (params: Record<string, unknown>): Promise<unknown> =>
-    ipcRenderer.invoke('mcp:add', params),
+  add: (params: Record<string, unknown>): Promise<unknown> => ipcRenderer.invoke('mcp:add', params),
 
   remove: (id: string): Promise<void> => ipcRenderer.invoke('mcp:remove', { id }),
 

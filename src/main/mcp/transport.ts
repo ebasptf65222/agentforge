@@ -213,10 +213,7 @@ export class StdioTransport implements ITransport {
     return new Promise<void>((resolve, reject) => {
       if (!this.process?.stdin) {
         reject(
-          new AppError(
-            ErrorCodes.MCP_CONNECT_FAILED,
-            'MCP server process stdin is not available',
-          ),
+          new AppError(ErrorCodes.MCP_CONNECT_FAILED, 'MCP server process stdin is not available'),
         )
         return
       }

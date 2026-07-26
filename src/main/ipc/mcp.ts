@@ -42,7 +42,10 @@ function assertTransportType(value: unknown): asserts value is TransportType {
   }
 }
 
-function assertOptionalStringArray(value: unknown, field: string): asserts value is string[] | undefined {
+function assertOptionalStringArray(
+  value: unknown,
+  field: string,
+): asserts value is string[] | undefined {
   if (value === undefined) return
   if (!Array.isArray(value) || !value.every((v: unknown) => typeof v === 'string')) {
     throw new AppError(
@@ -59,19 +62,17 @@ function assertOptionalRecord(
 ): asserts value is Record<string, string> | undefined {
   if (value === undefined) return
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be an object.`,
-      { field, value },
-    )
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}" must be an object.`, {
+      field,
+      value,
+    })
   }
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (typeof v !== 'string') {
-      throw new AppError(
-        ErrorCodes.VALIDATION_ERROR,
-        `Field "${field}.${k}" must be a string.`,
-        { field: `${field}.${k}`, value: v },
-      )
+      throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}.${k}" must be a string.`, {
+        field: `${field}.${k}`,
+        value: v,
+      })
     }
   }
 }

@@ -186,3 +186,164 @@ pnpm format:check → 通过
 ### 是否需要更新文档
 
 - 不需要：Spec v0.2 §6 已完整定义所有表结构，实现完全符合规格。
+
+---
+
+## P1-04 ~ P1-09: 前端 UI + IPC + 对话闭环 (2026-07-26)
+
+**任务**: 完成前端框架搭建、IPC handler、UI 组件，实现完整对话闭环
+
+### 完成内容
+
+| 任务 | 说明 |
+|------|------|
+| P1-04 | 前端框架搭建 (Vue 3 + Pinia + UnoCSS + Naive UI) |
+| P1-05 | Preload 桥接层 (contextBridge API) |
+| P1-06 | Model Config IPC + Repository (CRUD) |
+| P1-07 | 模型适配器 (OpenAI/DeepSeek adapter + router) |
+| P1-08 | Chat IPC + 流式响应 (SSE streaming) |
+| P1-09 | 对话/设置 IPC + UI 组件 (ChatView, SettingsView, Sidebar) |
+
+### 验证
+
+- `pnpm test`: 全部 P1 测试通过
+- `pnpm build`: 构建成功
+- `pnpm lint`: 0 warnings
+
+---
+
+## P2: Agent 引擎 + MCP 工具 (2026-07-26)
+
+**任务**: 实现 ReAct 执行引擎、工具系统、审批机制、MCP 客户端/服务端，以及 Agent UI 组件
+
+### 修改文件列表
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/agent/executor.ts` | 新增 | ReAct 执行引擎（Thought-Action-Observation 循环） |
+| `src/main/agent/executor.test.ts` | 新增 | 13 个单元测试 |
+| `src/main/agent/parser.ts` | 新增 | LLM 响应解析器（提取 Thought/Action/Input） |
+| `src/main/agent/parser.test.ts` | 新增 | 11 个解析器测试 |
+| `src/main/agent/prompt-builder.ts` | 新增 | System prompt 构建（工具描述注入） |
+| `src/main/agent/approval.ts` | 新增 | 工具审批机制（风险等级映射、超时处理） |
+| `src/main/agent/approval.test.ts` | 新增 | 19 个审批测试 |
+| `src/main/agent/tokenizer.ts` | 新增 | Token 计数与上下文长度管理 |
+| `src/main/agent/tokenizer.test.ts` | 新增 | 13 个 tokenizer 测试 |
+| `src/main/agent/types.ts` | 新增 | Agent 类型定义 |
+| `src/main/agent/integration.test.ts` | 新增 | 27 个集成测试（完整执行流程） |
+| `src/main/tools/registry.ts` | 新增 | 工具注册表（注册/注销/查询） |
+| `src/main/tools/registry-init.ts` | 新增 | 内置工具自动注册 |
+| `src/main/tools/types.ts` | 新增 | 工具类型定义 |
+| `src/main/tools/file-read.ts` | 新增 | 文件读取工具 |
+| `src/main/tools/file-write.ts` | 新增 | 文件写入工具 |
+| `src/main/tools/web-search.ts` | 新增 | 网络搜索工具 |
+| `src/main/tools/web-scrape.ts` | 新增 | 网页抓取工具 |
+| `src/main/tools/directory-list.ts` | 新增 | 目录列表工具 |
+| `src/main/tools/*.test.ts` | 新增 | 各工具单元测试（134 tests） |
+| `src/main/mcp/client.ts` | 新增 | MCP 客户端（JSON-RPC 2.0） |
+| `src/main/mcp/transport.ts` | 新增 | stdio 传输层 |
+| `src/main/mcp/manager.ts` | 新增 | MCP 服务管理器（生命周期、工具发现） |
+| `src/main/mcp/db-repo.ts` | 新增 | MCP 服务配置持久化 |
+| `src/main/mcp/*.test.ts` | 新增 | MCP 单元测试（78 tests） |
+| `src/main/ipc/agent.ts` | 新增 | Agent IPC handler（执行入口、审批回调） |
+| `src/renderer/src/components/Agent/*.vue` | 新增 | ExecutionPanel, ThinkingBlock, ApprovalCard |
+| `src/renderer/src/composables/use-agent.ts` | 新增 | Agent 执行 composable |
+| `src/renderer/src/stores/agent.ts` | 新增 | Agent Pinia store |
+| `src/preload/index.ts` | 修改 | 添加 agent 命名空间 |
+
+### 关键技术决策
+
+1. **ReAct 循环**: Thought → Action → Observation 循环，最大迭代次数限制，支持流式输出
+2. **工具风险等级**: `low`（自动执行）/ `medium`（需要确认）/ `high`（必须审批），审批超时默认 60s
+3. **MCP 通信**: JSON-RPC 2.0 over stdio，支持工具发现（`tools/list`）和调用（`tools/call`）
+4. **Prompt 注入**: 工具描述动态注入 system prompt，包含参数 schema 和使用示例
+5. **Token 管理**: 使用 tiktoken 估算上下文长度，超限时自动截断历史消息
+
+### 验证
+
+- `pnpm test`: 全部 P2 测试通过（27 integration + 13 executor + 19 approval + 11 parser + 13 tokenizer + 134 tool + 78 mcp）
+- `pnpm build`: 构建成功
+- `pnpm lint`: 0 warnings
+
+---
+
+## P3: Skills 系统 (2026-07-26)
+
+**任务**: 实现 Skills 数据库、IPC、意图匹配引擎、执行集成和内置 Skills
+
+### P3-01: Skills 数据库表 + CRUD 仓库层
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/db/schema.sql` | 修改 | 新增 skills 表 + schema_version 升级到 3 |
+| `src/main/db/migrations/003-skills.sql` | 新增 | Skills 迁移脚本 |
+| `src/main/db/repos/skill.ts` | 新增 | SkillRepository CRUD（create/get/getByName/list/update/delete） |
+| `src/main/db/repos/skill.test.ts` | 新增 | 45 个单元测试 |
+| `src/main/utils/error.ts` | 修改 | 新增 SKILL_* 错误码 |
+| `src/shared/types.ts` | 修改 | 新增 Skill / SkillVariable 类型定义 |
+
+**关键技术决策**:
+- `name` 字段 UNIQUE，用于意图匹配查找
+- `allowed_tools` / `variables` 以 JSON 字符串存储
+- 内置 Skill (`is_builtin=1`) 不可删除，仅允许更新 `model_id`
+- `model_id` 为 NULL 时使用默认模型；显式传 `null` 可清除
+
+### P3-02: Skills IPC + Preload 扩展
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/ipc/skill.ts` | 新增 | Skill IPC handlers（CRUD + 列表/搜索） |
+| `src/main/ipc/skill.test.ts` | 新增 | 34 个 IPC handler 测试 |
+| `src/main/ipc/index.ts` | 修改 | 注册 skill IPC handlers |
+| `src/preload/index.ts` | 修改 | 添加 skill 命名空间 |
+| `src/renderer/src/types/electron-api.ts` | 修改 | 添加 Skill API 类型定义 |
+
+### P3-03: Skill 意图匹配引擎
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/skills/matcher.ts` | 新增 | 意图匹配引擎（LLM 分类 + 置信度阈值） |
+| `src/main/skills/matcher.test.ts` | 新增 | 43 个单元测试 |
+
+**关键技术决策**:
+- 构建 classification prompt（所有 auto Skills 描述 + 用户输入）
+- LLM 返回 JSON `{ "skill": "name", "confidence": 0-1 }`
+- 置信度 < 阈值（默认 0.6）时返回 null（不匹配）
+- 健壮的 JSON 提取：支持直接 JSON、代码块包裹、文本包围三种格式
+
+### P3-04: Skill 执行集成
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/skills/skill-executor.ts` | 新增 | 变量替换、工具过滤、执行上下文构建 |
+| `src/main/skills/skill-executor.test.ts` | 新增 | 32 个单元测试 |
+| `src/main/agent/executor.ts` | 修改 | 注入 skillPrompt 到 system prompt |
+| `src/main/ipc/agent.ts` | 修改 | 集成 skill 解析与执行流程 |
+
+**关键技术决策**:
+- 变量替换: `{{variable_name}}` → 值/默认值/空字符串（必填无值时抛错）
+- 工具过滤: 仅保留 Skill `allowed_tools` 中定义的工具
+- 模型覆盖: Skill 的 `model_id` 可覆盖默认模型
+- 用户可显式指定 `skillName`，跳过意图匹配
+
+### P3-05: 内置 Skills 种子数据
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/db/schema.sql` | 修改 | 新增 research-report 和 summarize-docs 种子数据，schema_version → 4 |
+| `src/main/db/migrations/003-skills.sql` | 修改 | 添加种子数据 INSERT 语句 |
+| `src/main/skills/builtin-skills.test.ts` | 新增 | 20 个测试验证内置 Skills 属性与保护机制 |
+| `src/main/db/index.test.ts` | 修改 | schema_version 期望值 → 4 |
+| `src/main/db/repos/skill.test.ts` | 修改 | 适配内置 Skills 种子数据（计数/过滤测试） |
+
+**内置 Skills**:
+1. **research-report** - 研究报告生成：使用 web-search + web-scrape 工具，变量 `{{topic}}`（必填）
+2. **summarize-docs** - 文档摘要：使用 file-read 工具，变量 `{{content}}`（必填）+ `{{style}}`（可选，默认"简洁"）
+
+### P3 验证
+
+```
+pnpm test   → 802 tests passed (35 files)
+pnpm lint   → 0 warnings
+pnpm format:check → 通过
+```

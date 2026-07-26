@@ -23,11 +23,9 @@ export function useAgent(): void {
     })
 
     // Approval request listener
-    cleanupApproval = window.electron.agent.onApprovalRequest(
-      (request: ApprovalRequest) => {
-        agentStore.handleApprovalRequest(request)
-      },
-    )
+    cleanupApproval = window.electron.agent.onApprovalRequest((request: ApprovalRequest) => {
+      agentStore.handleApprovalRequest(request)
+    })
 
     // Stream chunk listener
     cleanupChunk = window.electron.agent.onStreamChunk((chunk: StreamChunk) => {

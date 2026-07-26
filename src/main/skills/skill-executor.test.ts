@@ -117,7 +117,9 @@ describe('substituteVariables (P3-04)', () => {
 
   it('should use defaultValue when no explicit value', () => {
     const prompt = 'Write about {{topic}}.'
-    const variables = [makeVariable({ name: 'topic', required: false, defaultValue: 'default-topic' })]
+    const variables = [
+      makeVariable({ name: 'topic', required: false, defaultValue: 'default-topic' }),
+    ]
 
     const result = substituteVariables(prompt, variables)
 
@@ -338,11 +340,7 @@ describe('resolveSkill (P3-04)', () => {
       reason: 'No matching skill',
     } satisfies SkillMatchResult)
 
-    const result = await resolveSkill(
-      'random message',
-      undefined,
-      mockAdapter as never,
-    )
+    const result = await resolveSkill('random message', undefined, mockAdapter as never)
 
     expect(result.source).toBe('none')
     expect(result.skill).toBeNull()
@@ -358,11 +356,7 @@ describe('resolveSkill (P3-04)', () => {
     } satisfies SkillMatchResult)
     mockGetSkillByName.mockReturnValue(undefined)
 
-    const result = await resolveSkill(
-      'help',
-      undefined,
-      mockAdapter as never,
-    )
+    const result = await resolveSkill('help', undefined, mockAdapter as never)
 
     expect(result.source).toBe('none')
     expect(result.skill).toBeNull()

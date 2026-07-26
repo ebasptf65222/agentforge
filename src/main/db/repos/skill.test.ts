@@ -30,7 +30,7 @@ vi.mock('../index', () => ({
   getDatabase: () => testDb,
   initDatabase: vi.fn(),
   closeDatabase: vi.fn(),
-  getSchemaVersion: vi.fn(() => 3),
+  getSchemaVersion: vi.fn(() => 4),
 }))
 
 // 在 mock 设置完成后导入被测模块
@@ -139,9 +139,7 @@ describe('skill repository', () => {
     })
 
     it('should throw SKILL_PROMPT_EMPTY when prompt is empty string', () => {
-      expect(() =>
-        createSkill(makeCreateParams({ prompt: '' })),
-      ).toThrow(AppError)
+      expect(() => createSkill(makeCreateParams({ prompt: '' }))).toThrow(AppError)
       try {
         createSkill(makeCreateParams({ prompt: '' }))
       } catch (error) {
@@ -150,9 +148,7 @@ describe('skill repository', () => {
     })
 
     it('should throw SKILL_PROMPT_EMPTY when prompt is whitespace only', () => {
-      expect(() =>
-        createSkill(makeCreateParams({ prompt: '   ' })),
-      ).toThrow(AppError)
+      expect(() => createSkill(makeCreateParams({ prompt: '   ' }))).toThrow(AppError)
     })
 
     it('should persist skill to database (queryable by id)', () => {
@@ -207,29 +203,40 @@ describe('skill repository', () => {
 
   describe('listSkills', () => {
     it('should return all skills sorted by created_at ASC', () => {
+      // 内置 Skills 已由 schema.sql 种子数据插入（2 个）
       const s1 = createSkill(makeCreateParams({ name: 'skill-a' }))
       createSkill(makeCreateParams({ name: 'skill-b' }))
       const s3 = createSkill(makeCreateParams({ name: 'skill-c' }))
 
       const list = listSkills()
 
-      expect(list).toHaveLength(3)
-      expect(list[0].id).toBe(s1.id)
-      expect(list[2].id).toBe(s3.id)
+      // 2 个内置 + 3 个自定义 = 5
+      expect(list).toHaveLength(5)
+      // 内置 Skills 在前（created_at 更早）
+      expect(list[0].isBuiltin).toBe(true)
+      expect(list[1].isBuiltin).toBe(true)
+      // 自定义 Skills 按插入顺序排列
+      expect(list[2].id).toBe(s1.id)
+      expect(list[4].id).toBe(s3.id)
     })
 
-    it('should return empty array when no skills exist', () => {
-      expect(listSkills()).toEqual([])
+    it('should return only built-in skills when no custom skills exist', () => {
+      const list = listSkills()
+      // schema.sql 种子数据插入了 2 个内置 Skill
+      expect(list).toHaveLength(2)
+      expect(list.every((s) => s.isBuiltin)).toBe(true)
     })
 
     it('should filter by trigger=auto', () => {
+      // 内置 Skills 均为 trigger=auto（2 个）
       createSkill(makeCreateParams({ name: 'auto-1', trigger: 'auto' }))
       createSkill(makeCreateParams({ name: 'manual-1', trigger: 'manual' }))
       createSkill(makeCreateParams({ name: 'auto-2', trigger: 'auto' }))
 
       const list = listSkills({ trigger: 'auto' })
 
-      expect(list).toHaveLength(2)
+      // 2 个内置 + 2 个自定义 auto = 4
+      expect(list).toHaveLength(4)
       expect(list.every((s) => s.trigger === 'auto')).toBe(true)
     })
 
@@ -244,13 +251,15 @@ describe('skill repository', () => {
     })
 
     it('should filter by builtinOnly=true', () => {
+      // schema.sql 已插入 2 个内置 Skill
       createSkill(makeCreateParams({ name: 'custom-1', isBuiltin: false }))
       createSkill(makeCreateParams({ name: 'builtin-1', isBuiltin: true }))
 
       const list = listSkills({ builtinOnly: true })
 
-      expect(list).toHaveLength(1)
-      expect(list[0].name).toBe('builtin-1')
+      // 2 个种子内置 + 1 个测试创建的内置 = 3
+      expect(list).toHaveLength(3)
+      expect(list.every((s) => s.isBuiltin)).toBe(true)
     })
 
     it('should filter by builtinOnly=false (custom only)', () => {
@@ -264,14 +273,16 @@ describe('skill repository', () => {
     })
 
     it('should combine trigger and builtin filters', () => {
+      // schema.sql 已插入 2 个内置 auto Skill
       createSkill(makeCreateParams({ name: 'auto-custom', trigger: 'auto', isBuiltin: false }))
       createSkill(makeCreateParams({ name: 'auto-builtin', trigger: 'auto', isBuiltin: true }))
       createSkill(makeCreateParams({ name: 'manual-builtin', trigger: 'manual', isBuiltin: true }))
 
       const list = listSkills({ trigger: 'auto', builtinOnly: true })
 
-      expect(list).toHaveLength(1)
-      expect(list[0].name).toBe('auto-builtin')
+      // 2 个种子内置 + 1 个测试创建的 auto+builtin = 3
+      expect(list).toHaveLength(3)
+      expect(list.every((s) => s.trigger === 'auto' && s.isBuiltin)).toBe(true)
     })
   })
 
@@ -360,9 +371,7 @@ describe('skill repository', () => {
     })
 
     it('should throw SKILL_NOT_FOUND when updating nonexistent skill', () => {
-      expect(() =>
-        updateSkill({ id: 'nonexistent', displayName: 'Test' }),
-      ).toThrow(AppError)
+      expect(() => updateSkill({ id: 'nonexistent', displayName: 'Test' })).toThrow(AppError)
       try {
         updateSkill({ id: 'nonexistent', displayName: 'Test' })
       } catch (error) {
@@ -372,9 +381,7 @@ describe('skill repository', () => {
 
     it('should throw SKILL_PROMPT_EMPTY when updating prompt to empty', () => {
       const created = createSkill(makeCreateParams())
-      expect(() =>
-        updateSkill({ id: created.id, prompt: '' }),
-      ).toThrow(AppError)
+      expect(() => updateSkill({ id: created.id, prompt: '' })).toThrow(AppError)
     })
 
     // ─── 内置 Skill 保护 ──────────────────────────────────────────
@@ -474,20 +481,26 @@ describe('skill repository', () => {
 
   describe('listAutoTriggerSkills', () => {
     it('should return only trigger=auto skills', () => {
+      // 内置 Skills 均为 trigger=auto（2 个）
       createSkill(makeCreateParams({ name: 'auto-1', trigger: 'auto' }))
       createSkill(makeCreateParams({ name: 'manual-1', trigger: 'manual' }))
       createSkill(makeCreateParams({ name: 'auto-2', trigger: 'auto' }))
 
       const list = listAutoTriggerSkills()
 
-      expect(list).toHaveLength(2)
+      // 2 个内置 + 2 个自定义 auto = 4
+      expect(list).toHaveLength(4)
       expect(list.every((s) => s.trigger === 'auto')).toBe(true)
     })
 
-    it('should return empty array when no auto skills exist', () => {
+    it('should include built-in auto skills even when only manual custom skills exist', () => {
       createSkill(makeCreateParams({ name: 'manual-1', trigger: 'manual' }))
 
-      expect(listAutoTriggerSkills()).toEqual([])
+      const list = listAutoTriggerSkills()
+
+      // 内置 Skills 均为 auto 触发，始终返回
+      expect(list).toHaveLength(2)
+      expect(list.every((s) => s.isBuiltin)).toBe(true)
     })
   })
 
@@ -496,7 +509,9 @@ describe('skill repository', () => {
   describe('JSON serialization', () => {
     it('should correctly serialize and deserialize allowedTools with special characters', () => {
       const created = createSkill(
-        makeCreateParams({ allowedTools: ['tool-with-dash', 'tool_with_underscore', 'tool.with.dot'] }),
+        makeCreateParams({
+          allowedTools: ['tool-with-dash', 'tool_with_underscore', 'tool.with.dot'],
+        }),
       )
       const fetched = getSkillById(created.id)
 

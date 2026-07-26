@@ -41,7 +41,10 @@ function assertOptionalString(value: unknown, field: string): asserts value is s
 }
 
 function assertOptionalTrigger(value: unknown): asserts value is SkillTrigger | undefined {
-  if (value !== undefined && (typeof value !== 'string' || !VALID_TRIGGERS.includes(value as SkillTrigger))) {
+  if (
+    value !== undefined &&
+    (typeof value !== 'string' || !VALID_TRIGGERS.includes(value as SkillTrigger))
+  ) {
     throw new AppError(
       ErrorCodes.VALIDATION_ERROR,
       `Invalid trigger: ${String(value)}. Must be one of: ${VALID_TRIGGERS.join(', ')}.`,
@@ -50,7 +53,10 @@ function assertOptionalTrigger(value: unknown): asserts value is SkillTrigger | 
   }
 }
 
-function assertOptionalStringArray(value: unknown, field: string): asserts value is string[] | undefined {
+function assertOptionalStringArray(
+  value: unknown,
+  field: string,
+): asserts value is string[] | undefined {
   if (value === undefined) return
   if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) {
     throw new AppError(
@@ -78,9 +84,13 @@ function assertOptionalVariables(
     }
     const obj = v as Record<string, unknown>
     if (typeof obj['name'] !== 'string' || obj['name'].trim() === '') {
-      throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Variable "name" must be a non-empty string.', {
-        variable: v,
-      })
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'Variable "name" must be a non-empty string.',
+        {
+          variable: v,
+        },
+      )
     }
     if (typeof obj['description'] !== 'string') {
       throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Variable "description" must be a string.', {

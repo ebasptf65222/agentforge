@@ -30,9 +30,7 @@ const NO_MATCH: SkillMatchResult = {
  * 与 Spec v0.2 §11.3 模板一致。
  */
 function buildMatchPrompt(userMessage: string, skills: Skill[]): string {
-  const skillList = skills
-    .map((s) => `- ${s.name}: ${s.description}`)
-    .join('\n')
+  const skillList = skills.map((s) => `- ${s.name}: ${s.description}`).join('\n')
 
   return `用户消息: "${userMessage}"
 
@@ -85,10 +83,7 @@ function extractJson(text: string): Record<string, unknown> | null {
  * 解析 LLM 返回的匹配结果。
  * 无法解析时返回 null（不报错）。
  */
-function parseMatchResult(
-  llmOutput: string,
-  skills: Skill[],
-): SkillMatchResult | null {
+function parseMatchResult(llmOutput: string, skills: Skill[]): SkillMatchResult | null {
   const json = extractJson(llmOutput)
   if (json === null) {
     return null

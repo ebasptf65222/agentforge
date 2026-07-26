@@ -113,15 +113,12 @@ export function createMcpServer(params: CreateMcpServerParams): MCPServerConfig 
 export function getMcpServerById(id: string): MCPServerConfig {
   const db: Database.Database = getDatabase()
   const row = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as
-    | McpServerRow
-    | undefined
+    McpServerRow | undefined
 
   if (row === undefined) {
-    throw new AppError(
-      ErrorCodes.MCP_CONNECT_FAILED,
-      `MCP Server with id "${id}" not found.`,
-      { id },
-    )
+    throw new AppError(ErrorCodes.MCP_CONNECT_FAILED, `MCP Server with id "${id}" not found.`, {
+      id,
+    })
   }
 
   return rowToMcpServer(row)
@@ -155,15 +152,12 @@ export function updateMcpServer(id: string, updates: UpdateMcpServerParams): MCP
 
   // 验证存在
   const existing = db.prepare('SELECT 1 FROM mcp_servers WHERE id = ?').get(id) as
-    | { '1': number }
-    | undefined
+    { '1': number } | undefined
 
   if (existing === undefined) {
-    throw new AppError(
-      ErrorCodes.MCP_CONNECT_FAILED,
-      `MCP Server with id "${id}" not found.`,
-      { id },
-    )
+    throw new AppError(ErrorCodes.MCP_CONNECT_FAILED, `MCP Server with id "${id}" not found.`, {
+      id,
+    })
   }
 
   const now = Date.now()
@@ -222,15 +216,12 @@ export function deleteMcpServer(id: string): void {
   const db: Database.Database = getDatabase()
 
   const existing = db.prepare('SELECT 1 FROM mcp_servers WHERE id = ?').get(id) as
-    | { '1': number }
-    | undefined
+    { '1': number } | undefined
 
   if (existing === undefined) {
-    throw new AppError(
-      ErrorCodes.MCP_CONNECT_FAILED,
-      `MCP Server with id "${id}" not found.`,
-      { id },
-    )
+    throw new AppError(ErrorCodes.MCP_CONNECT_FAILED, `MCP Server with id "${id}" not found.`, {
+      id,
+    })
   }
 
   db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id)

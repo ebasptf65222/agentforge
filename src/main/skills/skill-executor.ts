@@ -181,11 +181,9 @@ export async function resolveSkill(
     const skill = getSkillByName(skillName)
 
     if (skill === undefined) {
-      throw new AppError(
-        ErrorCodes.SKILL_NOT_FOUND,
-        `Skill "${skillName}" not found.`,
-        { skillName },
-      )
+      throw new AppError(ErrorCodes.SKILL_NOT_FOUND, `Skill "${skillName}" not found.`, {
+        skillName,
+      })
     }
 
     return {
@@ -248,11 +246,7 @@ export function buildSkillExecutionContext(
   variableValues?: Record<string, string>,
 ): SkillExecutionContext {
   // 1. 替换变量
-  const substitutedPrompt = substituteVariables(
-    skill.prompt,
-    skill.variables,
-    variableValues,
-  )
+  const substitutedPrompt = substituteVariables(skill.prompt, skill.variables, variableValues)
 
   // 2. 构建 Skill prompt 段落
   const skillPrompt = buildSkillPromptSection(skill, substitutedPrompt)

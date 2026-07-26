@@ -65,11 +65,10 @@ export const directoryListTool: BuiltinTool = {
           path,
         })
       }
-      throw new AppError(
-        ErrorCodes.FILE_ACCESS_ERROR,
-        `Cannot list directory: ${err.message}`,
-        { path, errno: err.code },
-      )
+      throw new AppError(ErrorCodes.FILE_ACCESS_ERROR, `Cannot list directory: ${err.message}`, {
+        path,
+        errno: err.code,
+      })
     }
 
     const entries: DirectoryEntry[] = []

@@ -24,19 +24,14 @@ import type { ToolDefinition } from './types'
  * @param skillPrompt - 可选的 Skill 附加 prompt
  * @returns 完整的 System Prompt 字符串
  */
-export function buildSystemPrompt(
-  tools: ToolDefinition[],
-  skillPrompt?: string,
-): string {
+export function buildSystemPrompt(tools: ToolDefinition[], skillPrompt?: string): string {
   const toolDefs = tools.map((tool) => {
     const schemaStr = JSON.stringify(tool.inputSchema, null, 2)
     return `### ${tool.name}\n${tool.description}\n参数 Schema:\n\`\`\`json\n${schemaStr}\n\`\`\``
   })
 
   const toolSection =
-    toolDefs.length > 0
-      ? toolDefs.join('\n\n')
-      : '（暂无可用工具，请直接回复用户）'
+    toolDefs.length > 0 ? toolDefs.join('\n\n') : '（暂无可用工具，请直接回复用户）'
 
   const skillSection = skillPrompt ? `\n${skillPrompt}` : ''
 

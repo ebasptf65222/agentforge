@@ -48,16 +48,14 @@ function handleReject(): void {
       <p class="approval-reason">{{ props.request.reason }}</p>
       <div class="tool-info">
         <span class="tool-name">{{ props.request.toolAction.toolName }}</span>
-        <pre class="tool-args">{{ JSON.stringify(props.request.toolAction.arguments, null, 2) }}</pre>
+        <pre class="tool-args">{{
+          JSON.stringify(props.request.toolAction.arguments, null, 2)
+        }}</pre>
       </div>
     </div>
     <div class="approval-actions">
-      <button class="btn-approve" @click="handleApprove">
-        Approve
-      </button>
-      <button class="btn-reject" @click="handleReject">
-        Reject
-      </button>
+      <button class="btn-approve" @click="handleApprove">Approve</button>
+      <button class="btn-reject" @click="handleReject">Reject</button>
     </div>
   </div>
 </template>
@@ -143,7 +141,9 @@ function handleReject(): void {
   font-weight: 600;
   cursor: pointer;
   border: none;
-  transition: opacity 0.15s ease, transform 0.1s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.1s ease;
 }
 
 .btn-approve {

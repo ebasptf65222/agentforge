@@ -8,9 +8,7 @@ export type { ToolDefinition, ToolExecutionResult, ToolRiskLevel }
 /**
  * 工具执行函数签名。
  */
-export type ToolExecuteFn = (
-  args: Record<string, unknown>,
-) => Promise<ToolExecutionResult>
+export type ToolExecuteFn = (args: Record<string, unknown>) => Promise<ToolExecutionResult>
 
 /**
  * 内置工具接口。

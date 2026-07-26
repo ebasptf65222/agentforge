@@ -52,9 +52,7 @@ export const useAgentStore = defineStore('agent', () => {
   )
 
   /** Error count */
-  const errorCount = computed(
-    () => trajectories.value.filter((t) => t.status === 'error').length,
-  )
+  const errorCount = computed(() => trajectories.value.filter((t) => t.status === 'error').length)
 
   // ─── Actions ─────────────────────────────────────────────────
 

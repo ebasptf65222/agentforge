@@ -154,10 +154,7 @@ export async function handleExecute(
 
   // 1. 并发控制
   if (currentExecutor !== null) {
-    throw new AppError(
-      ErrorCodes.CHAT_ALREADY_RUNNING,
-      'An agent execution is already running.',
-    )
+    throw new AppError(ErrorCodes.CHAT_ALREADY_RUNNING, 'An agent execution is already running.')
   }
 
   // 2. 验证会话存在
@@ -191,11 +188,7 @@ export async function handleExecute(
   let skillPrompt: string | undefined
   let effectiveAdapter = adapter
 
-  const skillResolution = await resolveSkill(
-    request.userInput,
-    request.skillName,
-    adapter,
-  )
+  const skillResolution = await resolveSkill(request.userInput, request.skillName, adapter)
 
   if (skillResolution.skill !== null) {
     const skill = skillResolution.skill

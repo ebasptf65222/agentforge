@@ -190,10 +190,7 @@ describe('StdioTransport', () => {
       const message = '{"jsonrpc":"2.0","id":1,"method":"test"}'
       await transport.send(message)
 
-      expect(mockChild.stdin.write).toHaveBeenCalledWith(
-        message + '\n',
-        expect.any(Function),
-      )
+      expect(mockChild.stdin.write).toHaveBeenCalledWith(message + '\n', expect.any(Function))
     })
 
     it('should throw when not connected', async () => {
@@ -212,12 +209,10 @@ describe('StdioTransport', () => {
       await connectPromise
 
       // 模拟写入失败
-      mockChild.stdin.write = vi.fn(
-        (_data: string, cb?: (err?: Error | null) => void) => {
-          if (cb) cb(new Error('EPIPE'))
-          return false
-        },
-      )
+      mockChild.stdin.write = vi.fn((_data: string, cb?: (err?: Error | null) => void) => {
+        if (cb) cb(new Error('EPIPE'))
+        return false
+      })
 
       await expect(transport.send('test')).rejects.toThrow(/send message|MCP_CONNECT_FAILED/i)
     })
@@ -346,9 +341,7 @@ describe('StdioTransport', () => {
 
       const mockChild1 = createMockChild()
       const mockChild2 = createMockChild()
-      mockSpawn
-        .mockReturnValueOnce(mockChild1)
-        .mockReturnValueOnce(mockChild2)
+      mockSpawn.mockReturnValueOnce(mockChild1).mockReturnValueOnce(mockChild2)
 
       const transport = new StdioTransport('node', [])
       const _connectPromise = transport.connect()
@@ -374,9 +367,7 @@ describe('StdioTransport', () => {
 
       const mockChild1 = createMockChild()
       const mockChild2 = createMockChild()
-      mockSpawn
-        .mockReturnValueOnce(mockChild1)
-        .mockReturnValueOnce(mockChild2)
+      mockSpawn.mockReturnValueOnce(mockChild1).mockReturnValueOnce(mockChild2)
 
       const transport = new StdioTransport('node', [])
       const _connectPromise = transport.connect()
@@ -402,9 +393,7 @@ describe('StdioTransport', () => {
 
       const mockChild1 = createMockChild()
       const mockChild2 = createMockChild()
-      mockSpawn
-        .mockReturnValueOnce(mockChild1)
-        .mockReturnValueOnce(mockChild2)
+      mockSpawn.mockReturnValueOnce(mockChild1).mockReturnValueOnce(mockChild2)
 
       let closeCalled = false
       const transport = new StdioTransport('node', [])
@@ -437,9 +426,7 @@ describe('StdioTransport', () => {
 
       const mockChild1 = createMockChild()
       const mockChild2 = createMockChild()
-      mockSpawn
-        .mockReturnValueOnce(mockChild1)
-        .mockReturnValueOnce(mockChild2)
+      mockSpawn.mockReturnValueOnce(mockChild1).mockReturnValueOnce(mockChild2)
 
       let closeCalled = false
       const transport = new StdioTransport('node', [])

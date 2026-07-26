@@ -4,14 +4,17 @@
 
 import { ref } from 'vue'
 
-const props = withDefaults(defineProps<{
-  thought: string
-  step?: number
-  defaultOpen?: boolean
-}>(), {
-  step: undefined,
-  defaultOpen: false,
-})
+const props = withDefaults(
+  defineProps<{
+    thought: string
+    step?: number
+    defaultOpen?: boolean
+  }>(),
+  {
+    step: undefined,
+    defaultOpen: false,
+  },
+)
 
 const isOpen = ref(props.defaultOpen)
 

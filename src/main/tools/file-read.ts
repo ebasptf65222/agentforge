@@ -55,11 +55,10 @@ export const fileReadTool: BuiltinTool = {
       if (err.code === 'ENOENT') {
         throw new AppError(ErrorCodes.FILE_NOT_FOUND, `File not found: ${path}`, { path })
       }
-      throw new AppError(
-        ErrorCodes.FILE_ACCESS_ERROR,
-        `Cannot access file: ${err.message}`,
-        { path, errno: err.code },
-      )
+      throw new AppError(ErrorCodes.FILE_ACCESS_ERROR, `Cannot access file: ${err.message}`, {
+        path,
+        errno: err.code,
+      })
     }
 
     if (!stats.isFile()) {

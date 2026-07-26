@@ -106,17 +106,14 @@ export function createSkill(params: CreateSkillParams): Skill {
 
   // 校验 prompt 非空
   if (!params.prompt || params.prompt.trim() === '') {
-    throw new AppError(
-      ErrorCodes.SKILL_PROMPT_EMPTY,
-      'Skill prompt cannot be empty.',
-      { name: params.name },
-    )
+    throw new AppError(ErrorCodes.SKILL_PROMPT_EMPTY, 'Skill prompt cannot be empty.', {
+      name: params.name,
+    })
   }
 
   // 检查 name 是否重复
   const existing = db.prepare('SELECT id FROM skills WHERE name = ?').get(params.name) as
-    | { id: string }
-    | undefined
+    { id: string } | undefined
 
   if (existing !== undefined) {
     throw new AppError(
@@ -162,9 +159,7 @@ export function createSkill(params: CreateSkillParams): Skill {
  */
 export function getSkillById(id: string): Skill {
   const db: Database.Database = getDatabase()
-  const row = db.prepare('SELECT * FROM skills WHERE id = ?').get(id) as
-    | SkillRow
-    | undefined
+  const row = db.prepare('SELECT * FROM skills WHERE id = ?').get(id) as SkillRow | undefined
 
   if (row === undefined) {
     throw new AppError(ErrorCodes.SKILL_NOT_FOUND, `Skill with id "${id}" not found.`, { id })
@@ -182,9 +177,7 @@ export function getSkillById(id: string): Skill {
  */
 export function getSkillByName(name: string): Skill | undefined {
   const db: Database.Database = getDatabase()
-  const row = db.prepare('SELECT * FROM skills WHERE name = ?').get(name) as
-    | SkillRow
-    | undefined
+  const row = db.prepare('SELECT * FROM skills WHERE name = ?').get(name) as SkillRow | undefined
 
   if (row === undefined) {
     return undefined
@@ -199,9 +192,7 @@ export function getSkillByName(name: string): Skill | undefined {
  * @param options - 可选过滤参数
  * @returns Skill 数组
  */
-export function listSkills(
-  options?: { trigger?: SkillTrigger; builtinOnly?: boolean },
-): Skill[] {
+export function listSkills(options?: { trigger?: SkillTrigger; builtinOnly?: boolean }): Skill[] {
   const db: Database.Database = getDatabase()
 
   let query = 'SELECT * FROM skills'
@@ -241,9 +232,7 @@ export function listSkills(
 export function updateSkill(params: UpdateSkillParams): void {
   const db: Database.Database = getDatabase()
 
-  const row = db.prepare('SELECT * FROM skills WHERE id = ?').get(params.id) as
-    | SkillRow
-    | undefined
+  const row = db.prepare('SELECT * FROM skills WHERE id = ?').get(params.id) as SkillRow | undefined
 
   if (row === undefined) {
     throw new AppError(ErrorCodes.SKILL_NOT_FOUND, `Skill with id "${params.id}" not found.`, {
@@ -327,8 +316,7 @@ export function deleteSkill(id: string): void {
   const db: Database.Database = getDatabase()
 
   const row = db.prepare('SELECT id, is_builtin FROM skills WHERE id = ?').get(id) as
-    | { id: string; is_builtin: number }
-    | undefined
+    { id: string; is_builtin: number } | undefined
 
   if (row === undefined) {
     throw new AppError(ErrorCodes.SKILL_NOT_FOUND, `Skill with id "${id}" not found.`, { id })
@@ -353,9 +341,7 @@ export function deleteSkill(id: string): void {
  */
 export function skillExists(id: string): boolean {
   const db: Database.Database = getDatabase()
-  const row = db.prepare('SELECT 1 FROM skills WHERE id = ?').get(id) as
-    | { '1': number }
-    | undefined
+  const row = db.prepare('SELECT 1 FROM skills WHERE id = ?').get(id) as { '1': number } | undefined
   return row !== undefined
 }
 

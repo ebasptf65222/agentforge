@@ -336,9 +336,7 @@ describe('MCPServerManager', () => {
     it('should return server entries with config, status, and toolCount', async () => {
       const config1 = makeConfig({ id: 'srv-1', name: 'server-1' })
       const config2 = makeConfig({ id: 'srv-2', name: 'server-2' })
-      mockCreateMcpServer
-        .mockReturnValueOnce(config1)
-        .mockReturnValueOnce(config2)
+      mockCreateMcpServer.mockReturnValueOnce(config1).mockReturnValueOnce(config2)
       mockClientListTools
         .mockResolvedValueOnce([makeTool('a'), makeTool('b')])
         .mockResolvedValueOnce([makeTool('c')])
@@ -478,14 +476,10 @@ describe('MCPServerManager', () => {
     it('should return tools from all connected servers', async () => {
       const config1 = makeConfig({ id: 'srv-1' })
       const config2 = makeConfig({ id: 'srv-2' })
-      mockCreateMcpServer
-        .mockReturnValueOnce(config1)
-        .mockReturnValueOnce(config2)
+      mockCreateMcpServer.mockReturnValueOnce(config1).mockReturnValueOnce(config2)
       const tools1 = [makeTool('tool1'), makeTool('tool2')]
       const tools2 = [makeTool('tool3')]
-      mockClientListTools
-        .mockResolvedValueOnce(tools1)
-        .mockResolvedValueOnce(tools2)
+      mockClientListTools.mockResolvedValueOnce(tools1).mockResolvedValueOnce(tools2)
 
       await manager.addServer({ name: 's1', transport: 'stdio', command: 'node', args: [] })
       await manager.addServer({ name: 's2', transport: 'stdio', command: 'node', args: [] })
@@ -498,9 +492,7 @@ describe('MCPServerManager', () => {
     it('should NOT include tools from disconnected servers', async () => {
       const config1 = makeConfig({ id: 'srv-1', enabled: true })
       const config2 = makeConfig({ id: 'srv-2', enabled: false })
-      mockCreateMcpServer
-        .mockReturnValueOnce(config1)
-        .mockReturnValueOnce(config2)
+      mockCreateMcpServer.mockReturnValueOnce(config1).mockReturnValueOnce(config2)
       mockClientListTools.mockResolvedValueOnce([makeTool('tool1')])
 
       await manager.addServer({ name: 's1', transport: 'stdio', command: 'node', args: [] })
@@ -524,9 +516,7 @@ describe('MCPServerManager', () => {
     it('should connect all enabled servers', async () => {
       const config1 = makeConfig({ id: 'srv-1', enabled: true })
       const config2 = makeConfig({ id: 'srv-2', enabled: true })
-      mockCreateMcpServer
-        .mockReturnValueOnce(config1)
-        .mockReturnValueOnce(config2)
+      mockCreateMcpServer.mockReturnValueOnce(config1).mockReturnValueOnce(config2)
       mockClientListTools.mockResolvedValue([])
 
       await manager.addServer({ name: 's1', transport: 'stdio', command: 'node', args: [] })
@@ -636,9 +626,7 @@ describe('MCPServerManager', () => {
     it('should disconnect all servers', async () => {
       const config1 = makeConfig({ id: 'srv-1' })
       const config2 = makeConfig({ id: 'srv-2' })
-      mockCreateMcpServer
-        .mockReturnValueOnce(config1)
-        .mockReturnValueOnce(config2)
+      mockCreateMcpServer.mockReturnValueOnce(config1).mockReturnValueOnce(config2)
       mockClientListTools.mockResolvedValue([])
 
       await manager.addServer({ name: 's1', transport: 'stdio', command: 'node', args: [] })

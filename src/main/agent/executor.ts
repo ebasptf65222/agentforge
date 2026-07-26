@@ -31,11 +31,7 @@ import type { ModelAdapter, AdapterMessage } from '../models/adapter'
 import { buildSystemPrompt, buildObservation } from './prompt-builder'
 import { parseLLMOutput } from './parser'
 import { estimateTokens, truncateContext } from './tokenizer'
-import {
-  shouldRequireApproval,
-  buildToolAction,
-  ApprovalManager,
-} from './approval'
+import { shouldRequireApproval, buildToolAction, ApprovalManager } from './approval'
 import { AppError, ErrorCodes, createError } from '../utils/error'
 import { generateId } from '../utils/id'
 
@@ -191,7 +187,8 @@ export class AgentExecutor {
           }
 
           // 7a. 审批检查（工具不存在时跳过审批，直接进入错误流程）
-          const needsApproval = toolExists && shouldRequireApproval(toolAction, request.approvalMode)
+          const needsApproval =
+            toolExists && shouldRequireApproval(toolAction, request.approvalMode)
 
           if (needsApproval) {
             const approvalRequest: ApprovalRequest = {
@@ -330,7 +327,8 @@ export class AgentExecutor {
     return {
       executionId,
       status,
-      summary: summary || (status === 'cancelled' ? 'Execution cancelled.' : 'Execution completed.'),
+      summary:
+        summary || (status === 'cancelled' ? 'Execution cancelled.' : 'Execution completed.'),
       trajectories,
       totalSteps: trajectories.length,
       duration,

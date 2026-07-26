@@ -70,8 +70,7 @@ export function parseDuckDuckGoHtml(html: string): SearchResult[] {
   const titles: Array<{ url: string; title: string }> = []
   const snippets: string[] = []
 
-  const titleRegex =
-    /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi
+  const titleRegex = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi
   const snippetRegex = /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi
 
   let titleMatch: RegExpExecArray | null

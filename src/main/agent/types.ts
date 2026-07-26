@@ -48,9 +48,7 @@ export interface AgentContextMessage {
 // ─── 工具执行器接口 ─────────────────────────────────────────────
 
 /** 工具执行函数类型 */
-export type ToolExecuteFn = (
-  args: Record<string, unknown>,
-) => Promise<ToolExecutionResult>
+export type ToolExecuteFn = (args: Record<string, unknown>) => Promise<ToolExecutionResult>
 
 /** 注册的工具条目 */
 export interface RegisteredTool {

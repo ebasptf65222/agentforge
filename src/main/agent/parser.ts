@@ -67,7 +67,9 @@ export function parseLLMOutput(output: string): ParsedLLMResponse {
 
   // 尝试提取 Thought
   let thought = ''
-  const thoughtMatch = rawOutput.match(/(?:Thought|思考)[:：]\s*([\s\S]*?)(?=(?:Action|行动)[:：]|$)/i)
+  const thoughtMatch = rawOutput.match(
+    /(?:Thought|思考)[:：]\s*([\s\S]*?)(?=(?:Action|行动)[:：]|$)/i,
+  )
   if (thoughtMatch?.[1]) {
     thought = thoughtMatch[1].trim()
   }

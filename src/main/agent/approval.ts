@@ -42,10 +42,7 @@ const BUILTIN_TOOL_RISK: Record<string, ToolRiskLevel> = {
  * @param declaredRisk - 工具定义中声明的风险等级（可选）
  * @returns 风险等级
  */
-export function getToolRiskLevel(
-  toolName: string,
-  declaredRisk?: ToolRiskLevel,
-): ToolRiskLevel {
+export function getToolRiskLevel(toolName: string, declaredRisk?: ToolRiskLevel): ToolRiskLevel {
   if (declaredRisk) return declaredRisk
   return BUILTIN_TOOL_RISK[toolName] ?? 'high'
 }
@@ -72,10 +69,7 @@ const APPROVAL_MATRIX: Record<ApprovalMode, Record<ToolRiskLevel, boolean>> = {
  * @param approvalMode - 当前审批模式
  * @returns 是否需要审批
  */
-export function shouldRequireApproval(
-  toolAction: ToolAction,
-  approvalMode: ApprovalMode,
-): boolean {
+export function shouldRequireApproval(toolAction: ToolAction, approvalMode: ApprovalMode): boolean {
   const riskLevel = toolAction.riskLevel
   return APPROVAL_MATRIX[approvalMode][riskLevel]
 }

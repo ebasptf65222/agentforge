@@ -31,11 +31,7 @@ export class ToolRegistry {
    * @param definition - 工具定义
    * @param execute - 执行函数
    */
-  registerMcp(
-    serverId: string,
-    definition: ToolDefinition,
-    execute: ToolExecuteFn,
-  ): void {
+  registerMcp(serverId: string, definition: ToolDefinition, execute: ToolExecuteFn): void {
     const riskLevel = definition.riskLevel || 'high'
     this.tools.set(definition.name, {
       definition: { ...definition, riskLevel, source: 'mcp' },

@@ -2,11 +2,7 @@
 // 实现 P2-08: MCPServerManager - 管理多个 MCP Server 的生命周期
 // 职责：配置持久化、自动连接、工具发现与注册、聚合查询
 
-import type {
-  MCPServerConfig,
-  MCPServerStatus,
-  ToolDefinition,
-} from '@shared/types'
+import type { MCPServerConfig, MCPServerStatus, ToolDefinition } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { StdioTransport } from './transport'
 import { MCPClient } from './client'
@@ -99,11 +95,9 @@ export class MCPServerManager {
   async removeServer(id: string): Promise<void> {
     const server = this.servers.get(id)
     if (!server) {
-      throw new AppError(
-        ErrorCodes.MCP_CONNECT_FAILED,
-        `MCP Server with id "${id}" not found.`,
-        { id },
-      )
+      throw new AppError(ErrorCodes.MCP_CONNECT_FAILED, `MCP Server with id "${id}" not found.`, {
+        id,
+      })
     }
 
     // 1. 断开连接
@@ -154,11 +148,9 @@ export class MCPServerManager {
   async toggleEnable(id: string): Promise<boolean> {
     const server = this.servers.get(id)
     if (!server) {
-      throw new AppError(
-        ErrorCodes.MCP_CONNECT_FAILED,
-        `MCP Server with id "${id}" not found.`,
-        { id },
-      )
+      throw new AppError(ErrorCodes.MCP_CONNECT_FAILED, `MCP Server with id "${id}" not found.`, {
+        id,
+      })
     }
 
     const newEnabled = !server.config.enabled
@@ -294,11 +286,7 @@ export class MCPServerManager {
       }
 
       // 1. 创建 transport
-      const transport = new StdioTransport(
-        config.command,
-        config.args ?? [],
-        config.env ?? {},
-      )
+      const transport = new StdioTransport(config.command, config.args ?? [], config.env ?? {})
       await transport.connect()
 
       // 2. 创建 client

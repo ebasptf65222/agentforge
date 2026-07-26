@@ -176,10 +176,20 @@ describe('P2 Integration: Agent ReAct 闭环', () => {
       const tools = buildToolsMap(registry)
 
       const adapter = new MockModelAdapter([
-        makeToolResponse('我需要先搜索 Vue 3 的最新动态', 'web_search', { query: 'Vue 3 latest news' }),
-        makeToolResponse('搜索结果有 Vue 3.5 发布信息，我需要抓取详细内容', 'web_scrape', { url: 'https://vuejs.org' }),
-        makeToolResponse('已获取详细信息，现在将笔记保存到文件', 'file_write', { path: '/tmp/vue3-notes.md', content: 'Vue 3.5 笔记' }),
-        makeFinishResponse('任务已完成，笔记已保存', '已搜索 Vue 3 最新动态并保存笔记到 /tmp/vue3-notes.md'),
+        makeToolResponse('我需要先搜索 Vue 3 的最新动态', 'web_search', {
+          query: 'Vue 3 latest news',
+        }),
+        makeToolResponse('搜索结果有 Vue 3.5 发布信息，我需要抓取详细内容', 'web_scrape', {
+          url: 'https://vuejs.org',
+        }),
+        makeToolResponse('已获取详细信息，现在将笔记保存到文件', 'file_write', {
+          path: '/tmp/vue3-notes.md',
+          content: 'Vue 3.5 笔记',
+        }),
+        makeFinishResponse(
+          '任务已完成，笔记已保存',
+          '已搜索 Vue 3 最新动态并保存笔记到 /tmp/vue3-notes.md',
+        ),
       ])
 
       const { callbacks, approvalRequests, streamChunks } = createCallbackCollector()
@@ -443,7 +453,10 @@ describe('P2 Integration: Agent ReAct 闭环', () => {
       })
 
       const tools = new Map<string, RegisteredTool>()
-      tools.set('failing_tool', { definition: failingTool.definition, execute: failingTool.execute })
+      tools.set('failing_tool', {
+        definition: failingTool.definition,
+        execute: failingTool.execute,
+      })
 
       const adapter = new MockModelAdapter([
         makeToolResponse('尝试1', 'failing_tool', {}),
@@ -578,13 +591,17 @@ describe('P2 Integration: Agent ReAct 闭环', () => {
         content: 'MCP tool result',
       })
 
-      registry.registerMcp('srv-1', {
-        name: 'mcp_search',
-        description: 'MCP search tool',
-        inputSchema: { type: 'object' },
-        riskLevel: 'high',
-        source: 'mcp',
-      }, mcpExecute)
+      registry.registerMcp(
+        'srv-1',
+        {
+          name: 'mcp_search',
+          description: 'MCP search tool',
+          inputSchema: { type: 'object' },
+          riskLevel: 'high',
+          source: 'mcp',
+        },
+        mcpExecute,
+      )
 
       const tools = buildToolsMap(registry)
 
@@ -618,13 +635,17 @@ describe('P2 Integration: Agent ReAct 闭环', () => {
       const registry = getToolRegistry()
       const mcpExecute = vi.fn().mockResolvedValue({ isError: false, content: 'result' })
 
-      registry.registerMcp('srv-1', {
-        name: 'mcp_tool_1',
-        description: 'Tool 1',
-        inputSchema: { type: 'object' },
-        riskLevel: 'high',
-        source: 'mcp',
-      }, mcpExecute)
+      registry.registerMcp(
+        'srv-1',
+        {
+          name: 'mcp_tool_1',
+          description: 'Tool 1',
+          inputSchema: { type: 'object' },
+          riskLevel: 'high',
+          source: 'mcp',
+        },
+        mcpExecute,
+      )
 
       expect(registry.has('mcp_tool_1')).toBe(true)
       expect(registry.size()).toBe(1)
@@ -728,7 +749,11 @@ describe('P2 Integration: Agent ReAct 闭环', () => {
   // ─── 场景 7: 审批矩阵验证 ───────────────────────────────────────
 
   describe('审批决策矩阵', () => {
-    const testCases: Array<{ mode: ApprovalMode; risk: 'low' | 'medium' | 'high'; expected: boolean }> = [
+    const testCases: Array<{
+      mode: ApprovalMode
+      risk: 'low' | 'medium' | 'high'
+      expected: boolean
+    }> = [
       { mode: 'suggest', risk: 'low', expected: true },
       { mode: 'suggest', risk: 'medium', expected: true },
       { mode: 'suggest', risk: 'high', expected: true },

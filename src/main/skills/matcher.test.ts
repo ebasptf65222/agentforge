@@ -17,13 +17,8 @@ vi.mock('../db/repos/skill', () => ({
 
 // ─── Import after mocks ─────────────────────────────────────────
 
-const {
-  matchSkill,
-  buildMatchPrompt,
-  extractJson,
-  parseMatchResult,
-  CONFIDENCE_THRESHOLD,
-} = await import('./matcher')
+const { matchSkill, buildMatchPrompt, extractJson, parseMatchResult, CONFIDENCE_THRESHOLD } =
+  await import('./matcher')
 
 // ─── Mock ModelAdapter ──────────────────────────────────────────
 
@@ -160,10 +155,7 @@ describe('Skill 意图匹配引擎', () => {
   // ─── parseMatchResult ──────────────────────────────────────────
 
   describe('parseMatchResult', () => {
-    const skills = [
-      makeSkill({ name: 'research-report' }),
-      makeSkill({ name: 'summarize-docs' }),
-    ]
+    const skills = [makeSkill({ name: 'research-report' }), makeSkill({ name: 'summarize-docs' })]
 
     it('should parse a successful match', () => {
       const result = parseMatchResult(
@@ -355,9 +347,7 @@ describe('Skill 意图匹配引擎', () => {
     })
 
     it('should use provided skills instead of querying DB', async () => {
-      const skills = [
-        makeSkill({ name: 'summarize-docs', description: 'Summarize documents' }),
-      ]
+      const skills = [makeSkill({ name: 'summarize-docs', description: 'Summarize documents' })]
 
       const adapter = new MockModelAdapter([
         '{"matched": true, "skillName": "summarize-docs", "confidence": 0.85, "reason": "Doc summary"}',

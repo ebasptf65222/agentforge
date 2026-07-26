@@ -2,11 +2,7 @@
 // 实现 P2-07: MCPClient - 包装 ITransport，实现 JSON-RPC 2.0 协议
 // 生命周期: initialize() → tools/list → tools/call → close()
 
-import type {
-  ITransport,
-  ToolDefinition,
-  ToolExecutionResult,
-} from '@shared/types'
+import type { ITransport, ToolDefinition, ToolExecutionResult } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 
 // ─── 常量 ─────────────────────────────────────────────────────────
@@ -168,10 +164,7 @@ export class MCPClient {
    * @returns ToolExecutionResult
    * @throws {AppError} MCP_CONNECT_FAILED - 请求超时或返回错误
    */
-  async callTool(
-    name: string,
-    args: Record<string, unknown>,
-  ): Promise<ToolExecutionResult> {
+  async callTool(name: string, args: Record<string, unknown>): Promise<ToolExecutionResult> {
     const result = await this.request<McpCallToolResult>('tools/call', {
       name,
       arguments: args,
@@ -247,23 +240,21 @@ export class MCPClient {
         timeout,
       })
 
-      this.transport
-        .send(JSON.stringify(message))
-        .catch((err: unknown) => {
-          if (this.pendingRequests.has(id)) {
-            clearTimeout(timeout)
-            this.pendingRequests.delete(id)
-            reject(
-              err instanceof AppError
-                ? err
-                : new AppError(
-                    ErrorCodes.MCP_CONNECT_FAILED,
-                    `Failed to send request "${method}": ${err instanceof Error ? err.message : String(err)}`,
-                    { method, id },
-                  ),
-            )
-          }
-        })
+      this.transport.send(JSON.stringify(message)).catch((err: unknown) => {
+        if (this.pendingRequests.has(id)) {
+          clearTimeout(timeout)
+          this.pendingRequests.delete(id)
+          reject(
+            err instanceof AppError
+              ? err
+              : new AppError(
+                  ErrorCodes.MCP_CONNECT_FAILED,
+                  `Failed to send request "${method}": ${err instanceof Error ? err.message : String(err)}`,
+                  { method, id },
+                ),
+          )
+        }
+      })
     })
   }
 
@@ -297,14 +288,10 @@ export class MCPClient {
 
     if (response.error) {
       pending.reject(
-        new AppError(
-          ErrorCodes.MCP_CONNECT_FAILED,
-          response.error.message,
-          {
-            jsonRpcErrorCode: response.error.code,
-            data: response.error.data,
-          },
-        ),
+        new AppError(ErrorCodes.MCP_CONNECT_FAILED, response.error.message, {
+          jsonRpcErrorCode: response.error.code,
+          data: response.error.data,
+        }),
       )
     } else {
       pending.resolve(response.result)
@@ -318,11 +305,7 @@ export class MCPClient {
     for (const [id, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout)
       pending.reject(
-        new AppError(
-          ErrorCodes.MCP_CONNECT_FAILED,
-          'MCP server connection closed.',
-          { id },
-        ),
+        new AppError(ErrorCodes.MCP_CONNECT_FAILED, 'MCP server connection closed.', { id }),
       )
     }
     this.pendingRequests.clear()

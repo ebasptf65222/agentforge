@@ -84,17 +84,9 @@ function handleReject(reason?: string): void {
 
     <!-- Trajectories -->
     <div v-if="hasTrajectories" class="trajectories">
-      <div
-        v-for="traj in agentStore.trajectories"
-        :key="traj.step"
-        class="trajectory-item"
-      >
+      <div v-for="traj in agentStore.trajectories" :key="traj.step" class="trajectory-item">
         <!-- Thinking block (collapsible) -->
-        <ThinkingBlock
-          v-if="traj.thought"
-          :thought="traj.thought"
-          :step="traj.step"
-        />
+        <ThinkingBlock v-if="traj.thought" :thought="traj.thought" :step="traj.step" />
 
         <!-- Action info -->
         <div v-if="traj.action" class="action-info">
@@ -114,7 +106,7 @@ function handleReject(reason?: string): void {
             <span
               class="action-status"
               :style="{
-                color: actionStatusColors[traj.status] || '#999'
+                color: actionStatusColors[traj.status] || '#999',
               }"
             >
               {{ traj.status }}
@@ -153,11 +145,7 @@ function handleReject(reason?: string): void {
     </div>
 
     <!-- Stop button -->
-    <button
-      v-if="agentStore.isRunning"
-      class="btn-stop"
-      @click="agentStore.stop()"
-    >
+    <button v-if="agentStore.isRunning" class="btn-stop" @click="agentStore.stop()">
       Stop Execution
     </button>
   </div>
@@ -199,8 +187,15 @@ function handleReject(reason?: string): void {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.2); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
 }
 
 .status-text {
@@ -221,8 +216,12 @@ function handleReject(reason?: string): void {
   background: var(--bg-tertiary, #252525);
 }
 
-.stat.success { color: #4caf50; }
-.stat.error { color: #f44336; }
+.stat.success {
+  color: #4caf50;
+}
+.stat.error {
+  color: #f44336;
+}
 
 .error-message {
   padding: 10px 12px;
