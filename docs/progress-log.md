@@ -490,6 +490,38 @@ pnpm format:check → 通过
 - **文本规范化**：统一换行符（\r\n → \n），压缩多余空行（3+ → 2）
 - **错误传播**：解析失败时通过 AppError 传播，importDocument 捕获后更新文档状态为 error
 
+---
+
+### P5-03: Preload 扩展 + 前端类型定义
+
+**任务**: 将知识库 IPC API 暴露到渲染进程，添加完整的 TypeScript 类型声明
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/shared/types.ts` | 修改 | 新增 `ChunkingOptions`、`ImportResult`、`KbStats` 类型定义并导出 |
+| `src/preload/index.ts` | 修改 | 新增 `kb` 命名空间（9 个方法），添加到 contextBridge |
+| `src/renderer/src/types/electron-api.ts` | 修改 | 新增 KB 参数类型、`KbAPI` 接口，添加到 `ElectronAPI` |
+| `src/main/ipc/knowledge-base.ts` | 修改 | `KbStats` 改用 shared 类型，移除本地定义 |
+
+**Preload kb 命名空间方法**:
+
+| 方法 | IPC 通道 | 说明 |
+|------|---------|------|
+| `import(params)` | `kb:import` | 导入文档 |
+| `list(params?)` | `kb:list` | 列出文档 |
+| `get(id)` | `kb:get` | 获取文档详情 |
+| `delete(id)` | `kb:delete` | 删除文档 |
+| `reimport(params)` | `kb:reimport` | 重新导入 |
+| `search(params)` | `kb:search` | 语义搜索 |
+| `index(params)` | `kb:index` | 生成嵌入 |
+| `reindex(params)` | `kb:reindex` | 重新索引 |
+| `stats()` | `kb:stats` | 统计信息 |
+
+**关键技术决策**:
+- `ChunkingOptions`、`ImportResult`、`KbStats` 提升到 shared/types.ts，作为 IPC 边界的单一类型源
+- Preload 使用 `Record<string, unknown>` 参数类型（运行时透传），类型安全由 electron-api.ts 保证
+- KB IPC handler 的 `KbStats` 改为从 shared 导入，消除类型重复定义
+
 ### P5 验证
 
 ```

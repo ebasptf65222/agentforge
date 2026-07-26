@@ -325,6 +325,38 @@ interface KbIndexProgress {
   message?: string
 }
 
+/** 分块策略选项 */
+interface ChunkingOptions {
+  /** 分块策略 */
+  strategy: 'fixed' | 'paragraph'
+  /** 目标分块大小（token 数），默认 500 */
+  chunkSize?: number
+  /** 分块重叠大小（token 数），默认 50 */
+  overlap?: number
+  /** 最大分块大小（硬限制），默认 chunkSize * 1.5 */
+  maxChunkSize?: number
+}
+
+/** 导入结果 */
+interface ImportResult {
+  documentId: string
+  fileName: string
+  status: KbDocument['status']
+  chunkCount: number
+  totalTokens: number
+}
+
+/** 知识库统计信息 */
+interface KbStats {
+  totalDocs: number
+  readyDocs: number
+  errorDocs: number
+  indexingDocs: number
+  totalChunks: number
+  embeddedChunks: number
+  pendingEmbeddings: number
+}
+
 // ─── 5.8 错误类型 ────────────────────────────────────────────────
 
 /** 应用统一错误 */
@@ -384,6 +416,9 @@ export type {
   DocumentChunk,
   SearchResult,
   KbIndexProgress,
+  ChunkingOptions,
+  ImportResult,
+  KbStats,
 }
 
 export { AppError }

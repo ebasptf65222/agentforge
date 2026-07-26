@@ -3,7 +3,7 @@
 // 实现 P5-01: 知识库 IPC 层，连接 KB 后端与渲染进程
 
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
-import type { KbDocument, SearchResult } from '@shared/types'
+import type { KbDocument, SearchResult, KbStats } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { listKbDocuments, getKbDocumentById, countKbDocuments } from '../db/repos/kb-document'
 import { countAllKbChunks, getKbChunksWithEmbeddings } from '../db/repos/kb-chunk'
@@ -13,19 +13,6 @@ import { semanticSearch } from '../knowledge-base/search'
 import type { SearchOptions } from '../knowledge-base/search'
 import { indexDocumentEmbeddings, reindexDocumentEmbeddings } from '../knowledge-base/indexing'
 import type { IndexOptions } from '../knowledge-base/indexing'
-
-// ─── 类型定义 ─────────────────────────────────────────────────────
-
-/** 知识库统计信息 */
-interface KbStats {
-  totalDocs: number
-  readyDocs: number
-  errorDocs: number
-  indexingDocs: number
-  totalChunks: number
-  embeddedChunks: number
-  pendingEmbeddings: number
-}
 
 // ─── 参数校验辅助函数 ─────────────────────────────────────────────
 

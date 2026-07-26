@@ -144,6 +144,34 @@ const skill = {
   delete: (id: string): Promise<void> => ipcRenderer.invoke('skill:delete', { id }),
 }
 
+// ─── Knowledge Base 命名空间 (P5-01) ─────────────────────────────
+
+const kb = {
+  import: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('kb:import', params),
+
+  list: (params?: Record<string, unknown>): Promise<unknown[]> =>
+    ipcRenderer.invoke('kb:list', params ?? {}),
+
+  get: (id: string): Promise<unknown> => ipcRenderer.invoke('kb:get', { id }),
+
+  delete: (id: string): Promise<void> => ipcRenderer.invoke('kb:delete', { id }),
+
+  reimport: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('kb:reimport', params),
+
+  search: (params: Record<string, unknown>): Promise<unknown[]> =>
+    ipcRenderer.invoke('kb:search', params),
+
+  index: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('kb:index', params),
+
+  reindex: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('kb:reindex', params),
+
+  stats: (): Promise<unknown> => ipcRenderer.invoke('kb:stats'),
+}
+
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
@@ -158,6 +186,7 @@ if (process.contextIsolated) {
       agent,
       mcp,
       skill,
+      kb,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)

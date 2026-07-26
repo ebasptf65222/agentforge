@@ -19,6 +19,11 @@ import type {
   Skill,
   SkillVariable,
   SkillTrigger,
+  KbDocument,
+  SearchResult,
+  ChunkingOptions,
+  ImportResult,
+  KbStats,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -223,6 +228,52 @@ interface SkillAPI {
   delete(id: string): Promise<void>
 }
 
+/** KB 导入参数 */
+interface KbImportParams {
+  filePath: string
+  fileName: string
+  fileType: KbDocument['fileType']
+  chunking?: ChunkingOptions
+}
+
+/** KB 重新导入参数 */
+interface KbReimportParams {
+  id: string
+  chunking?: ChunkingOptions
+}
+
+/** KB 列表查询参数 */
+interface KbListParams {
+  status?: KbDocument['status']
+}
+
+/** KB 搜索参数 */
+interface KbSearchParams {
+  query: string
+  topK?: number
+  documentId?: string
+  threshold?: number
+}
+
+/** KB 索引参数 */
+interface KbIndexParams {
+  id: string
+  batchSize?: number
+}
+
+/** Knowledge Base 命名空间 */
+interface KbAPI {
+  import(params: KbImportParams): Promise<ImportResult>
+  list(params?: KbListParams): Promise<KbDocument[]>
+  get(id: string): Promise<KbDocument>
+  delete(id: string): Promise<void>
+  reimport(params: KbReimportParams): Promise<ImportResult>
+  search(params: KbSearchParams): Promise<SearchResult[]>
+  index(params: KbIndexParams): Promise<number>
+  reindex(params: KbIndexParams): Promise<number>
+  stats(): Promise<KbStats>
+}
+
 /** window.electron 完整类型 */
 interface ElectronAPI {
   chat: ChatAPI
@@ -233,6 +284,7 @@ interface ElectronAPI {
   agent: AgentAPI
   mcp: McpAPI
   skill: SkillAPI
+  kb: KbAPI
 }
 
 export type {
@@ -259,5 +311,11 @@ export type {
   UpdateSkillParams,
   ListSkillParams,
   SkillAPI,
+  KbImportParams,
+  KbReimportParams,
+  KbListParams,
+  KbSearchParams,
+  KbIndexParams,
+  KbAPI,
   ElectronAPI,
 }
