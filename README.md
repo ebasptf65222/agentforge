@@ -160,6 +160,9 @@ pnpm dev
 ### 构建
 
 ```bash
+# 类型检查
+pnpm typecheck
+
 # 类型检查 + 构建
 pnpm build
 ```

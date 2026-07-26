@@ -630,3 +630,73 @@ pnpm test  → 947 tests passed
 pnpm lint  → 通过
 pnpm build → 通过
 ```
+
+---
+
+## P5-07: 类型检查 + 端到端打包验证 (2026-07-26)
+
+**任务**: 运行 vue-tsc 类型检查，执行完整发布验证流水线，验证打包产物结构完整性
+
+### 修改文件列表
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `package.json` | 修改 | 新增 `typecheck` 脚本 (`vue-tsc --noEmit`) |
+| `AGENT.md` | 修改 | P5 阶段标记为 done，更新任务状态 |
+| `src/main/db/index.ts` | 修改 | Prettier 格式化修复 |
+
+### 验证流水线
+
+| 步骤 | 命令 | 结果 |
+|------|------|------|
+| 类型检查 | `pnpm typecheck` | 通过 (vue-tsc 零错误) |
+| Lint | `pnpm lint` | 通过 (0 warnings) |
+| 格式检查 | `pnpm format:check` | 通过 |
+| 单元测试 | `pnpm test` | 947 passed (43 files) |
+| 构建 | `pnpm build` | 通过 (electron-vite build) |
+| 打包 | `pnpm pack:dir` | 通过 (electron-builder --dir) |
+
+### 打包产物验证
+
+```
+dist/linux-unpacked/
+├── agentforge               # 主可执行文件 (210MB, Electron 43)
+├── chrome-sandbox            # 沙箱辅助
+├── resources/
+│   ├── app.asar              # 应用代码 (72MB)
+│   ├── app.asar.unpacked/   # 原生模块解包
+│   │   └── node_modules/
+│   │       ├── better-sqlite3/   # N-API 预编译二进制 (全平台)
+│   │       │   └── prebuilds/    # linux-x64/darwin-arm64/win32-x64 等
+│   │       └── jszip/            # exceljs 依赖
+│   └── db/                  # extraResources
+│       ├── schema.sql       # 数据库建表脚本 (10.8KB)
+│       └── migrations/     # 3 个迁移脚本
+│           ├── 002-mcp-servers.sql
+│           ├── 003-skills.sql
+│           └── 004-knowledge-base.sql
+├── locales/                 # 55 个语言包
+└── *.so / *.pak / *.dat    # Chromium 运行时
+```
+
+### 关键验证点
+
+1. **schema.sql 正确包含**: `resources/db/schema.sql` 存在，生产环境 `resolveSchemaPath()` 可找到
+2. **迁移脚本完整**: 3 个 `.sql` 文件全部打包到 `resources/db/migrations/`
+3. **better-sqlite3 原生模块解包**: `asarUnpack: ["**/*.{node,dll}"]` 生效，全平台预编译二进制可用
+4. **类型安全**: vue-tsc 零错误，TypeScript 6.0.3 类型检查通过
+5. **Electron 43 下载**: 打包时自动下载 Electron 二进制并解压
+
+### P5 阶段总结
+
+P5 发布打磨阶段全部完成，共 7 个子任务：
+
+| 任务 | 内容 | 状态 |
+|------|------|------|
+| P5-01 | 知识库 IPC 层 (9 handlers) | done |
+| P5-02 | PDF/DOCX/XLSX 文档解析器 | done |
+| P5-03 | Preload 扩展 + 前端类型定义 | done |
+| P5-04 | 知识库管理 UI (KbView.vue) | done |
+| P5-05 | electron-builder 跨平台打包配置 | done |
+| P5-06 | 项目 README 与发布文档 | done |
+| P5-07 | 类型检查 + 端到端打包验证 | done |

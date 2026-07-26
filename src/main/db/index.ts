@@ -38,9 +38,7 @@ function resolveSchemaPath(): string {
     }
   }
 
-  throw new Error(
-    `Schema file not found. Tried:\n${candidates.map((c) => `  - ${c}`).join('\n')}`,
-  )
+  throw new Error(`Schema file not found. Tried:\n${candidates.map((c) => `  - ${c}`).join('\n')}`)
 }
 
 /**
