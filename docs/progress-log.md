@@ -347,3 +347,71 @@ pnpm test   → 802 tests passed (35 files)
 pnpm lint   → 0 warnings
 pnpm format:check → 通过
 ```
+
+---
+
+## P4: 本地知识库
+
+### P4-01: 知识库数据表设计与仓库层
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/db/schema.sql` | 修改 | 新增 kb_documents、kb_chunks 表，schema_version → 5 |
+| `src/main/db/migrations/004-knowledge-base.sql` | 新增 | 知识库迁移脚本 |
+| `src/main/db/repos/kb-document.ts` | 新增 | 文档元数据 CRUD（create/get/list/update/delete） |
+| `src/main/db/repos/kb-document.test.ts` | 新增 | 20 个单元测试 |
+| `src/main/db/repos/kb-chunk.ts` | 新增 | 分块 CRUD + 嵌入管理（batchCreate/updateEmbedding） |
+| `src/main/db/repos/kb-chunk.test.ts` | 新增 | 18 个单元测试 |
+| `src/shared/types.ts` | 修改 | 新增 KbDocument / DocumentChunk / SearchResult 类型 |
+| `src/main/utils/error.ts` | 修改 | 新增 KB_* 错误码 |
+
+**关键技术决策**:
+- `embedding` 以 JSON 数组字符串存储，nullable（导入时先空，后续生成）
+- `kb_chunks` 外键 ON DELETE CASCADE，删除文档自动清理分块
+- `status` 字段跟踪文档生命周期：`indexing` → `ready` / `error`
+
+---
+
+### P4-02: 文档导入与分块
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/knowledge-base/parser.ts` | 新增 | 文档解析器（markdown/txt/csv 完整实现，pdf/docx/xlsx stub） |
+| `src/main/knowledge-base/chunking.ts` | 新增 | 分块策略：fixed-size（含 overlap）+ paragraph-based |
+| `src/main/knowledge-base/chunking.test.ts` | 新增 | 14 个分块测试 |
+| `src/main/knowledge-base/importer.ts` | 新增 | 导入协调器（解析 → 分块 → 存储，含错误清理） |
+| `src/main/knowledge-base/importer.test.ts` | 新增 | 11 个导入流程测试 |
+
+**关键技术决策**:
+- 分块大小以 token 数为度量（复用 tokenizer.ts 估算）
+- overlap 在句子/换行边界切割，回退到字符数
+- 长行（> maxChunkSize）单独成块，避免无限累积
+- 导入失败时自动清理：更新文档状态为 error，删除已创建分块
+
+---
+
+### P4-03: 向量嵌入与语义搜索
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/main/knowledge-base/embedding.ts` | 新增 | 嵌入服务：Ollama + OpenAI 兼容 API，支持单条/批量生成 |
+| `src/main/knowledge-base/embedding.test.ts` | 新增 | 17 个嵌入测试（配置管理 + API mock） |
+| `src/main/knowledge-base/search.ts` | 新增 | 语义搜索：余弦相似度 + Top-K + 阈值过滤 |
+| `src/main/knowledge-base/search.test.ts` | 新增 | 18 个搜索测试（向量数学 + 排序过滤） |
+| `src/main/knowledge-base/indexing.ts` | 新增 | 索引导向器：分批生成嵌入 + 进度回调 + 重新索引 |
+
+**关键技术决策**:
+- 嵌入在应用层通过 HTTP API 获取（Ollama 本地 / OpenAI 远程），零额外依赖
+- Ollama 串行请求避免过载本地服务；OpenAI 支持 true batch（单请求最多 2048 条）
+- 余弦相似度在内存中计算，SQLite 仅存储向量 JSON（无专用向量扩展）
+- 搜索支持 `topK`、`threshold`、`documentId` 过滤选项
+- 向量维度不匹配时取最小公共维度，增强兼容性
+- 文件名缓存减少搜索时的数据库查询次数
+
+### P4 验证
+
+```
+pnpm test   → 837 tests passed (37 files，含 35 个新增 KB 测试)
+pnpm lint   → 0 errors (2 warnings 为已有 better-sqlite3 类型声明问题)
+pnpm format:check → 通过
+```
