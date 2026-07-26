@@ -392,7 +392,7 @@ const columns = computed<DataTableColumns<KbDocument>>(() => [
         :data="kbStore.documents"
         :pagination="false"
         :bordered="false"
-        row-key="id"
+        :row-key="(row: KbDocument) => row.id"
       />
     </div>
 

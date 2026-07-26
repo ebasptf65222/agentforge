@@ -17,6 +17,8 @@ export function useAgent(): void {
   let cleanupChunk: (() => void) | undefined
 
   onMounted(() => {
+    if (!window.electron?.agent) return
+
     // Trajectory listener
     cleanupTrajectory = window.electron.agent.onTrajectory((trajectory: TAOTrajectory) => {
       agentStore.handleTrajectory(trajectory)

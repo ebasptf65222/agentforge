@@ -175,22 +175,20 @@ const kb = {
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', {
-      chat,
-      model,
-      settings,
-      file,
-      system,
-      agent,
-      mcp,
-      skill,
-      kb,
-    })
-  } catch (error) {
-    console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)
-  }
-} else {
-  console.error('[AgentForge Preload] contextIsolation is disabled, skipping bridge setup')
+console.log('[AgentForge Preload] Script loaded, contextBridge type:', typeof contextBridge)
+
+try {
+  contextBridge.exposeInMainWorld('electron', {
+    chat,
+    model,
+    settings,
+    file,
+    system,
+    agent,
+    mcp,
+    skill,
+    kb,
+  })
+} catch (error) {
+  console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)
 }

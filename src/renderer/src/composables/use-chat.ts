@@ -19,6 +19,8 @@ export function useChat(): void {
   let cleanupError: (() => void) | undefined
 
   onMounted(() => {
+    if (!window.electron?.chat) return
+
     // Stream chunk listener
     cleanupChunk = window.electron.chat.onStreamChunk((chunk: StreamChunk) => {
       chatStore.handleStreamChunk(chunk)

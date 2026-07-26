@@ -49,7 +49,7 @@ async function parseTextFile(filePath: string): Promise<ParseResult> {
 async function parsePdf(filePath: string): Promise<ParseResult> {
   const { extractText } = await import('unpdf')
 
-  const buffer = readFileSync(filePath)
+  const buffer = new Uint8Array(readFileSync(filePath))
   const { text } = await extractText(buffer, { mergePages: true })
 
   const content = text

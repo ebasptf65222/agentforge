@@ -71,6 +71,10 @@ function createWindow(): BrowserWindow {
   const savedBounds = loadWindowState(statePath)
   const bounds = savedBounds ?? DEFAULT_WINDOW_BOUNDS
 
+  const preloadPath = join(import.meta.dirname, '../preload/index.cjs')
+  console.log('[AgentForge Main] Preload path:', preloadPath)
+  console.log('[AgentForge Main] Preload exists:', require('node:fs').existsSync(preloadPath))
+
   const mainWindow = new BrowserWindow({
     width: bounds.width,
     height: bounds.height,
@@ -81,7 +85,7 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     webPreferences: {
-      preload: join(import.meta.dirname, '../preload/index.cjs'),
+      preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
