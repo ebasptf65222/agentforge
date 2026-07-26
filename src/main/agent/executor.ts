@@ -56,6 +56,8 @@ export interface AgentExecutorConfig {
   approvalTimeoutMs: number
   /** 最大上下文长度（token） */
   maxContextLength: number
+  /** 可选的 Skill 附加 prompt（注入到 System Prompt 末尾） */
+  skillPrompt?: string
 }
 
 /**
@@ -96,7 +98,7 @@ export class AgentExecutor {
 
     // 1. System Prompt
     const toolDefs = this.collectToolDefinitions()
-    const systemPrompt = buildSystemPrompt(toolDefs)
+    const systemPrompt = buildSystemPrompt(toolDefs, this.config.skillPrompt)
     context.push({ role: 'system', content: systemPrompt })
 
     // 2. 用户输入

@@ -19,6 +19,7 @@ import { createMessage } from '../db/repos/message'
 import { getToolRegistry } from '../tools/registry'
 import { AgentExecutor, type AgentExecutorConfig } from '../agent/executor'
 import type { AgentEventCallbacks, RegisteredTool } from '../agent/types'
+import { resolveSkill, buildSkillExecutionContext, filterTools } from '../skills/skill-executor'
 
 // ─── 并发控制 ─────────────────────────────────────────────────────
 
@@ -121,10 +122,12 @@ function getToolsMap(): Map<string, RegisteredTool> {
  * 流程：
  * 1. 验证参数和并发锁
  * 2. 获取模型适配器、设置、工具列表
- * 3. 创建 AgentExecutor
- * 4. 执行并实时推送 trajectory / approval-request / stream-chunk 事件
- * 5. 保存执行结果到消息表
- * 6. 返回 ExecutionResult
+ * 3. 解析 Skill（用户指定或意图匹配）
+ * 4. 如果 Skill 匹配成功：替换变量、过滤工具、可能覆盖模型
+ * 5. 创建 AgentExecutor
+ * 6. 执行并实时推送 trajectory / approval-request / stream-chunk 事件
+ * 7. 保存执行结果到消息表
+ * 8. 返回 ExecutionResult
  */
 export async function handleExecute(
   _event: Electron.IpcMainInvokeEvent,
@@ -182,21 +185,49 @@ export async function handleExecute(
   }
 
   // 7. 获取工具列表
-  const tools = getToolsMap()
+  let tools = getToolsMap()
 
-  // 8. 获取模型能力中的 maxContextLength
+  // 8. 解析 Skill（用户指定或意图匹配）
+  let skillPrompt: string | undefined
+  let effectiveAdapter = adapter
+
+  const skillResolution = await resolveSkill(
+    request.userInput,
+    request.skillName,
+    adapter,
+  )
+
+  if (skillResolution.skill !== null) {
+    const skill = skillResolution.skill
+
+    // 8a. 如果 Skill 指定了 modelId，使用该模型
+    if (skill.modelId !== undefined) {
+      effectiveAdapter = getModelAdapter(skill.modelId)
+    }
+
+    // 8b. 构建执行上下文（替换变量、过滤工具）
+    const skillCtx = buildSkillExecutionContext(skill, tools)
+    skillPrompt = skillCtx.skillPrompt
+
+    // 8c. 过滤工具列表
+    const filteredToolMap = filterTools(tools, skill.allowedTools)
+    tools = filteredToolMap
+  }
+
+  // 9. 获取模型能力中的 maxContextLength
   const maxContextLength = 4096 // 从 model config 获取，暂用默认值
 
-  // 9. 创建执行器配置
+  // 10. 创建执行器配置
   const executorConfig: AgentExecutorConfig = {
-    adapter,
+    adapter: effectiveAdapter,
     tools,
     callbacks,
     approvalTimeoutMs,
     maxContextLength,
+    skillPrompt,
   }
 
-  // 10. 创建并执行
+  // 11. 创建并执行
   const executor = new AgentExecutor(executorConfig)
   currentExecutor = executor
 
@@ -218,7 +249,7 @@ export async function handleExecute(
     currentExecutor = null
   }
 
-  // 11. 保存助手回复
+  // 12. 保存助手回复
   createMessage({
     conversationId: request.conversationId,
     role: 'assistant',
