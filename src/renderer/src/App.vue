@@ -3,9 +3,12 @@
     <NMessageProvider>
       <NDialogProvider>
         <div class="app">
-          <ChatView v-if="uiStore.currentView === 'chat'" />
-          <KbView v-else-if="uiStore.currentView === 'kb'" />
-          <SettingsView v-else />
+          <TitleBar />
+          <div class="app__content">
+            <ChatView v-if="uiStore.currentView === 'chat'" />
+            <KbView v-else-if="uiStore.currentView === 'kb'" />
+            <SettingsView v-else />
+          </div>
         </div>
       </NDialogProvider>
     </NMessageProvider>
@@ -16,6 +19,7 @@
 import { NConfigProvider, NMessageProvider, NDialogProvider } from 'naive-ui'
 import { useUiStore } from '@/stores/ui'
 import { useTheme } from '@/composables/use-theme'
+import TitleBar from '@/components/common/TitleBar.vue'
 import ChatView from '@/views/ChatView.vue'
 import KbView from '@/views/KbView.vue'
 import SettingsView from '@/views/SettingsView.vue'
@@ -55,6 +59,15 @@ body {
 .app {
   width: 100%;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.app__content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Scrollbar styling — uses theme tokens */

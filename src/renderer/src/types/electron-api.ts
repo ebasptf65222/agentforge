@@ -274,6 +274,17 @@ interface KbAPI {
   stats(): Promise<KbStats>
 }
 
+/** Window 命名空间（窗口控制 + 自定义菜单） */
+interface WindowAPI {
+  minimize(): Promise<void>
+  maximizeToggle(): Promise<void>
+  close(): Promise<void>
+  isMaximized(): Promise<boolean>
+  toggleDevtools(): Promise<void>
+  quit(): Promise<void>
+  onMaximizeChange(callback: (maximized: boolean) => void): () => void
+}
+
 /** window.electron 完整类型 */
 interface ElectronAPI {
   chat: ChatAPI
@@ -285,6 +296,7 @@ interface ElectronAPI {
   mcp: McpAPI
   skill: SkillAPI
   kb: KbAPI
+  window: WindowAPI
 }
 
 export type {
@@ -317,5 +329,6 @@ export type {
   KbSearchParams,
   KbIndexParams,
   KbAPI,
+  WindowAPI,
   ElectronAPI,
 }

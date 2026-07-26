@@ -172,6 +172,21 @@ const kb = {
   stats: (): Promise<unknown> => ipcRenderer.invoke('kb:stats'),
 }
 
+// ─── Window 命名空间 (自定义菜单/窗口控制) ──────────────────────
+
+const win = {
+  minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
+  maximizeToggle: (): Promise<void> => ipcRenderer.invoke('window:maximize-toggle'),
+  close: (): Promise<void> => ipcRenderer.invoke('window:close'),
+  isMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:is-maximized'),
+  toggleDevtools: (): Promise<void> => ipcRenderer.invoke('window:toggle-devtools'),
+  quit: (): Promise<void> => ipcRenderer.invoke('app:quit'),
+  onMaximizeChange: (callback: (maximized: boolean) => void): (() => void) =>
+    onEvent<{ maximized: boolean }>('window:maximize-state-changed', (data) =>
+      callback(data.maximized),
+    ),
+}
+
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
@@ -187,6 +202,7 @@ if (process.contextIsolated) {
       mcp,
       skill,
       kb,
+      window: win,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)
