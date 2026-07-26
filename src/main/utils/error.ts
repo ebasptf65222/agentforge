@@ -82,6 +82,12 @@ export const ErrorCodes = {
   SKILL_PROMPT_EMPTY: 'SKILL_PROMPT_EMPTY',
   /** Skill 变量缺失 */
   SKILL_VARIABLE_MISSING: 'SKILL_VARIABLE_MISSING',
+  /** Skill 不存在 */
+  SKILL_NOT_FOUND: 'SKILL_NOT_FOUND',
+  /** 不允许删除内置 Skill */
+  SKILL_DELETE_BUILTIN: 'SKILL_DELETE_BUILTIN',
+  /** Skill 意图匹配失败 */
+  SKILL_MATCH_FAILED: 'SKILL_MATCH_FAILED',
 
   // ─── 通用 ────────────────────────────────────────────────────
   /** 数据库错误 */

@@ -16,7 +16,8 @@ import { AgentExecutor, type AgentExecutorConfig } from './executor'
 import type { RegisteredTool, AgentEventCallbacks } from './types'
 import { shouldRequireApproval, buildToolAction } from './approval'
 import { parseLLMOutput } from './parser'
-import { getToolRegistry, resetToolRegistry, ToolRegistry } from '../tools/registry'
+import { getToolRegistry, resetToolRegistry } from '../tools/registry'
+import type { ToolRegistry } from '../tools/registry'
 import type { BuiltinTool } from '../tools/types'
 import { AppError, ErrorCodes } from '../utils/error'
 
@@ -405,7 +406,7 @@ describe('P2 Integration: Agent ReAct 闭环', () => {
       }
 
       expect(caughtError).toBeInstanceOf(AppError)
-      expect(caughtError!.code).toBe(ErrorCodes.AGENT_APPROVAL_TIMEOUT)
+      expect((caughtError as AppError).code).toBe(ErrorCodes.AGENT_APPROVAL_TIMEOUT)
 
       vi.useRealTimers()
     })
@@ -464,7 +465,7 @@ describe('P2 Integration: Agent ReAct 闭环', () => {
       }
 
       expect(caughtError).toBeInstanceOf(AppError)
-      expect(caughtError!.code).toBe(ErrorCodes.AGENT_CIRCUIT_BREAK)
+      expect((caughtError as AppError).code).toBe(ErrorCodes.AGENT_CIRCUIT_BREAK)
       // 3 次失败后熔断，回调应收集到 3 条轨迹
       expect(trajectories).toHaveLength(3)
       for (const t of trajectories) {
@@ -498,7 +499,7 @@ describe('P2 Integration: Agent ReAct 闭环', () => {
       }
 
       expect(caughtError).toBeInstanceOf(AppError)
-      expect(caughtError!.code).toBe(ErrorCodes.AGENT_MAX_STEPS)
+      expect((caughtError as AppError).code).toBe(ErrorCodes.AGENT_MAX_STEPS)
     })
   })
 
