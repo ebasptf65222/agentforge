@@ -31,7 +31,7 @@ vi.mock('../db/index', () => ({
   getDatabase: () => testDb,
   initDatabase: vi.fn(),
   closeDatabase: vi.fn(),
-  getSchemaVersion: vi.fn(() => 4),
+  getSchemaVersion: vi.fn(() => 5),
 }))
 
 const {

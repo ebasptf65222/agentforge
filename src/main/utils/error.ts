@@ -71,9 +71,21 @@ export const ErrorCodes = {
   /** 文件超过大小限制 */
   FILE_TOO_LARGE: 'FILE_TOO_LARGE',
 
-  // ─── 知识库相关（P3） ────────────────────────────────────────
+  // ─── 知识库相关（P3/P4） ──────────────────────────────────────
   /** 文档索引失败 */
   KB_INDEX_ERROR: 'KB_INDEX_ERROR',
+  /** 文档不存在 */
+  KB_DOCUMENT_NOT_FOUND: 'KB_DOCUMENT_NOT_FOUND',
+  /** 文档已存在（同路径） */
+  KB_DOCUMENT_DUPLICATE: 'KB_DOCUMENT_DUPLICATE',
+  /** 分块不存在 */
+  KB_CHUNK_NOT_FOUND: 'KB_CHUNK_NOT_FOUND',
+  /** 不支持的文件类型 */
+  KB_INVALID_FILE_TYPE: 'KB_INVALID_FILE_TYPE',
+  /** 嵌入生成失败 */
+  KB_EMBEDDING_ERROR: 'KB_EMBEDDING_ERROR',
+  /** 搜索失败 */
+  KB_SEARCH_ERROR: 'KB_SEARCH_ERROR',
 
   // ─── Skills 相关（P3） ──────────────────────────────────────
   /** Skill 名称重复 */

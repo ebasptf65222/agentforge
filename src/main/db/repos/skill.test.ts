@@ -30,7 +30,7 @@ vi.mock('../index', () => ({
   getDatabase: () => testDb,
   initDatabase: vi.fn(),
   closeDatabase: vi.fn(),
-  getSchemaVersion: vi.fn(() => 4),
+  getSchemaVersion: vi.fn(() => 5),
 }))
 
 // 在 mock 设置完成后导入被测模块
