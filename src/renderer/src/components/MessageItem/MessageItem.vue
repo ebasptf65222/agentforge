@@ -69,13 +69,13 @@ const showCursor = computed(() => !!props.isStreaming && !isUser.value)
 }
 
 .message-item--user .message-item__avatar {
-  background-color: #4f46e5;
+  background-color: var(--af-brand, #4f46e5);
   color: #fff;
 }
 
 .message-item--assistant .message-item__avatar {
-  background-color: #374151;
-  color: #d1d5db;
+  background-color: var(--af-bg-hover, #374151);
+  color: var(--af-text-secondary, #d1d5db);
 }
 
 .message-item__body {
@@ -84,7 +84,7 @@ const showCursor = computed(() => !!props.isStreaming && !isUser.value)
 }
 
 .message-item__text {
-  background-color: #4f46e5;
+  background-color: var(--af-brand, #4f46e5);
   color: #fff;
   padding: 10px 14px;
   border-radius: 12px 12px 4px 12px;
@@ -95,7 +95,10 @@ const showCursor = computed(() => !!props.isStreaming && !isUser.value)
 }
 
 .message-item--assistant .message-item__body {
-  color: #e5e7eb;
+  background-color: var(--af-bg-surface, #1e293b);
+  color: var(--af-text-primary, #e5e7eb);
+  padding: 10px 14px;
+  border-radius: 12px 12px 12px 4px;
   font-size: 14px;
 }
 
@@ -103,7 +106,7 @@ const showCursor = computed(() => !!props.isStreaming && !isUser.value)
 .message-item__cursor {
   display: inline-block;
   margin-left: 2px;
-  color: #e5e7eb;
+  color: var(--af-text-primary, #e5e7eb);
   font-weight: 700;
   animation: blink 1s steps(2, start) infinite;
 }

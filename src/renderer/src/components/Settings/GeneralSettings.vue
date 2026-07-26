@@ -3,6 +3,8 @@
 // Each field change saves immediately via the settings store.
 
 import { computed, onMounted, watch } from 'vue'
+import { NSelect, NInputNumber } from 'naive-ui'
+import type { SelectOption } from 'naive-ui'
 import type { AppSettings, ApprovalMode } from '@shared/types'
 import { useSettingsStore } from '@/stores/settings'
 import { useModelStore } from '@/stores/model'
@@ -146,6 +148,45 @@ const approvalTimeoutSeconds = computed(() => {
   if (ms === undefined || ms === null) return 300
   return Math.round(ms / 1000)
 })
+
+// ─── NSelect option adapters ──────────────────────────────────
+
+/** Theme options reshaped for NSelect ({ label, value }). */
+const themeOptions = computed<SelectOption[]>(() =>
+  THEME_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
+)
+
+/** Approval-mode options reshaped for NSelect. */
+const approvalOptions = computed<SelectOption[]>(() =>
+  APPROVAL_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
+)
+
+/** Model options (with an explicit "未设置" entry) for NSelect. */
+const modelOptions = computed<SelectOption[]>(() => [
+  { label: '未设置', value: '' },
+  ...modelStore.models.map((m) => ({ label: `${m.name} (${m.modelId})`, value: m.id })),
+])
+
+// ─── NInputNumber writable adapters ───────────────────────────
+// NInputNumber uses v-model:value (number | null). These computeds bridge
+// the store-backed values with the existing string-based update handlers,
+// keeping the original script logic intact.
+
+const maxStepsValue = computed<number | null>({
+  get: () => settings.value?.maxExecutionSteps ?? 20,
+  set: (v: number | null) => {
+    if (v === null) return
+    updateMaxSteps(String(v))
+  },
+})
+
+const approvalTimeoutValue = computed<number | null>({
+  get: () => approvalTimeoutSeconds.value,
+  set: (v: number | null) => {
+    if (v === null) return
+    updateApprovalTimeout(String(v))
+  },
+})
 </script>
 
 <template>
@@ -172,17 +213,11 @@ const approvalTimeoutSeconds = computed(() => {
           <span class="setting-row__desc">选择应用界面颜色主题</span>
         </div>
         <div class="setting-row__control">
-          <select
-            class="setting-select"
+          <NSelect
             :value="settings?.theme ?? 'dark'"
-            @change="
-              updateTheme(($event.target as HTMLSelectElement).value as AppSettings['theme'])
-            "
-          >
-            <option v-for="opt in THEME_OPTIONS" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
+            :options="themeOptions"
+            @update:value="(v) => updateTheme(v as AppSettings['theme'])"
+          />
         </div>
       </div>
 
@@ -193,15 +228,11 @@ const approvalTimeoutSeconds = computed(() => {
           <span class="setting-row__desc">控制 Agent 执行工具时的审批策略</span>
         </div>
         <div class="setting-row__control">
-          <select
-            class="setting-select"
+          <NSelect
             :value="settings?.defaultApprovalMode ?? 'suggest'"
-            @change="updateApprovalMode(($event.target as HTMLSelectElement).value as ApprovalMode)"
-          >
-            <option v-for="opt in APPROVAL_OPTIONS" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
+            :options="approvalOptions"
+            @update:value="(v) => updateApprovalMode(v as ApprovalMode)"
+          />
         </div>
       </div>
 
@@ -212,14 +243,7 @@ const approvalTimeoutSeconds = computed(() => {
           <span class="setting-row__desc">单次 Agent 执行的最大步数（1 - 100）</span>
         </div>
         <div class="setting-row__control">
-          <input
-            type="number"
-            class="setting-input"
-            :value="settings?.maxExecutionSteps ?? 20"
-            min="1"
-            max="100"
-            @change="updateMaxSteps(($event.target as HTMLInputElement).value)"
-          />
+          <NInputNumber v-model:value="maxStepsValue" :min="1" :max="100" />
         </div>
       </div>
 
@@ -230,16 +254,11 @@ const approvalTimeoutSeconds = computed(() => {
           <span class="setting-row__desc">新建对话时默认使用的模型</span>
         </div>
         <div class="setting-row__control">
-          <select
-            class="setting-select"
+          <NSelect
             :value="settings?.defaultModelId ?? ''"
-            @change="updateDefaultModel(($event.target as HTMLSelectElement).value)"
-          >
-            <option value="">未设置</option>
-            <option v-for="model in modelStore.models" :key="model.id" :value="model.id">
-              {{ model.name }} ({{ model.modelId }})
-            </option>
-          </select>
+            :options="modelOptions"
+            @update:value="(v) => updateDefaultModel((v ?? '') as string)"
+          />
           <p v-if="modelStore.models.length === 0" class="setting-row__hint">
             暂无可用模型，请先在「模型配置」中添加
           </p>
@@ -252,16 +271,10 @@ const approvalTimeoutSeconds = computed(() => {
           <span class="setting-row__title">审批超时</span>
           <span class="setting-row__desc">等待用户审批的超时时间（30 - 3600 秒）</span>
         </div>
-        <div class="setting-row__control setting-row__control--inline">
-          <input
-            type="number"
-            class="setting-input"
-            :value="approvalTimeoutSeconds"
-            min="30"
-            max="3600"
-            @change="updateApprovalTimeout(($event.target as HTMLInputElement).value)"
-          />
-          <span class="setting-row__unit">秒</span>
+        <div class="setting-row__control">
+          <NInputNumber v-model:value="approvalTimeoutValue" :min="30" :max="3600">
+            <template #suffix>秒</template>
+          </NInputNumber>
         </div>
       </div>
     </div>
@@ -278,7 +291,7 @@ const approvalTimeoutSeconds = computed(() => {
 
 .general-settings__header {
   padding: 4px 0 20px;
-  border-bottom: 1px solid #374151;
+  border-bottom: 1px solid var(--af-border, #334155);
   margin-bottom: 16px;
 }
 
@@ -286,13 +299,13 @@ const approvalTimeoutSeconds = computed(() => {
   margin: 0;
   font-size: 20px;
   font-weight: 700;
-  color: #f9fafb;
+  color: var(--af-text-primary, #f1f5f9);
 }
 
 .general-settings__subtitle {
   margin: 4px 0 0;
   font-size: 13px;
-  color: #9ca3af;
+  color: var(--af-text-tertiary, #94a3b8);
 }
 
 .general-settings__loading {
@@ -303,8 +316,8 @@ const approvalTimeoutSeconds = computed(() => {
 
 .setting-skeleton {
   height: 56px;
-  border-radius: 8px;
-  background-color: #1f2937;
+  border-radius: var(--af-radius, 8px);
+  background-color: var(--af-bg-input, #1f2937);
   animation: general-skeleton-pulse 1.5s ease-in-out infinite;
 }
 
@@ -330,7 +343,7 @@ const approvalTimeoutSeconds = computed(() => {
   justify-content: space-between;
   gap: 24px;
   padding: 16px 0;
-  border-bottom: 1px solid #1f2937;
+  border-bottom: 1px solid var(--af-border-light, #1f2937);
 }
 
 .setting-row:last-child {
@@ -348,67 +361,23 @@ const approvalTimeoutSeconds = computed(() => {
 .setting-row__title {
   font-size: 14px;
   font-weight: 500;
-  color: #e5e7eb;
+  color: var(--af-text-secondary, #cbd5e1);
 }
 
 .setting-row__desc {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--af-text-tertiary, #94a3b8);
   line-height: 1.4;
 }
 
 .setting-row__hint {
   margin: 6px 0 0;
   font-size: 11px;
-  color: #f59e0b;
+  color: var(--af-warning, #f59e0b);
 }
 
 .setting-row__control {
   width: 280px;
   flex-shrink: 0;
-}
-
-.setting-row__control--inline {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.setting-row__unit {
-  font-size: 13px;
-  color: #9ca3af;
-  flex-shrink: 0;
-}
-
-/* ─── Inputs ──────────────────────────────────────────────── */
-.setting-select,
-.setting-input {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #374151;
-  border-radius: 6px;
-  background-color: #1f2937;
-  color: #e5e7eb;
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.15s ease;
-}
-
-.setting-select:focus,
-.setting-input:focus {
-  border-color: #4f46e5;
-}
-
-.setting-select {
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 32px;
-  cursor: pointer;
-}
-
-.setting-input {
-  cursor: text;
 }
 </style>

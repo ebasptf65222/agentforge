@@ -50,11 +50,11 @@ function toggle(): void {
 
 <style scoped>
 .thinking-block {
-  border: 1px solid var(--border-color, #3a3a3a);
-  border-radius: 8px;
+  border: 1px solid var(--af-border, #334155);
+  border-radius: var(--af-radius, 8px);
   margin: 8px 0;
   overflow: hidden;
-  background: var(--bg-secondary, #1e1e1e);
+  background: var(--af-bg-surface, #1e293b);
 }
 
 .thinking-header {
@@ -67,12 +67,12 @@ function toggle(): void {
   border: none;
   cursor: pointer;
   font-size: 13px;
-  color: var(--text-secondary, #999);
+  color: var(--af-text-secondary, #cbd5e1);
   transition: background 0.15s ease;
 }
 
 .thinking-header:hover {
-  background: var(--bg-hover, #2a2a2a);
+  background: var(--af-bg-hover, #334155);
 }
 
 .thinking-icon {
@@ -97,14 +97,14 @@ function toggle(): void {
 
 .thinking-content {
   padding: 0 12px 12px;
-  border-top: 1px solid var(--border-color, #3a3a3a);
+  border-top: 1px solid var(--af-border, #334155);
 }
 
 .thinking-text {
   margin: 8px 0 0;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--text-primary, #ddd);
+  color: var(--af-text-primary, #f1f5f9);
   white-space: pre-wrap;
   word-break: break-word;
 }

@@ -1,6 +1,5 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import vue from '@vitejs/plugin-vue'
-import unocss from 'unocss/vite'
 import { resolve } from 'node:path'
 
 export default defineConfig({
@@ -41,7 +40,7 @@ export default defineConfig({
         '@renderer': resolve(__dirname, 'src/renderer/src'),
       },
     },
-    plugins: [vue(), unocss()],
+    plugins: [vue()],
     build: {
       rollupOptions: {
         input: {

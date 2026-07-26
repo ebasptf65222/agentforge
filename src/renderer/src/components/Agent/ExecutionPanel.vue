@@ -20,12 +20,12 @@ const statusLabels: Record<string, string> = {
 }
 
 const statusColors: Record<string, string> = {
-  idle: '#666',
-  running: '#4fc3f7',
-  paused: '#ff9800',
-  completed: '#4caf50',
-  failed: '#f44336',
-  cancelled: '#999',
+  idle: 'var(--af-text-muted, #64748b)',
+  running: 'var(--af-info, #0ea5e9)',
+  paused: 'var(--af-warning, #f59e0b)',
+  completed: 'var(--af-success, #10b981)',
+  failed: 'var(--af-error, #ef4444)',
+  cancelled: 'var(--af-text-muted, #64748b)',
 }
 
 const statusLabel = computed(() => statusLabels[agentStore.status] ?? 'Unknown')
@@ -33,11 +33,11 @@ const statusColor = computed(() => statusColors[agentStore.status] ?? '#666')
 const hasTrajectories = computed(() => agentStore.trajectories.length > 0)
 
 const actionStatusColors: Record<string, string> = {
-  success: '#4caf50',
-  error: '#f44336',
-  'pending-approval': '#ff9800',
-  approved: '#4fc3f7',
-  rejected: '#f44336',
+  success: 'var(--af-success, #10b981)',
+  error: 'var(--af-error, #ef4444)',
+  'pending-approval': 'var(--af-warning, #f59e0b)',
+  approved: 'var(--af-info, #0ea5e9)',
+  rejected: 'var(--af-error, #ef4444)',
 }
 
 function getActionLabel(traj: TAOTrajectory): string {
@@ -153,9 +153,9 @@ function handleReject(reason?: string): void {
 
 <style scoped>
 .execution-panel {
-  border: 1px solid var(--border-color, #3a3a3a);
-  border-radius: 10px;
-  background: var(--bg-secondary, #1a1a1a);
+  border: 1px solid var(--af-border, #334155);
+  border-radius: var(--af-radius, 8px);
+  background: var(--af-bg-surface, #1e293b);
   padding: 14px;
   margin: 8px 0;
   max-height: 600px;
@@ -207,29 +207,29 @@ function handleReject(reason?: string): void {
   display: flex;
   gap: 10px;
   font-size: 12px;
-  color: var(--text-tertiary, #777);
+  color: var(--af-text-tertiary, #94a3b8);
 }
 
 .stat {
   padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--bg-tertiary, #252525);
+  border-radius: var(--af-radius-sm, 6px);
+  background: var(--af-bg-hover, #334155);
 }
 
 .stat.success {
-  color: #4caf50;
+  color: var(--af-success, #10b981);
 }
 .stat.error {
-  color: #f44336;
+  color: var(--af-error, #ef4444);
 }
 
 .error-message {
   padding: 10px 12px;
-  background: rgba(244, 67, 54, 0.1);
-  border: 1px solid rgba(244, 67, 54, 0.3);
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--af-error, #ef4444) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--af-error, #ef4444) 30%, transparent);
+  border-radius: var(--af-radius-sm, 6px);
   font-size: 13px;
-  color: #f44336;
+  color: var(--af-error, #ef4444);
   margin-bottom: 12px;
 }
 
@@ -240,7 +240,7 @@ function handleReject(reason?: string): void {
 }
 
 .trajectory-item {
-  border-left: 2px solid var(--border-color, #3a3a3a);
+  border-left: 2px solid var(--af-border, #334155);
   padding-left: 12px;
   margin-bottom: 8px;
 }
@@ -257,17 +257,17 @@ function handleReject(reason?: string): void {
 }
 
 .action-icon {
-  color: var(--text-tertiary, #777);
+  color: var(--af-text-tertiary, #94a3b8);
   display: flex;
 }
 
 .action-label {
-  color: var(--text-secondary, #999);
+  color: var(--af-text-secondary, #cbd5e1);
   font-weight: 500;
 }
 
 .action-name {
-  color: var(--accent-color, #4fc3f7);
+  color: var(--af-brand, #818cf8);
   font-weight: 600;
 }
 
@@ -281,9 +281,9 @@ function handleReject(reason?: string): void {
 
 .action-args {
   font-size: 12px;
-  color: var(--text-tertiary, #888);
-  background: var(--bg-code, #161616);
-  border-radius: 4px;
+  color: var(--af-text-tertiary, #94a3b8);
+  background: var(--af-bg-input, #1f2937);
+  border-radius: var(--af-radius-sm, 6px);
   padding: 6px 8px;
   margin: 4px 0 0;
   overflow-x: auto;
@@ -293,14 +293,14 @@ function handleReject(reason?: string): void {
 .observation {
   margin: 6px 0;
   padding: 8px 10px;
-  background: var(--bg-tertiary, #252525);
-  border-radius: 6px;
+  background: var(--af-bg-hover, #334155);
+  border-radius: var(--af-radius-sm, 6px);
 }
 
 .obs-label {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-secondary, #999);
+  color: var(--af-text-secondary, #cbd5e1);
   display: block;
   margin-bottom: 4px;
 }
@@ -308,7 +308,7 @@ function handleReject(reason?: string): void {
 .obs-text {
   margin: 0;
   font-size: 13px;
-  color: var(--text-primary, #ddd);
+  color: var(--af-text-primary, #f1f5f9);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -317,15 +317,15 @@ function handleReject(reason?: string): void {
 .summary {
   margin-top: 12px;
   padding: 12px;
-  background: rgba(76, 175, 80, 0.08);
-  border: 1px solid rgba(76, 175, 80, 0.2);
-  border-radius: 8px;
+  background: color-mix(in srgb, var(--af-success, #10b981) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--af-success, #10b981) 20%, transparent);
+  border-radius: var(--af-radius, 8px);
 }
 
 .summary-header {
   font-size: 13px;
   font-weight: 600;
-  color: #4caf50;
+  color: var(--af-success, #10b981);
   margin-bottom: 6px;
 }
 
@@ -333,7 +333,7 @@ function handleReject(reason?: string): void {
   margin: 0 0 8px;
   font-size: 14px;
   line-height: 1.6;
-  color: var(--text-primary, #ddd);
+  color: var(--af-text-primary, #f1f5f9);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -342,24 +342,24 @@ function handleReject(reason?: string): void {
   display: flex;
   gap: 12px;
   font-size: 12px;
-  color: var(--text-tertiary, #777);
+  color: var(--af-text-tertiary, #94a3b8);
 }
 
 .btn-stop {
   width: 100%;
   margin-top: 12px;
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: var(--af-radius-sm, 6px);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  border: 1px solid rgba(244, 67, 54, 0.4);
-  background: rgba(244, 67, 54, 0.1);
-  color: #f44336;
+  border: 1px solid color-mix(in srgb, var(--af-error, #ef4444) 40%, transparent);
+  background: color-mix(in srgb, var(--af-error, #ef4444) 10%, transparent);
+  color: var(--af-error, #ef4444);
   transition: background 0.15s ease;
 }
 
 .btn-stop:hover {
-  background: rgba(244, 67, 54, 0.2);
+  background: color-mix(in srgb, var(--af-error, #ef4444) 20%, transparent);
 }
 </style>

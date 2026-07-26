@@ -19,8 +19,7 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
-    "electron.vite.config.ts",
-    "unocss.config.ts"
+    "electron.vite.config.ts"
   ],
   "exclude": ["node_modules", "dist", "out"]
 }
