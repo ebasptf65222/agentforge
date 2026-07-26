@@ -1,8 +1,11 @@
 <script setup lang="ts">
 // P1-17: ChatInput - message input with send/stop controls
 
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
+import { NSelect } from 'naive-ui'
 import AppButton from '@/components/common/AppButton.vue'
+import { useSkillStore } from '@/stores/skill'
+import type { Skill } from '@shared/types'
 
 const props = defineProps<{
   disabled?: boolean
@@ -10,9 +13,26 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  send: [content: string]
+  send: [content: string, skillName?: string]
   stop: []
 }>()
+
+const skillStore = useSkillStore()
+
+onMounted(() => {
+  void skillStore.loadSkills()
+})
+
+/** 当前选中的 Skill（null = 普通对话） */
+const selectedSkill = ref<string | null>(null)
+
+const skillOptions = computed(() => {
+  const manual = skillStore.skills.filter((s) => s.trigger === 'manual')
+  return [
+    { label: '普通对话', value: null },
+    ...manual.map((s: Skill) => ({ label: s.displayName, value: s.name })),
+  ]
+})
 
 /** Maximum allowed characters in the input (P1-13 spec) */
 const MAX_CHARS = 32000
@@ -33,7 +53,7 @@ const isNearLimit = computed(() => remainingChars.value <= 1000)
 function handleSend(): void {
   const content = inputContent.value.trim()
   if (!content || props.disabled || props.isGenerating) return
-  emit('send', content)
+  emit('send', content, selectedSkill.value ?? undefined)
   inputContent.value = ''
   // Reset textarea height after sending
   nextTick(() => {
@@ -68,6 +88,17 @@ function handleInput(): void {
 
 <template>
   <div class="chat-input">
+    <!-- Skill 选择器 -->
+    <div class="chat-input__toolbar">
+      <NSelect
+        v-model:value="selectedSkill"
+        :options="skillOptions"
+        size="small"
+        :consistent-menu-width="false"
+        placeholder="普通对话"
+        style="width: 160px"
+      />
+    </div>
     <div class="chat-input__wrapper">
       <textarea
         ref="textareaRef"
@@ -101,9 +132,16 @@ function handleInput(): void {
 
 <style scoped>
 .chat-input {
-  padding: 12px 16px;
+  padding: 8px 16px 12px;
   border-top: 1px solid var(--af-border, #374151);
   background-color: var(--af-bg-surface, #111827);
+}
+
+.chat-input__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .chat-input__wrapper {

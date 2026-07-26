@@ -63,7 +63,8 @@ async function handleDeleteConversation(id: string): Promise<void> {
   await chatStore.deleteConversation(id)
 }
 
-async function handleSend(content: string): Promise<void> {
+async function handleSend(content: string, _skillName?: string): Promise<void> {
+  // skillName 参数由 ChatInput 传入，后续可通过 Agent 执行路径使用
   await chatStore.sendMessage(content)
 }
 
