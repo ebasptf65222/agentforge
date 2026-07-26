@@ -555,10 +555,45 @@ pnpm format:check → 通过
 - 索引状态使用 `Set<string>` 跟踪正在索引的文档 ID
 - 搜索结果内容使用 `-webkit-line-clamp` 限制为 3 行
 
+---
+
+### P5-05: 打包配置 (electron-builder)
+
+**任务**: 配置 electron-builder，实现跨平台打包（Linux AppImage/deb、macOS DMG、Windows NSIS）
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `package.json` | 修改 | 新增 `build` 配置、打包脚本、`author` 字段 |
+| `src/main/db/index.ts` | 修改 | 新增 `resolveSchemaPath()` 支持开发和生产环境的 SQL 文件路径解析 |
+
+**打包脚本**:
+
+| 脚本 | 说明 |
+|------|------|
+| `pnpm pack` | 构建并打包当前平台 |
+| `pnpm pack:linux` | Linux: AppImage + deb |
+| `pnpm pack:mac` | macOS: DMG (x64 + arm64) |
+| `pnpm pack:win` | Windows: NSIS 安装程序 |
+| `pnpm pack:dir` | 仅解包不打包（快速测试） |
+
+**electron-builder 配置要点**:
+- `appId`: `com.agentforge.app`
+- `extraResources`: schema.sql 和 migrations 目录复制到 `Resources/db/`
+- `asarUnpack`: `.node` 和 `.dll` 文件不打入 asar（native 模块兼容）
+- `files`: 仅包含 `out/` 编译输出，排除 `.map` 和 `.ts` 文件
+- Linux: AppImage + deb (x64)
+- macOS: DMG (x64 + arm64)
+- Windows: NSIS 安装程序（允许自定义安装路径、创建快捷方式）
+
+**Schema 路径解析**:
+- 生产环境: `process.resourcesPath/db/schema.sql`（extraResources 复制）
+- 开发环境/测试: 多路径候选查找（`process.cwd()` → 编译输出目录 → 上溯源码目录）
+
 ### P5 验证
 
 ```
-pnpm test   → 947 tests passed (43 files)
-pnpm lint   → 0 errors, 0 warnings
-pnpm format → 通过
+pnpm test     → 947 tests passed (43 files)
+pnpm lint     → 0 errors, 0 warnings
+pnpm build    → 通过 (electron-vite build)
+pnpm pack:dir → 通过 (electron-builder --dir, Linux x64)
 ```

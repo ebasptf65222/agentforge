@@ -1,12 +1,47 @@
 import Database from 'better-sqlite3'
 import { join } from 'node:path'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
 import { app } from 'electron'
 
 // ─── 单例数据库实例 ─────────────────────────────────────────────
 let db: Database.Database | null = null
+
+/**
+ * 解析 schema.sql 文件路径。
+ * - 生产环境: electron-builder extraResources → process.resourcesPath/db/schema.sql
+ * - 开发环境/测试: 从项目源码目录加载
+ */
+function resolveSchemaPath(): string {
+  // 生产环境：process.resourcesPath 由 Electron 注入
+  if (process.resourcesPath) {
+    const prodPath = join(process.resourcesPath, 'db', 'schema.sql')
+    if (existsSync(prodPath)) {
+      return prodPath
+    }
+  }
+
+  // 开发环境/测试：尝试多个候选路径
+  const candidates = [
+    // 1. 当前工作目录下的源码路径（vitest 测试）
+    join(process.cwd(), 'src', 'main', 'db', 'schema.sql'),
+    // 2. 编译输出目录旁（electron-vite dev）
+    join(dirname(fileURLToPath(import.meta.url)), 'schema.sql'),
+    // 3. 从编译输出向上查找源码目录
+    join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'main', 'db', 'schema.sql'),
+  ]
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  throw new Error(
+    `Schema file not found. Tried:\n${candidates.map((c) => `  - ${c}`).join('\n')}`,
+  )
+}
 
 /**
  * 初始化数据库连接，执行 PRAGMA 配置和 schema 初始化。
@@ -36,7 +71,7 @@ export function initDatabase(dbPath?: string): Database.Database {
   db.pragma('busy_timeout = 5000')
 
   // 执行 schema.sql 初始化
-  const schemaPath = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql')
+  const schemaPath = resolveSchemaPath()
   const schemaSql = readFileSync(schemaPath, 'utf-8')
   db.exec(schemaSql)
 
