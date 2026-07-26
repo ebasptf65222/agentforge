@@ -29,6 +29,8 @@ import type {
   SttConfig,
   TtsOptions,
   SttOptions,
+  FileTreeNode,
+  WorkspaceDirectoryEntry,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -291,6 +293,24 @@ interface WindowAPI {
   onMaximizeChange(callback: (maximized: boolean) => void): () => void
 }
 
+/** Workspace 命名空间（本地文件工作区操作） */
+interface WorkspaceAPI {
+  /** 读取工作区内文件 */
+  read(path: string): Promise<string>
+  /** 写入工作区内文件，返回写入字节数 */
+  write(path: string, content: string): Promise<number>
+  /** 列出工作区内目录条目 */
+  list(path?: string): Promise<WorkspaceDirectoryEntry[]>
+  /** 创建目录 */
+  mkdir(path: string): Promise<void>
+  /** 删除文件或空目录 */
+  delete(path: string): Promise<void>
+  /** 重命名/移动 */
+  rename(from: string, to: string): Promise<void>
+  /** 获取文件树 */
+  tree(path?: string, maxDepth?: number): Promise<FileTreeNode>
+}
+
 /** 语音 API（TTS + STT） */
 interface VoiceAPI {
   // ─── TTS ───
@@ -325,6 +345,7 @@ interface ElectronAPI {
   kb: KbAPI
   voice: VoiceAPI
   window: WindowAPI
+  workspace: WorkspaceAPI
 }
 
 export type {
@@ -359,5 +380,6 @@ export type {
   KbAPI,
   VoiceAPI,
   WindowAPI,
+  WorkspaceAPI,
   ElectronAPI,
 }

@@ -10,6 +10,7 @@ import { directoryListTool } from './directory-list'
 import { kbSearchTool } from './kb-search'
 import { kgExtractTool } from './kg-extract'
 import { kgQueryTool } from './kg-query'
+import { allWsTools } from './ws-tools'
 
 /**
  * 初始化并注册所有内置工具到全局 ToolRegistry。
@@ -25,4 +26,9 @@ export function initBuiltinTools(): void {
   registry.registerBuiltin(kbSearchTool)
   registry.registerBuiltin(kgExtractTool)
   registry.registerBuiltin(kgQueryTool)
+
+  // 注册所有 ws_* 工作区工具
+  for (const tool of allWsTools) {
+    registry.registerBuiltin(tool)
+  }
 }

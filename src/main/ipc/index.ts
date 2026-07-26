@@ -13,6 +13,7 @@ import { registerSkillHandlers } from './skill'
 import { registerKbHandlers } from './knowledge-base'
 import { registerVoiceHandlers } from './voice'
 import { registerWindowHandlers } from './window'
+import { registerWorkspaceHandlers } from './workspace'
 
 /**
  * 注册所有 IPC handlers。
@@ -52,4 +53,7 @@ export function registerIpcHandlers(): void {
 
   // ─── Window 域 (自定义菜单/窗口控制) ──────────────────────────
   registerWindowHandlers()
+
+  // ─── Workspace 域 (本地文件工作区) ───────────────────────────
+  registerWorkspaceHandlers()
 }

@@ -208,6 +208,31 @@ const win = {
     ),
 }
 
+// ─── Workspace 命名空间 (本地文件工作区) ──────────────────────
+
+const workspace = {
+  read: (path: string): Promise<string> =>
+    ipcRenderer.invoke('ws:read', { path }),
+
+  write: (path: string, content: string): Promise<number> =>
+    ipcRenderer.invoke('ws:write', { path, content }),
+
+  list: (path?: string): Promise<unknown[]> =>
+    ipcRenderer.invoke('ws:list', path !== undefined ? { path } : undefined),
+
+  mkdir: (path: string): Promise<void> =>
+    ipcRenderer.invoke('ws:mkdir', { path }),
+
+  delete: (path: string): Promise<void> =>
+    ipcRenderer.invoke('ws:delete', { path }),
+
+  rename: (from: string, to: string): Promise<void> =>
+    ipcRenderer.invoke('ws:rename', { from, to }),
+
+  tree: (path?: string, maxDepth?: number): Promise<unknown> =>
+    ipcRenderer.invoke('ws:tree', { path, maxDepth }),
+}
+
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
@@ -225,6 +250,7 @@ if (process.contextIsolated) {
       kb,
       voice,
       window: win,
+      workspace,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)
