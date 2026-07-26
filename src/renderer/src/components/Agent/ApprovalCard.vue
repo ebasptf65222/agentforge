@@ -13,9 +13,9 @@ const emit = defineEmits<{
 }>()
 
 const riskColors: Record<string, string> = {
-  low: '#4caf50',
-  medium: '#ff9800',
-  high: '#f44336',
+  low: 'var(--af-success, #10b981)',
+  medium: 'var(--af-warning, #f59e0b)',
+  high: 'var(--af-error, #ef4444)',
 }
 
 const riskLabels: Record<string, string> = {
@@ -62,11 +62,11 @@ function handleReject(): void {
 
 <style scoped>
 .approval-card {
-  border: 1px solid var(--border-color, #3a3a3a);
-  border-radius: 10px;
+  border: 1px solid var(--af-border, #334155);
+  border-radius: var(--af-radius, 8px);
   margin: 12px 0;
   overflow: hidden;
-  background: var(--bg-secondary, #1e1e1e);
+  background: var(--af-bg-surface, #1e293b);
 }
 
 .approval-header {
@@ -74,21 +74,21 @@ function handleReject(): void {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: var(--bg-tertiary, #252525);
-  border-bottom: 1px solid var(--border-color, #3a3a3a);
+  background: var(--af-bg-hover, #334155);
+  border-bottom: 1px solid var(--af-border, #334155);
 }
 
 .approval-title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #ddd);
+  color: var(--af-text-primary, #f1f5f9);
 }
 
 .risk-badge {
   font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--af-radius-sm, 6px);
   color: #fff;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -101,26 +101,26 @@ function handleReject(): void {
 .approval-reason {
   margin: 0 0 10px;
   font-size: 13px;
-  color: var(--text-secondary, #999);
+  color: var(--af-text-secondary, #cbd5e1);
 }
 
 .tool-info {
-  background: var(--bg-code, #161616);
-  border-radius: 6px;
+  background: var(--af-bg-input, #1f2937);
+  border-radius: var(--af-radius-sm, 6px);
   padding: 8px 10px;
 }
 
 .tool-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--accent-color, #4fc3f7);
+  color: var(--af-brand, #818cf8);
   display: block;
   margin-bottom: 4px;
 }
 
 .tool-args {
   font-size: 12px;
-  color: var(--text-tertiary, #888);
+  color: var(--af-text-tertiary, #94a3b8);
   margin: 0;
   overflow-x: auto;
   max-height: 200px;
@@ -136,7 +136,7 @@ function handleReject(): void {
 .btn-reject {
   flex: 1;
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: var(--af-radius-sm, 6px);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -147,7 +147,7 @@ function handleReject(): void {
 }
 
 .btn-approve {
-  background: #4caf50;
+  background: var(--af-success, #10b981);
   color: #fff;
 }
 
@@ -156,9 +156,9 @@ function handleReject(): void {
 }
 
 .btn-reject {
-  background: var(--bg-hover, #2a2a2a);
-  color: var(--text-primary, #ddd);
-  border: 1px solid var(--border-color, #3a3a3a);
+  background: var(--af-bg-hover, #334155);
+  color: var(--af-text-primary, #f1f5f9);
+  border: 1px solid var(--af-border, #334155);
 }
 
 .btn-reject:hover {

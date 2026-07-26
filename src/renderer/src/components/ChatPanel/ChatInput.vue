@@ -102,17 +102,17 @@ function handleInput(): void {
 <style scoped>
 .chat-input {
   padding: 12px 16px;
-  border-top: 1px solid #374151;
-  background-color: #111827;
+  border-top: 1px solid var(--af-border, #374151);
+  background-color: var(--af-bg-surface, #111827);
 }
 
 .chat-input__wrapper {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  background-color: #1f2937;
-  border: 1px solid #374151;
-  border-radius: 8px;
+  background-color: var(--af-bg-input, #1f2937);
+  border: 1px solid var(--af-border, #374151);
+  border-radius: var(--af-radius, 8px);
   padding: 8px 12px;
 }
 
@@ -120,7 +120,7 @@ function handleInput(): void {
   flex: 1;
   background: none;
   border: none;
-  color: #e5e7eb;
+  color: var(--af-text-primary, #e5e7eb);
   font-size: 14px;
   line-height: 1.5;
   resize: none;
@@ -132,7 +132,7 @@ function handleInput(): void {
 }
 
 .chat-input__textarea::placeholder {
-  color: #6b7280;
+  color: var(--af-text-muted, #6b7280);
 }
 
 .chat-input__textarea:disabled {
@@ -151,10 +151,10 @@ function handleInput(): void {
   margin-top: 4px;
   text-align: right;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--af-text-muted, #6b7280);
 }
 
 .chat-input__counter.is-warning {
-  color: #f59e0b;
+  color: var(--af-warning, #f59e0b);
 }
 </style>

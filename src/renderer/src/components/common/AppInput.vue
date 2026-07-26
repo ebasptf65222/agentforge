@@ -1,4 +1,10 @@
 <script setup lang="ts">
+/**
+ * AppInput — naive-ui NInput 薄包装器
+ * 保持原有 modelValue/error API 不变，内部映射到 naive-ui props。
+ */
+import { NInput } from 'naive-ui'
+
 interface AppInputProps {
   modelValue?: string
   placeholder?: string
@@ -23,15 +29,15 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="app-input-wrapper" :class="{ 'app-input-wrapper--error': error !== '' }">
-    <input
+  <div class="app-input-wrapper">
+    <NInput
       :value="modelValue"
       :placeholder="placeholder"
       :disabled="disabled"
-      :type="type"
       :maxlength="maxlength"
-      class="app-input"
-      @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+      :status="error ? 'error' : undefined"
+      :type="type === 'password' ? 'password' : 'text'"
+      @update:value="$emit('update:modelValue', $event)"
     />
     <p v-if="error !== ''" class="app-input__error-text">{{ error }}</p>
   </div>
@@ -42,38 +48,9 @@ defineEmits<{
   width: 100%;
 }
 
-.app-input {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #374151;
-  border-radius: 6px;
-  background-color: #1f2937;
-  color: #e5e7eb;
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.15s ease;
-}
-
-.app-input:focus {
-  border-color: #4f46e5;
-}
-
-.app-input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.app-input-wrapper--error .app-input {
-  border-color: #dc2626;
-}
-
-.app-input-wrapper--error .app-input:focus {
-  border-color: #dc2626;
-}
-
 .app-input__error-text {
   margin: 4px 2px 0;
-  color: #dc2626;
+  color: var(--af-error, #ef4444);
   font-size: 12px;
   line-height: 1.4;
 }

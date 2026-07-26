@@ -27,6 +27,8 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@vicons/ionicons5": "^0.13.0",
+    "@vicons/material": "^0.13.0",
     "better-sqlite3": "^13.0.1",
     "dompurify": "^3.4.12",
     "exceljs": "^4.4.0",
@@ -53,7 +55,6 @@
     "prettier": "^3.9.6",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.65.0",
-    "unocss": "^66.7.5",
     "vite": "^8.1.5",
     "vitest": "^4.1.10",
     "vue": "^3.5.0",
@@ -78,7 +79,9 @@
       {
         "from": "src/main/db/migrations",
         "to": "db/migrations",
-        "filter": ["**/*.sql"]
+        "filter": [
+          "**/*.sql"
+        ]
       }
     ],
     "asarUnpack": [
@@ -88,11 +91,15 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "deb",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "category": "Development",
@@ -102,7 +109,10 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "category": "public.app-category.developer-tools"
@@ -111,7 +121,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },

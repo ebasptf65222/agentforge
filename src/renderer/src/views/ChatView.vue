@@ -2,6 +2,8 @@
 // ChatView - main chat experience with Sidebar + ChatPanel + Agent ExecutionPanel
 
 import { onMounted, onUnmounted, computed } from 'vue'
+import { NIcon } from 'naive-ui'
+import { MenuOutlined } from '@vicons/material'
 import { useChatStore } from '@/stores/chat'
 import { useUiStore } from '@/stores/ui'
 import { useChat } from '@/composables/use-chat'
@@ -105,7 +107,9 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '260px')
       title="展开侧边栏 (Cmd/Ctrl+B)"
       @click="uiStore.toggleSidebar()"
     >
-      <span class="chat-view__sidebar-toggle-icon">☰</span>
+      <NIcon :size="18" class="chat-view__sidebar-toggle-icon">
+        <MenuOutlined />
+      </NIcon>
     </button>
 
     <!-- Main chat panel -->
@@ -139,8 +143,8 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '260px')
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background-color: #111827;
-  border-right: 1px solid #374151;
+  background-color: var(--af-bg-surface, #111827);
+  border-right: 1px solid var(--af-border, #374151);
   overflow: hidden;
   transition: width 0.2s ease;
 }
@@ -160,10 +164,10 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '260px')
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #1f2937;
-  border: 1px solid #374151;
-  border-radius: 6px;
-  color: #e5e7eb;
+  background-color: var(--af-bg-input, #1f2937);
+  border: 1px solid var(--af-border, #374151);
+  border-radius: var(--af-radius-sm, 6px);
+  color: var(--af-text-primary, #e5e7eb);
   cursor: pointer;
   font-size: 16px;
   transition:
@@ -172,8 +176,8 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '260px')
 }
 
 .chat-view__sidebar-toggle:hover {
-  background-color: #374151;
-  border-color: #4b5563;
+  background-color: var(--af-bg-hover, #374151);
+  border-color: var(--af-border, #4b5563);
 }
 
 .chat-view__sidebar-toggle-icon {
@@ -185,6 +189,6 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '260px')
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background-color: #0f172a;
+  background-color: var(--af-bg, #0f172a);
 }
 </style>

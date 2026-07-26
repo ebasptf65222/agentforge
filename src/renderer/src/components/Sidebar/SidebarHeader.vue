@@ -2,6 +2,8 @@
 // P1-16: Sidebar header with app title, new conversation button, and settings button.
 
 import { computed } from 'vue'
+import { NIcon } from 'naive-ui'
+import { BookOutlined, SettingsOutlined, AddOutlined } from '@vicons/material'
 import AppButton from '@/components/common/AppButton.vue'
 
 const props = defineProps<{
@@ -15,7 +17,7 @@ const emit = defineEmits<{
   'open-kb': []
 }>()
 
-const newChatLabel = computed(() => (props.collapsed ? '+' : '+ 新建对话'))
+const newChatLabel = computed(() => (props.collapsed ? '' : '新建对话'))
 </script>
 
 <template>
@@ -30,7 +32,9 @@ const newChatLabel = computed(() => (props.collapsed ? '+' : '+ 新建对话'))
           aria-label="知识库"
           @click="emit('open-kb')"
         >
-          <span aria-hidden="true">&#128218;</span>
+          <NIcon :size="16" aria-hidden="true">
+            <BookOutlined />
+          </NIcon>
         </button>
         <button
           class="sidebar-header__icon-btn"
@@ -39,7 +43,9 @@ const newChatLabel = computed(() => (props.collapsed ? '+' : '+ 新建对话'))
           aria-label="设置"
           @click="emit('settings')"
         >
-          <span class="sidebar-header__gear" aria-hidden="true">&#9881;</span>
+          <NIcon :size="16" aria-hidden="true">
+            <SettingsOutlined />
+          </NIcon>
         </button>
       </div>
     </div>
@@ -49,7 +55,10 @@ const newChatLabel = computed(() => (props.collapsed ? '+' : '+ 新建对话'))
       :title="collapsed ? '新建对话 (Cmd/Ctrl+N)' : undefined"
       @click="emit('new-chat')"
     >
-      {{ newChatLabel }}
+      <span class="sidebar-header__new-chat-content">
+        <NIcon :size="16"><AddOutlined /></NIcon>
+        <span v-if="!collapsed">{{ newChatLabel }}</span>
+      </span>
     </AppButton>
     <div v-if="collapsed" class="sidebar-header__nav">
       <button
@@ -59,7 +68,9 @@ const newChatLabel = computed(() => (props.collapsed ? '+' : '+ 新建对话'))
         aria-label="知识库"
         @click="emit('open-kb')"
       >
-        <span aria-hidden="true">&#128218;</span>
+        <NIcon :size="16" aria-hidden="true">
+          <BookOutlined />
+        </NIcon>
       </button>
       <button
         class="sidebar-header__icon-btn"
@@ -68,7 +79,9 @@ const newChatLabel = computed(() => (props.collapsed ? '+' : '+ 新建对话'))
         aria-label="设置"
         @click="emit('settings')"
       >
-        <span class="sidebar-header__gear" aria-hidden="true">&#9881;</span>
+        <NIcon :size="16" aria-hidden="true">
+          <SettingsOutlined />
+        </NIcon>
       </button>
     </div>
   </div>
@@ -80,7 +93,7 @@ const newChatLabel = computed(() => (props.collapsed ? '+' : '+ 新建对话'))
   flex-direction: column;
   gap: 12px;
   padding: 16px;
-  border-bottom: 1px solid #374151;
+  border-bottom: 1px solid var(--af-border, #374151);
 }
 
 .sidebar-header--collapsed {
@@ -97,7 +110,7 @@ const newChatLabel = computed(() => (props.collapsed ? '+' : '+ 新建对话'))
 .sidebar-header__title {
   font-size: 16px;
   font-weight: 700;
-  color: #f9fafb;
+  color: var(--af-text-primary, #f9fafb);
   margin: 0;
   white-space: nowrap;
 }
@@ -122,9 +135,9 @@ const newChatLabel = computed(() => (props.collapsed ? '+' : '+ 新建对话'))
   height: 28px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--af-radius-sm, 6px);
   background-color: transparent;
-  color: #9ca3af;
+  color: var(--af-text-tertiary, #9ca3af);
   cursor: pointer;
   transition:
     background-color 0.15s ease,
@@ -132,12 +145,13 @@ const newChatLabel = computed(() => (props.collapsed ? '+' : '+ 新建对话'))
 }
 
 .sidebar-header__icon-btn:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  color: #e5e7eb;
+  background-color: var(--af-bg-hover, rgba(255, 255, 255, 0.08));
+  color: var(--af-text-primary, #e5e7eb);
 }
 
-.sidebar-header__gear {
-  font-size: 16px;
-  line-height: 1;
+.sidebar-header__new-chat-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 </style>

@@ -2,6 +2,8 @@
 // P1-16: Conversation list in sidebar
 
 import { computed } from 'vue'
+import { NIcon } from 'naive-ui'
+import { CloseOutlined } from '@vicons/material'
 import type { Conversation } from '@shared/types'
 
 const props = defineProps<{
@@ -81,7 +83,7 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
           title="删除对话"
           @click.stop="emit('delete', conv.id)"
         >
-          x
+          <NIcon :size="16"><CloseOutlined /></NIcon>
         </button>
       </li>
     </ul>
@@ -100,7 +102,7 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #6b7280;
+  color: var(--af-text-muted, #6b7280);
   font-size: 13px;
 }
 
@@ -121,7 +123,7 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
 }
 
 .conversation-item:hover {
-  background-color: #1f2937;
+  background-color: var(--af-bg-hover, #1f2937);
 }
 
 .conversation-item:hover .conversation-item__delete {
@@ -129,8 +131,8 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
 }
 
 .conversation-item--active {
-  background-color: #1f2937;
-  border-left-color: #4f46e5;
+  background-color: var(--af-bg-hover, #1f2937);
+  border-left-color: var(--af-brand, #4f46e5);
 }
 
 .conversation-item__content {
@@ -144,7 +146,7 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
 
 .conversation-item__title {
   font-size: 13px;
-  color: #e5e7eb;
+  color: var(--af-text-primary, #e5e7eb);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -152,7 +154,7 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
 
 .conversation-item__time {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--af-text-muted, #6b7280);
 }
 
 .conversation-item__delete {
@@ -160,7 +162,7 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
   opacity: 0;
   background: none;
   border: none;
-  color: #6b7280;
+  color: var(--af-text-muted, #6b7280);
   cursor: pointer;
   font-size: 14px;
   padding: 2px 6px;
@@ -170,8 +172,8 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
 }
 
 .conversation-item__delete:hover {
-  color: #ef4444;
-  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--af-error, #ef4444);
+  background-color: color-mix(in srgb, var(--af-error, #ef4444) 10%, transparent);
 }
 
 /* ─── Skeleton placeholders (P1-12) ─────────────────────────── */
@@ -193,7 +195,7 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
   height: 12px;
   width: 75%;
   border-radius: 4px;
-  background-color: #374151;
+  background-color: var(--af-border, #374151);
   animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
 
@@ -201,7 +203,7 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
   height: 10px;
   width: 45%;
   border-radius: 4px;
-  background-color: #374151;
+  background-color: var(--af-border, #374151);
   animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
 

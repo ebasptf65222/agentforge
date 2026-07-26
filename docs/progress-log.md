@@ -1,5 +1,44 @@
 # AgentForge 进度日志
 
+## UI 重构：naive-ui 组件库集成 + 主题系统 + 移除 UnoCSS (2026-07-26)
+
+**任务**: 全面对前端 UI 进行重新设计美化，引入 naive-ui 组件库替换自定义组件，建立统一的 CSS 变量主题系统，并移除 UnoCSS 依赖
+
+### 变更概要
+
+#### 1. 主题系统搭建
+- 新增 `src/renderer/src/theme/tokens.ts`：定义深色/浅色主题的 CSS 自定义属性（`--af-*` 前缀）和 naive-ui themeOverrides
+- 新增 `src/renderer/src/composables/use-theme.ts`：主题切换 composable，自动应用 CSS 变量到 `:root`
+
+#### 2. 组件库替换
+- 新增 `AppButton.vue` / `AppInput.vue` / `AppModal.vue`：naive-ui 组件的薄封装，保持原有 API 兼容
+- `ChatView.vue`：替换为 naive-ui 组件，统一使用主题令牌
+- `SettingsView.vue`：使用 NTabs / NSelect 重构
+- `KbView.vue`：使用 NDataTable / NModal 重构
+- `SidebarHeader.vue` / `ConversationList.vue`：替换为 @vicons/material 图标 + 主题令牌
+- `ChatInput.vue` / `MessageItem.vue` / `GeneralSettings.vue`：统一色板到 `--af-*` 令牌
+
+#### 3. Agent 组件色板统一
+- `ExecutionPanel.vue`：状态色、动作色、摘要色全部替换为 `var(--af-*)` 主题令牌
+- `ApprovalCard.vue`：风险等级色替换为主题令牌（success/warning/error）
+- `ThinkingBlock.vue`：背景、边框、文字色统一到 `--af-*` 令牌
+
+#### 4. 移除 UnoCSS
+- 删除 `unocss.config.ts`
+- 从 `electron.vite.config.ts` 移除 UnoCSS Vite 插件
+- 从 `tsconfig.node.json` 移除 UnoCSS 配置引用
+- 从 `package.json` 移除 `unocss` devDependency
+- 从 `main.ts` 移除 `import 'virtual:uno.css'`
+
+### 验证结果
+
+- `pnpm typecheck`: 通过 (vue-tsc 3.3.8)
+- `pnpm build`: 通过 (electron-vite build)
+- `pnpm lint`: 通过 (ESLint 10.8.0, 0 warnings)
+- `pnpm test`: 947 tests passed (43 files)
+
+---
+
 ## 依赖版本升级 (2026-07-26)
 
 **原因**: 用户要求所有技术版本使用最新
