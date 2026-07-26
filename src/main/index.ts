@@ -1,4 +1,5 @@
-import { app, BrowserWindow, shell, session } from 'electron'
+import { app, BrowserWindow, shell, session, Menu } from 'electron'
+import type { MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import {
   loadWindowState,
@@ -52,6 +53,57 @@ function injectCsp(): void {
   })
 }
 
+// ─── 原生菜单 ─────────────────────────────────────────────────────
+
+/**
+ * 设置应用菜单。
+ * - macOS: 保留最小化菜单（编辑/窗口），确保 Cmd+C/V/A/Q 等系统快捷键可用
+ * - Windows/Linux: 完全移除菜单栏
+ */
+function setupMenu(): void {
+  if (process.platform === 'darwin') {
+    const template: MenuItemConstructorOptions[] = [
+      {
+        label: app.name,
+        submenu: [
+          { role: 'about', label: `关于 ${app.name}` },
+          { type: 'separator' },
+          { role: 'services', label: '服务' },
+          { type: 'separator' },
+          { role: 'hide', label: '隐藏' },
+          { role: 'hideOthers', label: '隐藏其他' },
+          { role: 'unhide', label: '全部显示' },
+          { type: 'separator' },
+          { role: 'quit', label: '退出' },
+        ],
+      },
+      {
+        label: '编辑',
+        submenu: [
+          { role: 'undo', label: '撤销' },
+          { role: 'redo', label: '重做' },
+          { type: 'separator' },
+          { role: 'cut', label: '剪切' },
+          { role: 'copy', label: '复制' },
+          { role: 'paste', label: '粘贴' },
+          { role: 'selectAll', label: '全选' },
+        ],
+      },
+      {
+        label: '窗口',
+        submenu: [
+          { role: 'minimize', label: '最小化' },
+          { role: 'close', label: '关闭' },
+        ],
+      },
+    ]
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  } else {
+    // Windows/Linux: 完全移除原生菜单栏
+    Menu.setApplicationMenu(null)
+  }
+}
+
 // ─── 窗口创建 ─────────────────────────────────────────────────────
 
 /**
@@ -84,6 +136,11 @@ function createWindow(): BrowserWindow {
     minWidth: 800,
     minHeight: 600,
     show: false,
+    // macOS: 隐藏标题栏但保留交通灯按钮
+    // Windows/Linux: 无边框窗口，完全自定义标题栏
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    frame: process.platform === 'darwin',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
@@ -170,6 +227,9 @@ if (!gotTheLock) {
 
     // 注册所有 IPC handlers（P1-06 起）
     registerIpcHandlers()
+
+    // 设置原生菜单（隐藏菜单栏 / macOS 最小化菜单）
+    setupMenu()
 
     // 生产环境注入 CSP（开发环境跳过以支持 Vite HMR）
     if (app.isPackaged) {

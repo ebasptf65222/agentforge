@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // P1-10 / P1-15 / P1-16: SettingsView - tabbed settings page.
-// Uses naive-ui NTabs to switch between ModelConfig and GeneralSettings.
+// Uses naive-ui NTabs to switch between ModelConfig, McpConfig, SkillConfig, and GeneralSettings.
 // A back button (NButton + NIcon) in the tab bar prefix returns to the chat view.
 
 import { ref, type CSSProperties } from 'vue'
@@ -8,9 +8,11 @@ import { NTabs, NTabPane, NButton, NIcon } from 'naive-ui'
 import { ArrowLeftOutlined } from '@vicons/material'
 import { useUiStore } from '@/stores/ui'
 import ModelConfig from '@/components/Settings/ModelConfig.vue'
+import McpConfig from '@/components/Settings/McpConfig.vue'
+import SkillConfig from '@/components/Settings/SkillConfig.vue'
 import GeneralSettings from '@/components/Settings/GeneralSettings.vue'
 
-type SettingsTab = 'models' | 'general'
+type SettingsTab = 'models' | 'mcp' | 'skills' | 'general'
 
 const uiStore = useUiStore()
 const activeTab = ref<SettingsTab>('models')
@@ -28,6 +30,7 @@ const paneWrapperStyle: CSSProperties = {
 const paneStyle: CSSProperties = {
   height: '100%',
   padding: '24px',
+  overflow: 'auto',
 }
 </script>
 
@@ -57,6 +60,12 @@ const paneStyle: CSSProperties = {
       </template>
       <NTabPane name="models" tab="模型配置">
         <ModelConfig />
+      </NTabPane>
+      <NTabPane name="mcp" tab="MCP 服务器">
+        <McpConfig />
+      </NTabPane>
+      <NTabPane name="skills" tab="Skills">
+        <SkillConfig />
       </NTabPane>
       <NTabPane name="general" tab="通用设置">
         <GeneralSettings />
