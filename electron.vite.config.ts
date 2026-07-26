@@ -11,6 +11,10 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
         },
+        external: [
+          'electron',
+          'better-sqlite3',
+        ],
       },
     },
   },
@@ -18,6 +22,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        external: ['electron'],
         output: {
           format: 'cjs',
         },

@@ -4,6 +4,7 @@
 import { onMounted, onUnmounted, computed } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useUiStore } from '@/stores/ui'
+import { useModelStore } from '@/stores/model'
 import { useChat } from '@/composables/use-chat'
 import { useAgent } from '@/composables/use-agent'
 import SidebarHeader from '@/components/Sidebar/SidebarHeader.vue'
@@ -14,6 +15,7 @@ import ExecutionPanel from '@/components/Agent/ExecutionPanel.vue'
 
 const chatStore = useChatStore()
 const uiStore = useUiStore()
+const modelStore = useModelStore()
 
 // Set up stream event listeners
 useChat()
@@ -21,7 +23,7 @@ useAgent()
 
 onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
-  await chatStore.loadConversations()
+  await Promise.all([chatStore.loadConversations(), modelStore.loadModels()])
 })
 
 onUnmounted(() => {
@@ -41,8 +43,13 @@ function handleKeydown(event: KeyboardEvent): void {
 }
 
 async function handleNewChat(): Promise<void> {
-  // Default model ID - in production this would come from settings/model store
-  await chatStore.newConversation('default')
+  const firstModel = modelStore.models[0]
+  if (!firstModel) {
+    // No models configured — open settings so user can add one
+    uiStore.setCurrentView('settings')
+    return
+  }
+  await chatStore.newConversation(firstModel.id)
 }
 
 function handleOpenSettings(): void {
