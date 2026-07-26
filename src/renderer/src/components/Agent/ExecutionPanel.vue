@@ -86,7 +86,12 @@ function handleReject(reason?: string): void {
     <div v-if="hasTrajectories" class="trajectories">
       <div v-for="traj in agentStore.trajectories" :key="traj.step" class="trajectory-item">
         <!-- Thinking block (collapsible) -->
-        <ThinkingBlock v-if="traj.thought" :thought="traj.thought" :step="traj.step" />
+        <ThinkingBlock
+          v-if="traj.thought"
+          :thought="traj.thought"
+          :step="traj.step"
+          :is-streaming="agentStore.isRunning && traj.step === agentStore.trajectories.length"
+        />
 
         <!-- Action info -->
         <div v-if="traj.action" class="action-info">

@@ -24,6 +24,11 @@ import type {
   ChunkingOptions,
   ImportResult,
   KbStats,
+  VoiceConfig,
+  TtsConfig,
+  SttConfig,
+  TtsOptions,
+  SttOptions,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -97,8 +102,9 @@ interface ChatAPI {
   listConversations(): Promise<Conversation[]>
   getConversation(id: string): Promise<Conversation>
   deleteConversation(id: string): Promise<void>
+  updateTitle(id: string, title: string): Promise<Conversation>
   getMessages(conversationId: string): Promise<ChatMessage[]>
-  send(conversationId: string, content: string, modelId: string): Promise<void>
+  send(conversationId: string, content: string, modelId: string, kbEnabled?: boolean): Promise<void>
   stop(): Promise<void>
   onStreamChunk(callback: (chunk: StreamChunk) => void): () => void
   onStreamEnd(callback: (meta: StreamEndMetadata) => void): () => void
@@ -285,6 +291,27 @@ interface WindowAPI {
   onMaximizeChange(callback: (maximized: boolean) => void): () => void
 }
 
+/** 语音 API（TTS + STT） */
+interface VoiceAPI {
+  // ─── TTS ───
+  /** 合成语音，返回音频 ArrayBuffer */
+  synthesize(text: string, options?: TtsOptions): Promise<ArrayBuffer>
+  /** 测试 TTS 配置（合成一句测试音频） */
+  testTts(config: VoiceConfig): Promise<void>
+
+  // ─── STT ───
+  /** 上传音频并转录，返回识别文本 */
+  transcribe(audioBuffer: ArrayBuffer, options?: SttOptions): Promise<string>
+  /** 测试 STT 配置 */
+  testStt(config: VoiceConfig): Promise<string>
+
+  // ─── 配置 ───
+  /** 获取语音配置 */
+  getConfig(): Promise<VoiceConfig>
+  /** 保存语音配置 */
+  saveConfig(config: VoiceConfig): Promise<void>
+}
+
 /** window.electron 完整类型 */
 interface ElectronAPI {
   chat: ChatAPI
@@ -296,6 +323,7 @@ interface ElectronAPI {
   mcp: McpAPI
   skill: SkillAPI
   kb: KbAPI
+  voice: VoiceAPI
   window: WindowAPI
 }
 
@@ -329,6 +357,7 @@ export type {
   KbSearchParams,
   KbIndexParams,
   KbAPI,
+  VoiceAPI,
   WindowAPI,
   ElectronAPI,
 }

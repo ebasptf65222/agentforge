@@ -29,6 +29,7 @@ import { createMessage, getMessagesByConversationId } from '../db/repos/message'
 import { modelConfigExists } from '../db/repos/model-config'
 import { getModelAdapter } from '../models/router'
 import type { AdapterMessage } from '../models/adapter'
+import { semanticSearch } from '../knowledge-base/search'
 
 // ─── 并发控制 ─────────────────────────────────────────────────────
 
@@ -181,10 +182,35 @@ export async function handleSend(
 
   // 7. 构建消息历史
   const history = getMessagesByConversationId(conversationId)
-  const adapterMessages: AdapterMessage[] = history.map((msg) => ({
-    role: msg.role,
-    content: msg.content,
-  }))
+  const adapterMessages: AdapterMessage[] = []
+
+  // 7a. 如果启用了知识库关联，先搜索知识库并注入结果
+  const kbEnabled = p['kbEnabled'] === true
+  if (kbEnabled) {
+    try {
+      const kbResults = await semanticSearch(content, { topK: 5, threshold: 0.5 })
+      if (kbResults.length > 0) {
+        const kbContext = [
+          '以下是从知识库中检索到的相关信息，请在回答时参考这些内容：',
+          ...kbResults.map(
+            (r, i) =>
+              `[${i + 1}] 来源: ${r.fileName}（相似度: ${(r.score * 100).toFixed(1)}%）\n内容: ${r.content}`,
+          ),
+        ].join('\n\n')
+        adapterMessages.push({ role: 'system', content: kbContext })
+      }
+    } catch (kbError) {
+      console.error('[ChatIPC] KB search error:', kbError)
+      // 知识库搜索失败不影响正常对话，继续执行
+    }
+  }
+
+  adapterMessages.push(
+    ...history.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    })),
+  )
 
   // 8. 流式生成
   const startTime = Date.now()
@@ -430,6 +456,17 @@ const registrations: ChannelRegistration[] = [
   {
     channel: 'chat:get-messages',
     handler: (_event, params: unknown) => handleGetMessages(params),
+  },
+  {
+    channel: 'chat:update-title',
+    handler: (_event, params: { id: string; title: string }) => {
+      const { id, title } = params
+      if (!id || !title?.trim()) {
+        throw new AppError('INVALID_PARAMS', '会话 ID 和标题不能为空')
+      }
+      updateConversationTitle(id, title.trim())
+      return getConversationById(id)
+    },
   },
 ]
 

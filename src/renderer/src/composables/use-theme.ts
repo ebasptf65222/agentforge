@@ -1,26 +1,20 @@
 /**
- * useTheme — 统一的主题管理 composable
+ * useTheme — unified theme management composable
  *
- * - 从 settings store 读取主题偏好 (dark / light / system)
- * - 监听系统主题变化 (system 模式时自动跟随)
- * - 将 CSS 自定义属性注入到 :root
- * - 返回 naive-ui 可用的 darkTheme / null 及 themeOverrides
+ * Uses VueUse useDark for dark/light/system theme management.
+ * Also injects CSS custom properties and provides naive-ui theme objects.
+ * P1-16 spec: "使用 VueUse useDark 实现主题切换"
  */
 
-import { computed, watch, onMounted, onUnmounted, type Ref } from 'vue'
+import { computed, watch, type Ref } from 'vue'
+import { useDark, usePreferredDark } from '@vueuse/core'
 import { darkTheme, type GlobalTheme, type GlobalThemeOverrides } from 'naive-ui'
 import { useSettingsStore } from '@/stores/settings'
 import { darkCssVars, lightCssVars, darkThemeOverrides, lightThemeOverrides } from '@/theme/tokens'
 
 export type EffectiveTheme = 'dark' | 'light'
 
-/** 系统主题偏好 (dark/light) */
-function getSystemTheme(): EffectiveTheme {
-  if (typeof window === 'undefined') return 'dark'
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
-
-/** 将 CSS 变量对象注入到 documentElement */
+/** Apply CSS variable set to :root */
 function applyCssVars(vars: Record<string, string>): void {
   const root = document.documentElement
   for (const [key, value] of Object.entries(vars)) {
@@ -28,7 +22,7 @@ function applyCssVars(vars: Record<string, string>): void {
   }
 }
 
-/** 清除另一套主题的变量，避免残留 */
+/** Clear a CSS variable set from :root */
 function clearCssVars(vars: Record<string, string>): void {
   const root = document.documentElement
   for (const key of Object.keys(vars)) {
@@ -36,51 +30,72 @@ function clearCssVars(vars: Record<string, string>): void {
   }
 }
 
-/** 全局实例缓存，避免多个 composable 实例重复监听 */
-let systemMediaQuery: MediaQueryList | null = null
-let systemListener: ((e: MediaQueryListEvent) => void) | null = null
-
 export interface UseThemeReturn {
-  /** 实际生效的主题 */
+  /** Actually effective theme (dark or light) */
   effectiveTheme: Ref<EffectiveTheme>
-  /** naive-ui 主题对象 (darkTheme 或 null 表示浅色) */
+  /** naive-ui theme object (darkTheme or null for light) */
   naiveTheme: Ref<GlobalTheme | null>
-  /** naive-ui 主题覆盖 */
+  /** naive-ui theme overrides */
   naiveThemeOverrides: Ref<GlobalThemeOverrides>
 }
 
 /**
- * 主题管理 composable。
- * 在 App.vue 顶层调用一次即可，内部自动响应设置变化。
+ * Theme management composable.
+ * Uses VueUse useDark internally, but also manages CSS custom properties
+ * and naive-ui theme objects beyond what useDark provides.
  */
 export function useTheme(): UseThemeReturn {
   const settingsStore = useSettingsStore()
 
-  /** 用户偏好主题 (从设置读取，默认深色) */
+  /** System dark preference via VueUse */
+  const prefersDark = usePreferredDark()
+
+  /** User preference from settings store */
   const preferredTheme = computed<'dark' | 'light' | 'system'>(() => {
     return settingsStore.settings?.theme ?? 'dark'
   })
 
-  /** 实际生效主题 */
-  const effectiveTheme = computed<EffectiveTheme>(() => {
-    if (preferredTheme.value === 'system') {
-      return getSystemTheme()
-    }
-    return preferredTheme.value
+  /**
+   * Determine if effective theme should be dark.
+   * - 'dark' -> always dark
+   * - 'light' -> always light
+   * - 'system' -> follow prefersDark
+   */
+  const shouldUseDark = computed(() => {
+    if (preferredTheme.value === 'system') return prefersDark.value
+    return preferredTheme.value === 'dark'
   })
 
-  /** naive-ui 主题对象 */
-  const naiveTheme = computed<GlobalTheme | null>(() => {
-    return effectiveTheme.value === 'dark' ? darkTheme : null
+  /** VueUse useDark - manages document class and localStorage */
+  const isDark = useDark({
+    selector: 'html',
+    attribute: 'class',
+    valueDark: 'dark',
+    valueLight: 'light',
+    initialValue: shouldUseDark.value ? 'dark' : 'light',
   })
 
-  /** naive-ui 主题覆盖 */
-  const naiveThemeOverrides = computed<GlobalThemeOverrides>(() => {
-    return effectiveTheme.value === 'dark' ? darkThemeOverrides : lightThemeOverrides
+  /** Keep VueUse in sync with our computed preference */
+  watch(shouldUseDark, (val) => {
+    isDark.value = val
   })
 
-  // ─── 应用 CSS 变量 ──────────────────────────────────────
+  /** Effective theme derived from VueUse */
+  const effectiveTheme = computed<EffectiveTheme>(() =>
+    isDark.value ? 'dark' : 'light',
+  )
 
+  /** naive-ui theme object */
+  const naiveTheme = computed<GlobalTheme | null>(() =>
+    effectiveTheme.value === 'dark' ? darkTheme : null,
+  )
+
+  /** naive-ui theme overrides */
+  const naiveThemeOverrides = computed<GlobalThemeOverrides>(() =>
+    effectiveTheme.value === 'dark' ? darkThemeOverrides : lightThemeOverrides,
+  )
+
+  /** Apply CSS custom properties based on effective theme */
   function applyTheme(): void {
     if (effectiveTheme.value === 'dark') {
       clearCssVars(lightCssVars)
@@ -93,30 +108,7 @@ export function useTheme(): UseThemeReturn {
     }
   }
 
-  // 监听主题变化
   watch(effectiveTheme, applyTheme, { immediate: true })
-
-  // ─── 系统主题变化监听 ────────────────────────────────────
-
-  onMounted(() => {
-    if (!systemMediaQuery && typeof window !== 'undefined') {
-      systemMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-      systemListener = () => {
-        if (preferredTheme.value === 'system') {
-          applyTheme()
-        }
-      }
-      systemMediaQuery.addEventListener('change', systemListener)
-    }
-  })
-
-  onUnmounted(() => {
-    if (systemMediaQuery && systemListener) {
-      systemMediaQuery.removeEventListener('change', systemListener)
-      systemMediaQuery = null
-      systemListener = null
-    }
-  })
 
   return {
     effectiveTheme,

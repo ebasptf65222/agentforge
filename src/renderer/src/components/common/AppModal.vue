@@ -1,8 +1,12 @@
 <script setup lang="ts">
 /**
- * AppModal — naive-ui NModal 薄包装器
- * 使用 preset="card" 获得 header/body/footer 三段式布局。
- * 保持原有 visible/title/width API 不变。
+ * AppModal — naive-ui NModal wrapper
+ * 
+ * P1-11 requirements:
+ * - fade animation (via NModal default transition)
+ * - mask-closable (click overlay to close)
+ * - ESC close (explicit close-on-esc)
+ * - z-index 1000
  */
 import { NModal } from 'naive-ui'
 
@@ -32,8 +36,11 @@ function handleUpdateVisible(value: boolean): void {
     :title="title || undefined"
     preset="card"
     :bordered="false"
-    :style="{ maxWidth: `${width}px`, width: `${width}px` }"
+    :z-index="1000"
     :mask-closable="true"
+    :close-on-esc="true"
+    :style="{ maxWidth: `${width}px`, width: `${width}px` }"
+    :transition-props="{ name: 'fade' }"
     @update:show="handleUpdateVisible"
   >
     <slot />

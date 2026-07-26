@@ -73,7 +73,31 @@ export function initDatabase(dbPath?: string): Database.Database {
   const schemaSql = readFileSync(schemaPath, 'utf-8')
   db.exec(schemaSql)
 
+  // 运行条件迁移（处理已存在数据库的 schema 变更）
+  runConditionalMigrations(db)
+
   return db
+}
+
+/**
+ * 检查表是否存在指定列。
+ */
+function hasColumn(db: Database.Database, tableName: string, columnName: string): boolean {
+  const columns = db.pragma(`table_info(${tableName})`) as Array<{ name: string }>
+  return columns.some((c) => c.name === columnName)
+}
+
+/**
+ * 条件迁移：为已存在的数据库添加缺失的列或索引。
+ * 所有操作都是幂等的。
+ */
+function runConditionalMigrations(db: Database.Database): void {
+  // V1-01: 确保 app_settings 有 voice 列
+  if (!hasColumn(db, 'app_settings', 'voice')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN voice TEXT NOT NULL DEFAULT '{"tts":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"tts-1","voice":"alloy","speed":1.0,"format":"mp3","autoPlay":false},"stt":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"whisper-1","language":"","temperature":0.0},"mode":{"vadSilenceThreshold":1.5,"autoAwait":true}}'`
+    )
+  }
 }
 
 /**

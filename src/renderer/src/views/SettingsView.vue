@@ -10,9 +10,10 @@ import { useUiStore } from '@/stores/ui'
 import ModelConfig from '@/components/Settings/ModelConfig.vue'
 import McpConfig from '@/components/Settings/McpConfig.vue'
 import SkillConfig from '@/components/Settings/SkillConfig.vue'
+import VoiceConfig from '@/components/Settings/VoiceConfig.vue'
 import GeneralSettings from '@/components/Settings/GeneralSettings.vue'
 
-type SettingsTab = 'models' | 'mcp' | 'skills' | 'general'
+type SettingsTab = 'models' | 'mcp' | 'skills' | 'voice' | 'general'
 
 const uiStore = useUiStore()
 const activeTab = ref<SettingsTab>('models')
@@ -66,6 +67,9 @@ const paneStyle: CSSProperties = {
       </NTabPane>
       <NTabPane name="skills" tab="Skills">
         <SkillConfig />
+      </NTabPane>
+      <NTabPane name="voice" tab="语音">
+        <VoiceConfig />
       </NTabPane>
       <NTabPane name="general" tab="通用设置">
         <GeneralSettings />

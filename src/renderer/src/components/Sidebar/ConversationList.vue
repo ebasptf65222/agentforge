@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // P1-16: Conversation list in sidebar
+// Supports CRUD: Create (via emit), Read (list), Update (rename), Delete
 
-import { computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { NIcon } from 'naive-ui'
-import { CloseOutlined } from '@vicons/material'
+import { CloseOutlined, EditOutlined, CheckOutlined } from '@vicons/material'
 import type { Conversation } from '@shared/types'
 
 const props = defineProps<{
@@ -17,7 +18,50 @@ const emit = defineEmits<{
   select: [id: string]
   'new-chat': []
   delete: [id: string]
+  rename: [id: string, newTitle: string]
 }>()
+
+/** Currently renaming conversation ID (null = not renaming) */
+const renamingId = ref<string | null>(null)
+const renameValue = ref('')
+const renameInputRef = ref<HTMLInputElement | null>(null)
+
+/** Start inline rename */
+function startRename(conv: Conversation, event: Event): void {
+  event.stopPropagation()
+  renamingId.value = conv.id
+  renameValue.value = conv.title
+  void nextTick(() => {
+    renameInputRef.value?.focus()
+    renameInputRef.value?.select()
+  })
+}
+
+/** Confirm rename */
+function confirmRename(id: string): void {
+  const trimmed = renameValue.value.trim()
+  if (trimmed && trimmed !== props.conversations.find((c) => c.id === id)?.title) {
+    emit('rename', id, trimmed)
+  }
+  cancelRename()
+}
+
+/** Cancel rename */
+function cancelRename(): void {
+  renamingId.value = null
+  renameValue.value = ''
+}
+
+/** Handle rename input keydown */
+function handleRenameKeydown(event: KeyboardEvent, id: string): void {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    confirmRename(id)
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    cancelRename()
+  }
+}
 
 /**
  * Simple relative time formatter.
@@ -70,21 +114,56 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
         :key="conv.id"
         class="conversation-item"
         :class="{ 'conversation-item--active': conv.id === currentId }"
-        @click="emit('select', conv.id)"
+        @click="renamingId !== conv.id && emit('select', conv.id)"
       >
         <div class="conversation-item__content">
-          <span class="conversation-item__title">{{ conv.title }}</span>
+          <!-- Normal title display -->
+          <span v-if="renamingId !== conv.id" class="conversation-item__title">
+            {{ conv.title }}
+          </span>
+          <!-- Inline rename input -->
+          <input
+            v-else
+            ref="renameInputRef"
+            v-model="renameValue"
+            class="conversation-item__rename-input"
+            maxlength="100"
+            @click.stop
+            @keydown="handleRenameKeydown($event, conv.id)"
+            @blur="confirmRename(conv.id)"
+          />
           <span class="conversation-item__time">
             {{ formatRelativeTime(conv.lastMessageAt ?? conv.updatedAt) }}
           </span>
         </div>
-        <button
-          class="conversation-item__delete"
-          title="删除对话"
-          @click.stop="emit('delete', conv.id)"
-        >
-          <NIcon :size="16"><CloseOutlined /></NIcon>
-        </button>
+        <div class="conversation-item__actions">
+          <!-- Rename button -->
+          <button
+            v-if="renamingId !== conv.id"
+            class="conversation-item__action conversation-item__rename"
+            title="重命名"
+            @click="startRename(conv, $event)"
+          >
+            <NIcon :size="14"><EditOutlined /></NIcon>
+          </button>
+          <!-- Confirm rename button -->
+          <button
+            v-else
+            class="conversation-item__action conversation-item__confirm"
+            title="确认"
+            @click.stop="confirmRename(conv.id)"
+          >
+            <NIcon :size="14"><CheckOutlined /></NIcon>
+          </button>
+          <!-- Delete button -->
+          <button
+            class="conversation-item__delete"
+            title="删除对话"
+            @click.stop="emit('delete', conv.id)"
+          >
+            <NIcon :size="16"><CloseOutlined /></NIcon>
+          </button>
+        </div>
       </li>
     </ul>
   </div>
@@ -126,7 +205,7 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
   background-color: var(--af-bg-hover, #1f2937);
 }
 
-.conversation-item:hover .conversation-item__delete {
+.conversation-item:hover .conversation-item__actions {
   opacity: 1;
 }
 
@@ -152,23 +231,52 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
   text-overflow: ellipsis;
 }
 
+.conversation-item__rename-input {
+  font-size: 13px;
+  color: var(--af-text-primary, #e5e7eb);
+  background: var(--af-bg-input, #1f2937);
+  border: 1px solid var(--af-brand, #4f46e5);
+  border-radius: 4px;
+  padding: 1px 6px;
+  outline: none;
+  width: 100%;
+  font-family: inherit;
+}
+
 .conversation-item__time {
   font-size: 11px;
   color: var(--af-text-muted, #6b7280);
 }
 
-.conversation-item__delete {
+.conversation-item__actions {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
   opacity: 0;
+  transition: opacity 0.15s ease;
+  margin-left: 8px;
+}
+
+.conversation-item__action,
+.conversation-item__delete {
   background: none;
   border: none;
   color: var(--af-text-muted, #6b7280);
   cursor: pointer;
-  font-size: 14px;
   padding: 2px 6px;
   border-radius: 4px;
   transition: all 0.15s ease;
-  margin-left: 8px;
+}
+
+.conversation-item__action:hover {
+  color: var(--af-info, #0ea5e9);
+  background-color: color-mix(in srgb, var(--af-info, #0ea5e9) 10%, transparent);
+}
+
+.conversation-item__confirm:hover {
+  color: var(--af-success, #10b981);
+  background-color: color-mix(in srgb, var(--af-success, #10b981) 10%, transparent);
 }
 
 .conversation-item__delete:hover {

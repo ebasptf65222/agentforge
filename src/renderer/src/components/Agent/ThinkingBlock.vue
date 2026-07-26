@@ -1,24 +1,49 @@
 <script setup lang="ts">
 // P2-10: ThinkingBlock - collapsible reasoning display
 // Shows the Agent's Thought process in a collapsible card
+// - Default collapsed, click to expand
+// - Streaming: shows "思考中...", auto-expands
+// - Stream ended: auto-collapses, shows "查看思考过程"
 
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 
 const props = withDefaults(
   defineProps<{
     thought: string
     step?: number
     defaultOpen?: boolean
+    /** Whether this thought is currently being streamed (P2-10) */
+    isStreaming?: boolean
   }>(),
   {
     step: undefined,
     defaultOpen: false,
+    isStreaming: false,
   },
 )
 
-const isOpen = ref(props.defaultOpen)
+const isOpen = ref(props.defaultOpen || props.isStreaming)
+
+/**
+ * P2-10: When streaming starts, auto-expand so user can see live thinking.
+ * When streaming ends, auto-collapse.
+ */
+watch(
+  () => props.isStreaming,
+  (streaming, wasStreaming) => {
+    if (streaming && !wasStreaming) {
+      // Streaming started -> expand
+      isOpen.value = true
+    } else if (!streaming && wasStreaming) {
+      // Streaming ended -> collapse
+      isOpen.value = false
+    }
+  },
+)
 
 function toggle(): void {
+  // Don't allow manual collapse during streaming
+  if (props.isStreaming) return
   isOpen.value = !isOpen.value
 }
 </script>
@@ -37,7 +62,11 @@ function toggle(): void {
           />
         </svg>
       </span>
-      <span class="thinking-label">Thinking</span>
+      <!-- P2-10: 流式时显示“思考中...”，非流式时显示“查看思考过程” -->
+      <span v-if="isStreaming" class="thinking-label thinking-label--streaming">
+        思考中...
+      </span>
+      <span v-else class="thinking-label">查看思考过程</span>
       <span v-if="step" class="thinking-step">Step {{ step }}</span>
     </button>
     <Transition name="thinking-collapse">
@@ -87,6 +116,11 @@ function toggle(): void {
 
 .thinking-label {
   font-weight: 500;
+}
+
+/* P2-10: streaming indicator with pulse animation */
+.thinking-label--streaming {
+  color: var(--af-info, #0ea5e9);
 }
 
 .thinking-step {

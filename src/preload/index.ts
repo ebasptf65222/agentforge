@@ -26,11 +26,14 @@ const chat = {
   deleteConversation: (id: string): Promise<void> =>
     ipcRenderer.invoke('chat:delete-conversation', { id }),
 
+  updateTitle: (id: string, title: string): Promise<unknown> =>
+    ipcRenderer.invoke('chat:update-title', { id, title }),
+
   getMessages: (conversationId: string): Promise<unknown[]> =>
     ipcRenderer.invoke('chat:get-messages', { conversationId }),
 
-  send: (conversationId: string, content: string, modelId: string): Promise<void> =>
-    ipcRenderer.invoke('chat:send', { conversationId, content, modelId }),
+  send: (conversationId: string, content: string, modelId: string, kbEnabled?: boolean): Promise<void> =>
+    ipcRenderer.invoke('chat:send', { conversationId, content, modelId, kbEnabled }),
 
   stop: (): Promise<void> => ipcRenderer.invoke('chat:stop'),
 
@@ -172,6 +175,24 @@ const kb = {
   stats: (): Promise<unknown> => ipcRenderer.invoke('kb:stats'),
 }
 
+// ─── Voice 命名空间 (TTS + STT) ────────────────────────────────
+
+const voice = {
+  // TTS
+  synthesize: (text: string, options?: unknown): Promise<ArrayBuffer> =>
+    ipcRenderer.invoke('voice:tts-synthesize', { text, options }),
+
+  testTts: (config: unknown): Promise<ArrayBuffer> =>
+    ipcRenderer.invoke('voice:tts-test', { config }),
+
+  // STT
+  transcribe: (audioBuffer: ArrayBuffer, options?: unknown): Promise<string> =>
+    ipcRenderer.invoke('voice:stt-transcribe', { audioBuffer, options }),
+
+  testStt: (config: unknown, audioBuffer?: ArrayBuffer): Promise<string> =>
+    ipcRenderer.invoke('voice:stt-test', { config, audioBuffer }),
+}
+
 // ─── Window 命名空间 (自定义菜单/窗口控制) ──────────────────────
 
 const win = {
@@ -190,20 +211,24 @@ const win = {
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
-console.log('[AgentForge Preload] Script loaded, contextBridge type:', typeof contextBridge)
-
-try {
-  contextBridge.exposeInMainWorld('electron', {
-    chat,
-    model,
-    settings,
-    file,
-    system,
-    agent,
-    mcp,
-    skill,
-    kb,
-  })
-} catch (error) {
-  console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)
+if (process.contextIsolated) {
+  try {
+    contextBridge.exposeInMainWorld('electron', {
+      chat,
+      model,
+      settings,
+      file,
+      system,
+      agent,
+      mcp,
+      skill,
+      kb,
+      voice,
+      window: win,
+    })
+  } catch (error) {
+    console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)
+  }
+} else {
+  console.error('[AgentForge Preload] contextIsolation is disabled, skipping bridge setup')
 }

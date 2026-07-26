@@ -63,6 +63,7 @@ export const useAgentStore = defineStore('agent', () => {
     modelId: string
     approvalMode: ApprovalMode
     maxSteps?: number
+    skillName?: string
   }): Promise<ExecutionResult | null> {
     // Reset state
     status.value = 'running'

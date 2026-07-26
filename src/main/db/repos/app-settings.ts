@@ -3,7 +3,7 @@
 // 与 Spec v0.2 §6.6 表结构一致
 
 import type Database from 'better-sqlite3'
-import type { AppSettings, ApprovalMode, ShortcutConfig } from '@shared/types'
+import type { AppSettings, ApprovalMode, ShortcutConfig, VoiceConfig } from '@shared/types'
 import { getDatabase } from '../index'
 import { AppError, ErrorCodes } from '../../utils/error'
 
@@ -11,6 +11,7 @@ import { AppError, ErrorCodes } from '../../utils/error'
  * SQLite 行类型（数据库存储格式）。
  * - shortcuts: TEXT (JSON 字符串)
  * - window_bounds: TEXT (JSON 字符串，可为 NULL)
+ * - voice: TEXT (JSON 字符串)
  * - default_model_id: TEXT (可为 NULL)
  */
 interface AppSettingsRow {
@@ -21,6 +22,7 @@ interface AppSettingsRow {
   default_model_id: string | null
   shortcuts: string
   approval_timeout_ms: number
+  voice: string
   window_bounds: string | null
   updated_at: number
 }
@@ -33,6 +35,36 @@ const DEFAULT_SHORTCUTS: ShortcutConfig = {
   sendMessage: 'Enter',
   stopGeneration: 'CmdOrCtrl+.',
   toggleSidebar: 'CmdOrCtrl+B',
+}
+
+/**
+ * 默认语音配置（与 schema.sql 中的 DEFAULT 一致）。
+ */
+const DEFAULT_VOICE_CONFIG: VoiceConfig = {
+  tts: {
+    enabled: false,
+    provider: 'openai',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: '',
+    model: 'tts-1',
+    voice: 'alloy',
+    speed: 1.0,
+    format: 'mp3',
+    autoPlay: false,
+  },
+  stt: {
+    enabled: false,
+    provider: 'openai',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: '',
+    model: 'whisper-1',
+    language: '',
+    temperature: 0.0,
+  },
+  mode: {
+    vadSilenceThreshold: 1.5,
+    autoAwait: true,
+  },
 }
 
 /**
@@ -57,6 +89,7 @@ export interface UpdateSettingsParams {
   defaultModelId?: string | null
   shortcuts?: Partial<ShortcutConfig>
   approvalTimeoutMs?: number
+  voice?: Partial<VoiceConfig> | VoiceConfig
   windowBounds?: WindowBounds | null
 }
 
@@ -75,6 +108,14 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     shortcuts = { ...DEFAULT_SHORTCUTS }
   }
 
+  let voice: VoiceConfig
+  try {
+    const parsed = JSON.parse(row.voice) as Partial<VoiceConfig>
+    voice = deepMergeVoiceConfig(DEFAULT_VOICE_CONFIG, parsed)
+  } catch {
+    voice = { ...DEFAULT_VOICE_CONFIG }
+  }
+
   let windowBounds: WindowBounds | undefined
   if (row.window_bounds !== null) {
     try {
@@ -91,9 +132,30 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     defaultModelId: row.default_model_id,
     shortcuts,
     approvalTimeoutMs: row.approval_timeout_ms,
+    voice,
     windowBounds,
     updatedAt: row.updated_at,
   }
+}
+
+/**
+ * 深度合并语音配置（只合并存在的字段，保留默认值的结构）。
+ */
+function deepMergeVoiceConfig(
+  base: VoiceConfig,
+  partial: Partial<VoiceConfig>,
+): VoiceConfig {
+  const result: VoiceConfig = JSON.parse(JSON.stringify(base))
+  if (partial.tts) {
+    result.tts = { ...result.tts, ...partial.tts }
+  }
+  if (partial.stt) {
+    result.stt = { ...result.stt, ...partial.stt }
+  }
+  if (partial.mode) {
+    result.mode = { ...result.mode, ...partial.mode }
+  }
+  return result
 }
 
 /**
@@ -134,8 +196,10 @@ export function updateSettings(params: UpdateSettingsParams): void {
   const db: Database.Database = getDatabase()
 
   // 确认 id=1 的行存在
-  const existing = db.prepare('SELECT id, shortcuts FROM app_settings WHERE id = 1').get() as
-    { id: number; shortcuts: string } | undefined
+  const existing = db
+    .prepare('SELECT id, shortcuts, voice FROM app_settings WHERE id = 1')
+    .get() as
+    { id: number; shortcuts: string; voice: string } | undefined
 
   if (existing === undefined) {
     throw new AppError(
@@ -186,6 +250,20 @@ export function updateSettings(params: UpdateSettingsParams): void {
   if (params.approvalTimeoutMs !== undefined) {
     setClauses.push('approval_timeout_ms = ?')
     values.push(params.approvalTimeoutMs)
+  }
+
+  if (params.voice !== undefined) {
+    // 合并现有 voice 配置与新提供的部分
+    let currentVoice: VoiceConfig = { ...DEFAULT_VOICE_CONFIG }
+    try {
+      const parsed = JSON.parse(existing.voice) as Partial<VoiceConfig>
+      currentVoice = deepMergeVoiceConfig(DEFAULT_VOICE_CONFIG, parsed)
+    } catch {
+      // 使用默认值
+    }
+    const merged: VoiceConfig = deepMergeVoiceConfig(currentVoice, params.voice)
+    setClauses.push('voice = ?')
+    values.push(JSON.stringify(merged))
   }
 
   if (params.windowBounds !== undefined) {

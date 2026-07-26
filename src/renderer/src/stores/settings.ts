@@ -3,7 +3,7 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { AppSettings } from '@shared/types'
+import type { AppSettings, VoiceConfig } from '@shared/types'
 
 /** Keys of AppSettings that callers are allowed to update (excluding updatedAt). */
 export type SettingsKey = keyof Omit<AppSettings, 'updatedAt'>
@@ -26,7 +26,7 @@ export const useSettingsStore = defineStore('settings', () => {
     loading.value = true
     try {
       const result = await window.electron.settings.get()
-      settings.value = result
+      settings.value = result as AppSettings
     } finally {
       loading.value = false
     }
@@ -35,12 +35,23 @@ export const useSettingsStore = defineStore('settings', () => {
   /**
    * Update a single setting key. Sends only the provided key/value pair
    * and refreshes the local settings snapshot afterwards.
-   *
-   * The value type is intentionally a union to satisfy the IPC signature;
-   * callers pass concrete values that match each key.
    */
-  async function updateSetting(key: SettingsKey, value: AppSettings[SettingsKey]): Promise<void> {
+  async function updateSetting(
+    key: SettingsKey,
+    value: AppSettings[SettingsKey],
+  ): Promise<void> {
     await window.electron.settings.update({ [key]: value } as Partial<
+      Omit<AppSettings, 'updatedAt'>
+    >)
+    await loadSettings()
+  }
+
+  /**
+   * Update voice configuration with partial patch support.
+   * The main process deep-merges the patch with existing voice config.
+   */
+  async function updateVoice(patch: Partial<VoiceConfig>): Promise<void> {
+    await window.electron.settings.update({ voice: patch } as Partial<
       Omit<AppSettings, 'updatedAt'>
     >)
     await loadSettings()
@@ -53,5 +64,6 @@ export const useSettingsStore = defineStore('settings', () => {
     // Actions
     loadSettings,
     updateSetting,
+    updateVoice,
   }
 })

@@ -44,6 +44,32 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
       toggleSidebar: 'CmdOrCtrl+B',
     },
     approvalTimeoutMs: 300000,
+    voice: {
+      tts: {
+        enabled: false,
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: '',
+        model: 'tts-1',
+        voice: 'alloy',
+        speed: 1.0,
+        format: 'mp3',
+        autoPlay: false,
+      },
+      stt: {
+        enabled: false,
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: '',
+        model: 'whisper-1',
+        language: '',
+        temperature: 0.0,
+      },
+      mode: {
+        vadSilenceThreshold: 1.5,
+        autoAwait: true,
+      },
+    },
     updatedAt: Date.now(),
     ...overrides,
   }

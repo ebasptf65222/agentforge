@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
   shortcuts            TEXT NOT NULL DEFAULT '{"newConversation":"CmdOrCtrl+N","sendMessage":"Enter","stopGeneration":"CmdOrCtrl+.","toggleSidebar":"CmdOrCtrl+B"}',
   approval_timeout_ms  INTEGER NOT NULL DEFAULT 300000,
   window_bounds        TEXT,
+  voice                TEXT NOT NULL DEFAULT '{"tts":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"tts-1","voice":"alloy","speed":1.0,"format":"mp3","autoPlay":false},"stt":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"whisper-1","language":"","temperature":0.0},"mode":{"vadSilenceThreshold":1.5,"autoAwait":true}}',
   updated_at           INTEGER NOT NULL
 );
 INSERT OR IGNORE INTO app_settings (id, updated_at) VALUES (1, strftime('%s','now') * 1000);
@@ -239,3 +240,46 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
 );
 CREATE INDEX IF NOT EXISTS idx_kb_chunks_doc ON kb_chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_kb_chunks_idx ON kb_chunks(document_id, chunk_index);
+
+-- ─── 6.11 voice config (V1-01) ───────────────────────────────
+-- 语音配置，存储 TTS/STT/语音模式设置
+-- 以 JSON 字符串存储在 app_settings 的 voice 列中
+-- 注意：voice 列已在 app_settings 建表时定义，此处仅记录版本
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (6, strftime('%s','now') * 1000, 'Add voice column to app_settings for TTS/STT configuration');
+
+-- ─── 6.12 kg_entities (KG-01) ────────────────────────────────
+-- 知识图谱实体表，存储提取的实体节点
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (7, strftime('%s','now') * 1000, 'Add kg_entities and kg_relations tables for Knowledge Graph');
+
+CREATE TABLE IF NOT EXISTS kg_entities (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  type          TEXT NOT NULL,
+  description   TEXT,
+  source_doc_id TEXT,
+  confidence    REAL NOT NULL DEFAULT 1.0,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kg_entities_name ON kg_entities(name);
+CREATE INDEX IF NOT EXISTS idx_kg_entities_type ON kg_entities(type);
+
+-- ─── 6.13 kg_relations (KG-01) ────────────────────────────────
+-- 知识图谱关系表，存储实体之间的关系
+
+CREATE TABLE IF NOT EXISTS kg_relations (
+  id            TEXT PRIMARY KEY,
+  source_id     TEXT NOT NULL REFERENCES kg_entities(id) ON DELETE CASCADE,
+  target_id     TEXT NOT NULL REFERENCES kg_entities(id) ON DELETE CASCADE,
+  relation      TEXT NOT NULL,
+  description   TEXT,
+  source_doc_id TEXT,
+  confidence    REAL NOT NULL DEFAULT 1.0,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kg_relations_source ON kg_relations(source_id);
+CREATE INDEX IF NOT EXISTS idx_kg_relations_target ON kg_relations(target_id);
+CREATE INDEX IF NOT EXISTS idx_kg_relations_relation ON kg_relations(relation);

@@ -8,6 +8,8 @@ import { fileReadTool } from './file-read'
 import { fileWriteTool } from './file-write'
 import { directoryListTool } from './directory-list'
 import { kbSearchTool } from './kb-search'
+import { kgExtractTool } from './kg-extract'
+import { kgQueryTool } from './kg-query'
 
 /**
  * 初始化并注册所有内置工具到全局 ToolRegistry。
@@ -21,4 +23,6 @@ export function initBuiltinTools(): void {
   registry.registerBuiltin(fileWriteTool)
   registry.registerBuiltin(directoryListTool)
   registry.registerBuiltin(kbSearchTool)
+  registry.registerBuiltin(kgExtractTool)
+  registry.registerBuiltin(kgQueryTool)
 }

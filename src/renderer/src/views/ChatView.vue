@@ -5,6 +5,7 @@ import { onMounted, onUnmounted, computed } from 'vue'
 import { NIcon } from 'naive-ui'
 import { MenuOutlined } from '@vicons/material'
 import { useChatStore } from '@/stores/chat'
+import { useAgentStore } from '@/stores/agent'
 import { useUiStore } from '@/stores/ui'
 import { useModelStore } from '@/stores/model'
 import { useChat } from '@/composables/use-chat'
@@ -14,8 +15,10 @@ import ConversationList from '@/components/Sidebar/ConversationList.vue'
 import MessageList from '@/components/ChatPanel/MessageList.vue'
 import ChatInput from '@/components/ChatPanel/ChatInput.vue'
 import ExecutionPanel from '@/components/Agent/ExecutionPanel.vue'
+import VoiceControlPanel from '@/components/VoiceControlPanel.vue'
 
 const chatStore = useChatStore()
+const agentStore = useAgentStore()
 const uiStore = useUiStore()
 const modelStore = useModelStore()
 
@@ -70,9 +73,28 @@ async function handleDeleteConversation(id: string): Promise<void> {
   await chatStore.deleteConversation(id)
 }
 
-async function handleSend(content: string, _skillName?: string): Promise<void> {
-  // skillName 参数由 ChatInput 传入，后续可通过 Agent 执行路径使用
-  await chatStore.sendMessage(content)
+async function handleRenameConversation(id: string, newTitle: string): Promise<void> {
+  await chatStore.renameConversation(id, newTitle)
+}
+
+async function handleSend(content: string, skillName?: string): Promise<void> {
+  const conv = chatStore.currentConversation
+  if (!conv) return
+
+  if (skillName) {
+    // Agent 执行路径（Skill 模式）
+    await agentStore.execute({
+      conversationId: conv.id,
+      userInput: content,
+      modelId: conv.modelId,
+      approvalMode: conv.approvalMode,
+      maxSteps: 20,
+      skillName,
+    })
+  } else {
+    // 普通对话路径
+    await chatStore.sendMessage(content)
+  }
 }
 
 async function handleStop(): Promise<void> {
@@ -82,7 +104,7 @@ async function handleStop(): Promise<void> {
 const hasConversation = computed(() => chatStore.currentConversationId !== null)
 
 /** Sidebar width based on collapsed state (P1-12) */
-const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '260px'))
+const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px'))
 </script>
 
 <template>
@@ -105,6 +127,7 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '260px')
         @select="handleSelectConversation"
         @new-chat="handleNewChat"
         @delete="handleDeleteConversation"
+        @rename="handleRenameConversation"
       />
     </aside>
 
@@ -134,6 +157,8 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '260px')
         @send="handleSend"
         @stop="handleStop"
       />
+      <!-- Voice control panel (V1-08) - fixed position global player -->
+      <VoiceControlPanel />
     </main>
   </div>
 </template>

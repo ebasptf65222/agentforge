@@ -101,6 +101,22 @@ export const ErrorCodes = {
   /** Skill 意图匹配失败 */
   SKILL_MATCH_FAILED: 'SKILL_MATCH_FAILED',
 
+  // ─── 语音相关（V1） ──────────────────────────────────────────
+  /** TTS 语音合成错误 */
+  VOICE_TTS_ERROR: 'VOICE_TTS_ERROR',
+  /** STT 语音识别错误 */
+  VOICE_STT_ERROR: 'VOICE_STT_ERROR',
+  /** 麦克风权限不足 */
+  VOICE_MIC_PERMISSION: 'VOICE_MIC_PERMISSION',
+
+  // ─── 知识图谱相关（KG） ───────────────────────────────────────
+  /** 实体已存在 */
+  KG_ENTITY_DUPLICATE: 'KG_ENTITY_DUPLICATE',
+  /** 实体不存在 */
+  KG_ENTITY_NOT_FOUND: 'KG_ENTITY_NOT_FOUND',
+  /** 关系不存在 */
+  KG_RELATION_NOT_FOUND: 'KG_RELATION_NOT_FOUND',
+
   // ─── 通用 ────────────────────────────────────────────────────
   /** 数据库错误 */
   DB_ERROR: 'DB_ERROR',

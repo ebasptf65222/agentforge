@@ -1,11 +1,18 @@
 <script setup lang="ts">
 // P1-17: ChatInput - message input with send/stop controls
+// V1-06: + 语音输入按钮
 
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { NSelect } from 'naive-ui'
 import AppButton from '@/components/common/AppButton.vue'
+import VoiceInputButton from './VoiceInputButton.vue'
+import VoiceModeToggle from './VoiceModeToggle.vue'
 import { useSkillStore } from '@/stores/skill'
+import { useChatStore } from '@/stores/chat'
+import { useVoiceStore } from '@/stores/voice'
 import type { Skill } from '@shared/types'
+import { NTooltip, NSwitch } from 'naive-ui'
+import { BookOutlined } from '@vicons/material'
 
 const props = defineProps<{
   disabled?: boolean
@@ -18,6 +25,8 @@ const emit = defineEmits<{
 }>()
 
 const skillStore = useSkillStore()
+const chatStore = useChatStore()
+const voiceStore = useVoiceStore()
 
 onMounted(() => {
   void skillStore.loadSkills()
@@ -50,6 +59,9 @@ const remainingChars = computed(() => MAX_CHARS - inputContent.value.length)
 /** Whether the input is close to the character limit (warn state) */
 const isNearLimit = computed(() => remainingChars.value <= 1000)
 
+/** 是否显示语音输入按钮（STT 启用时显示） */
+const showVoiceButton = computed(() => voiceStore.sttEnabled)
+
 function handleSend(): void {
   const content = inputContent.value.trim()
   if (!content || props.disabled || props.isGenerating) return
@@ -59,6 +71,14 @@ function handleSend(): void {
   nextTick(() => {
     autoResize()
   })
+}
+
+/**
+ * 语音输入提交：将转写结果直接发送
+ */
+function handleVoiceSubmit(text: string): void {
+  if (!text.trim() || props.disabled || props.isGenerating) return
+  emit('send', text.trim(), selectedSkill.value ?? undefined)
 }
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -88,16 +108,33 @@ function handleInput(): void {
 
 <template>
   <div class="chat-input">
-    <!-- Skill 选择器 -->
+    <!-- Skill 选择器 + 知识库关联 + 语音模式 -->
     <div class="chat-input__toolbar">
-      <NSelect
-        v-model:value="selectedSkill"
-        :options="skillOptions"
-        size="small"
-        :consistent-menu-width="false"
-        placeholder="普通对话"
-        style="width: 160px"
-      />
+      <div class="chat-input__toolbar-left">
+        <NSelect
+          v-model:value="selectedSkill"
+          :options="skillOptions"
+          size="small"
+          :consistent-menu-width="false"
+          placeholder="普通对话"
+          style="width: 160px"
+        />
+        <NTooltip trigger="hover">
+          <template #trigger>
+            <div class="kb-toggle">
+              <BookOutlined class="kb-toggle__icon" />
+              <NSwitch
+                v-model:value="chatStore.kbEnabled"
+                size="small"
+              />
+            </div>
+          </template>
+          关联知识库：开启后 AI 会参考知识库内容回答
+        </NTooltip>
+      </div>
+      <div class="chat-input__toolbar-right">
+        <VoiceModeToggle />
+      </div>
     </div>
     <div class="chat-input__wrapper">
       <textarea
@@ -112,6 +149,7 @@ function handleInput(): void {
         @input="handleInput"
       />
       <div class="chat-input__actions">
+        <VoiceInputButton v-if="showVoiceButton && !isGenerating" @submit="handleVoiceSubmit" />
         <AppButton v-if="isGenerating" variant="danger" size="sm" @click="emit('stop')">
           停止生成
         </AppButton>
@@ -142,6 +180,41 @@ function handleInput(): void {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+  justify-content: space-between;
+}
+
+.chat-input__toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kb-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background-color: var(--af-bg-input, #1f2937);
+  border: 1px solid var(--af-border, #374151);
+  border-radius: var(--af-radius-sm, 6px);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.kb-toggle:hover {
+  border-color: var(--af-border, #4b5563);
+}
+
+.kb-toggle__icon {
+  width: 14px;
+  height: 14px;
+  color: var(--af-text-muted, #6b7280);
+}
+
+.chat-input__toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .chat-input__wrapper {

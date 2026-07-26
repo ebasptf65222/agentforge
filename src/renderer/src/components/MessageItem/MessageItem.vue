@@ -4,6 +4,8 @@
 import { computed } from 'vue'
 import type { ChatMessage } from '@shared/types'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
+import VoicePlayButton from './VoicePlayButton.vue'
+import { useVoiceStore } from '@/stores/voice'
 
 const props = defineProps<{
   message: ChatMessage
@@ -11,6 +13,7 @@ const props = defineProps<{
   isStreaming?: boolean
 }>()
 
+const voiceStore = useVoiceStore()
 const isUser = computed(() => props.message.role === 'user')
 
 /**
@@ -18,6 +21,14 @@ const isUser = computed(() => props.message.role === 'user')
  * Only on the assistant message while streaming is active.
  */
 const showCursor = computed(() => !!props.isStreaming && !isUser.value)
+
+/**
+ * Whether to show the voice play button.
+ * Only on assistant messages when TTS is enabled and message has content.
+ */
+const showVoiceButton = computed(() =>
+  !isUser.value && voiceStore.ttsEnabled && props.message.content.trim().length > 0,
+)
 </script>
 
 <template>
@@ -35,6 +46,10 @@ const showCursor = computed(() => !!props.isStreaming && !isUser.value)
         <MarkdownRenderer :content="message.content" />
         <!-- Streaming cursor (P1-13): blinking block at the end of the assistant message -->
         <span v-if="showCursor" class="message-item__cursor" aria-hidden="true">&#9608;</span>
+        <!-- Voice play button (V1-03) -->
+        <div v-if="showVoiceButton" class="message-item__actions">
+          <VoicePlayButton :message="message" />
+        </div>
       </template>
     </div>
   </div>
@@ -119,5 +134,15 @@ const showCursor = computed(() => !!props.isStreaming && !isUser.value)
   50% {
     opacity: 0;
   }
+}
+
+/* Voice play button (V1-03) */
+.message-item__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--af-border-subtle, rgba(148, 163, 184, 0.1));
+  align-items: center;
 }
 </style>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // McpConfig - MCP 服务器配置管理界面
-// 列表展示已添加的 MCP 服务器，支持添加/删除/启用禁用
+// 列表展示已添加的 MCP 服务器，支持添加/编辑/删除/启用禁用/状态刷新
 
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, h } from 'vue'
 import {
   NDataTable,
   NButton,
@@ -18,7 +18,7 @@ import {
   NPopconfirm,
   type DataTableColumns,
 } from 'naive-ui'
-import { AddOutlined, DeleteOutlined, RefreshOutlined } from '@vicons/material'
+import { AddOutlined, DeleteOutlined, RefreshOutlined, EditOutlined } from '@vicons/material'
 import type { MCPServerConfig } from '@shared/types'
 import type { McpAddParams } from '@/types/electron-api'
 import { useMcpStore } from '@/stores/mcp'
@@ -26,7 +26,14 @@ import { useMcpStore } from '@/stores/mcp'
 const mcpStore = useMcpStore()
 
 onMounted(() => {
-  void mcpStore.loadServers()
+  void mcpStore.loadServers().then(() => {
+    // Refresh status for all enabled servers after loading
+    for (const server of mcpStore.servers) {
+      if (server.enabled) {
+        void mcpStore.loadStatus(server.id)
+      }
+    }
+  })
 })
 
 // ─── 状态颜色映射 ──────────────────────────────────────────────
@@ -45,10 +52,14 @@ const statusLabels: Record<string, string> = {
   connecting: '连接中',
 }
 
-// ─── 添加服务器表单 ────────────────────────────────────────────
+// ─── 添加/编辑服务器表单 ──────────────────────────────────────
 
 const modalVisible = ref(false)
 const saving = ref(false)
+/** null = add mode, string = edit mode (server id) */
+const editingId = ref<string | null>(null)
+
+const modalTitle = computed(() => (editingId.value ? '编辑 MCP 服务器' : '添加 MCP 服务器'))
 
 interface McpFormState {
   name: string
@@ -81,6 +92,25 @@ function resetForm(): void {
 
 function openAddModal(): void {
   resetForm()
+  editingId.value = null
+  modalVisible.value = true
+}
+
+function openEditModal(server: MCPServerConfig): void {
+  editingId.value = server.id
+  form.name = server.name
+  form.transport = server.transport
+  form.command = server.command ?? ''
+  form.args = (server.args ?? []).join(' ')
+  form.url = server.url ?? ''
+  // Reconstruct env text from Record
+  if (server.env) {
+    form.envText = Object.entries(server.env)
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n')
+  } else {
+    form.envText = ''
+  }
   modalVisible.value = true
 }
 
@@ -121,6 +151,10 @@ async function handleSave(): Promise<void> {
     const env = parseEnvText(form.envText)
     if (env) params.env = env
 
+    if (editingId.value) {
+      // Edit mode: remove old and add new
+      await mcpStore.removeServer(editingId.value)
+    }
     await mcpStore.addServer(params)
     modalVisible.value = false
   } catch {
@@ -136,10 +170,19 @@ async function handleDelete(id: string): Promise<void> {
 
 async function handleToggle(id: string, enabled: boolean): Promise<void> {
   await mcpStore.toggleEnable(id, enabled)
+  // After enabling, refresh status
+  if (enabled) {
+    void mcpStore.loadStatus(id)
+  }
 }
 
 async function handleRefresh(): Promise<void> {
   await mcpStore.loadServers()
+  for (const server of mcpStore.servers) {
+    if (server.enabled) {
+      void mcpStore.loadStatus(server.id)
+    }
+  }
 }
 
 // ─── 表格列定义 ────────────────────────────────────────────────
@@ -197,32 +240,33 @@ const columns = computed<DataTableColumns<MCPServerConfig>>(() => [
   {
     title: '操作',
     key: 'actions',
-    width: 80,
+    width: 120,
     render(row) {
-      return h(
-        NPopconfirm,
-        {
-          onPositiveClick: () => handleDelete(row.id),
-        },
-        {
-          trigger: () =>
-            h(
-              NButton,
-              { size: 'small', quaternary: true, type: 'error' },
-              {
-                icon: () => h(NIcon, null, { default: () => h(DeleteOutlined) }),
-              },
-            ),
-          default: () => `确定删除服务器 "${row.name}" 吗？`,
-        },
-      )
+      return h(NSpace, { size: 4 }, {
+        default: () => [
+          h(
+            NButton,
+            { size: 'small', quaternary: true, onClick: () => openEditModal(row) },
+            { icon: () => h(NIcon, null, { default: () => h(EditOutlined) }) },
+          ),
+          h(
+            NPopconfirm,
+            { onPositiveClick: () => handleDelete(row.id) },
+            {
+              trigger: () =>
+                h(
+                  NButton,
+                  { size: 'small', quaternary: true, type: 'error' },
+                  { icon: () => h(NIcon, null, { default: () => h(DeleteOutlined) }) },
+                ),
+              default: () => `确定删除服务器 "${row.name}" 吗？`,
+            },
+          ),
+        ]
+      })
     },
   },
 ])
-</script>
-
-<script lang="ts">
-import { h } from 'vue'
 </script>
 
 <template>
@@ -255,11 +299,11 @@ import { h } from 'vue'
       :row-key="(row: MCPServerConfig) => row.id"
     />
 
-    <!-- 添加服务器弹窗 -->
+    <!-- 添加/编辑服务器弹窗 -->
     <NModal
       v-model:show="modalVisible"
       preset="card"
-      title="添加 MCP 服务器"
+      :title="modalTitle"
       style="width: 520px"
       :mask-closable="false"
     >
@@ -304,7 +348,7 @@ import { h } from 'vue'
         <NSpace justify="end">
           <NButton size="small" @click="modalVisible = false">取消</NButton>
           <NButton type="primary" size="small" :loading="saving" @click="handleSave">
-            添加
+            {{ editingId ? '保存' : '添加' }}
           </NButton>
         </NSpace>
       </template>

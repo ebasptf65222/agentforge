@@ -11,6 +11,7 @@ import { registerMcpHandlers } from './mcp'
 import { registerAgentHandlers } from './agent'
 import { registerSkillHandlers } from './skill'
 import { registerKbHandlers } from './knowledge-base'
+import { registerVoiceHandlers } from './voice'
 import { registerWindowHandlers } from './window'
 
 /**
@@ -45,6 +46,9 @@ export function registerIpcHandlers(): void {
 
   // ─── Knowledge Base 域 (P4/P5) ─────────────────────────────────
   registerKbHandlers()
+
+  // ─── Voice 域 (V1) ────────────────────────────────────────────
+  registerVoiceHandlers()
 
   // ─── Window 域 (自定义菜单/窗口控制) ──────────────────────────
   registerWindowHandlers()
