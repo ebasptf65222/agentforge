@@ -83,7 +83,7 @@ WS-01 → WS-02 → WS-03 → WS-04 → WS-05
 | 字段 | 内容 |
 |------|------|
 | **任务 ID** | WS-04 |
-| **状态** | pending |
+| **状态** | done |
 | **标题** | 设置页新增「工作区」Tab + WorkspaceConfig 组件 |
 | **目标** | 在设置页添加工作区配置 Tab，支持选择目录、查看最近工作区、切换、编辑排除模式 |
 | **依赖任务** | WS-01 |
@@ -159,6 +159,6 @@ WS-01 → WS-02 → WS-03 → WS-04 → WS-05
 | WS-01 | done | 2026-07-26 | 工作区配置类型 + DB 迁移 + recentPaths 去重截断 + settings IPC voice/workspace 透传修复 |
 | WS-02 | done | 2026-07-26 | path-guard 模块 + 4 个工作区错误码 + 28 个单元测试 |
 | WS-03 | done | 2026-07-26 | 7 个 ws_* 工具 + 7 个 IPC 通道 + preload workspace API + electron-api 类型声明 |
-| WS-04 | pending | — | — |
+| WS-04 | done | 2026-07-26 | WorkspaceConfig 组件 + SettingsView 新增工作区 Tab + 排除规则编辑 + autoRestore 开关 |
 | WS-05 | pending | — | — |
 | WS-06 | pending | — | — |
