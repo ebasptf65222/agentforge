@@ -353,6 +353,7 @@ describe('app-settings repository', () => {
         approvalTimeoutMs: 10000,
         defaultModelId: 'model-x',
         shortcuts: { sendMessage: 'CmdOrCtrl+Enter' },
+        workspace: { path: '/test/workspace' },
         windowBounds: bounds,
       })
 
@@ -363,6 +364,7 @@ describe('app-settings repository', () => {
       expect(settings.approvalTimeoutMs).toBe(10000)
       expect(settings.defaultModelId).toBe('model-x')
       expect(settings.shortcuts.sendMessage).toBe('CmdOrCtrl+Enter')
+      expect(settings.workspace.path).toBe('/test/workspace')
       expect(settings.windowBounds).toEqual(bounds)
     })
 
@@ -388,6 +390,118 @@ describe('app-settings repository', () => {
       testDb.prepare('DELETE FROM app_settings WHERE id = 1').run()
 
       expect(() => updateSettings({ theme: 'light' })).toThrow(/SETTINGS_NOT_FOUND|not found/)
+    })
+  })
+
+  // ─── workspace 配置 ──────────────────────────────────────────
+
+  describe('workspace config', () => {
+    it('should return default workspace config when no updates have been made', () => {
+      const settings = getSettings()
+
+      expect(settings.workspace).toEqual({
+        path: null,
+        recentPaths: [],
+        autoRestore: true,
+        excludePatterns: ['node_modules', '.git', 'dist', '.DS_Store'],
+      })
+    })
+
+    it('should update workspace.path', () => {
+      updateSettings({ workspace: { path: '/home/user/workspace' } })
+
+      const settings = getSettings()
+      expect(settings.workspace.path).toBe('/home/user/workspace')
+    })
+
+    it('should auto-add path to recentPaths when path changes', () => {
+      updateSettings({ workspace: { path: '/home/user/ws1' } })
+
+      const settings = getSettings()
+      expect(settings.workspace.recentPaths).toContain('/home/user/ws1')
+    })
+
+    it('should deduplicate recentPaths when same path is set again', () => {
+      updateSettings({ workspace: { path: '/home/user/ws1' } })
+      updateSettings({ workspace: { path: '/home/user/ws2' } })
+      updateSettings({ workspace: { path: '/home/user/ws1' } })
+
+      const settings = getSettings()
+      const paths = settings.workspace.recentPaths
+      // ws1 should appear only once (at the front)
+      const ws1Count = paths.filter((p) => p === '/home/user/ws1').length
+      expect(ws1Count).toBe(1)
+      expect(paths[0]).toBe('/home/user/ws1')
+    })
+
+    it('should truncate recentPaths to 10 entries', () => {
+      // Add 12 different paths
+      for (let i = 0; i < 12; i++) {
+        updateSettings({ workspace: { path: `/home/user/ws${i}` } })
+      }
+
+      const settings = getSettings()
+      expect(settings.workspace.recentPaths.length).toBe(10)
+      // Most recent should be at the front
+      expect(settings.workspace.recentPaths[0]).toBe('/home/user/ws11')
+    })
+
+    it('should not add null path to recentPaths', () => {
+      updateSettings({ workspace: { path: '/home/user/ws1' } })
+      updateSettings({ workspace: { path: null } })
+
+      const settings = getSettings()
+      expect(settings.workspace.path).toBeNull()
+      // recentPaths should still contain the previous path
+      expect(settings.workspace.recentPaths).toContain('/home/user/ws1')
+    })
+
+    it('should update autoRestore independently', () => {
+      updateSettings({ workspace: { autoRestore: false } })
+
+      const settings = getSettings()
+      expect(settings.workspace.autoRestore).toBe(false)
+      // Other fields should remain default
+      expect(settings.workspace.path).toBeNull()
+    })
+
+    it('should update excludePatterns independently', () => {
+      const customPatterns = ['node_modules', '.git', 'build', 'target']
+      updateSettings({ workspace: { excludePatterns: customPatterns } })
+
+      const settings = getSettings()
+      expect(settings.workspace.excludePatterns).toEqual(customPatterns)
+    })
+
+    it('should preserve existing workspace config when updating other settings', () => {
+      updateSettings({ workspace: { path: '/home/user/ws1', autoRestore: false } })
+      updateSettings({ theme: 'light' })
+
+      const settings = getSettings()
+      expect(settings.workspace.path).toBe('/home/user/ws1')
+      expect(settings.workspace.autoRestore).toBe(false)
+    })
+
+    it('should store workspace as JSON in DB', () => {
+      updateSettings({ workspace: { path: '/test/path' } })
+
+      const row = testDb.prepare('SELECT workspace FROM app_settings WHERE id = 1').get() as {
+        workspace: string
+      }
+      const parsed = JSON.parse(row.workspace) as { path: string }
+      expect(parsed.path).toBe('/test/path')
+    })
+
+    it('should fall back to default workspace config when JSON is invalid', () => {
+      testDb.prepare('UPDATE app_settings SET workspace = ? WHERE id = 1').run('{invalid json}')
+
+      const settings = getSettings()
+      expect(settings.workspace).toEqual({
+        path: null,
+        recentPaths: [],
+        autoRestore: true,
+        excludePatterns: ['node_modules', '.git', 'dist', '.DS_Store'],
+      })
     })
   })
 })

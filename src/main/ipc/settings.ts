@@ -3,7 +3,7 @@
 // 通道命名: settings:get, settings:update
 
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
-import type { AppSettings, ApprovalMode, ShortcutConfig } from '@shared/types'
+import type { AppSettings, ApprovalMode, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getSettings, updateSettings, type UpdateSettingsParams } from '../db/repos/app-settings'
 
@@ -133,6 +133,100 @@ function assertOptionalWindowBounds(
   }
 }
 
+function assertOptionalVoice(value: unknown): asserts value is Partial<VoiceConfig> | undefined {
+  if (value === undefined) return
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Field "voice" must be an object.', {
+      voice: value,
+    })
+  }
+  const obj = value as Record<string, unknown>
+  const allowedKeys: ReadonlyArray<keyof VoiceConfig> = ['tts', 'stt', 'mode']
+  for (const key of Object.keys(obj)) {
+    if (!allowedKeys.includes(key as keyof VoiceConfig)) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        `Unknown voice key: "${key}". Allowed: ${allowedKeys.join(', ')}.`,
+        { voice: value, key },
+      )
+    }
+    const v = obj[key]
+    if (v !== undefined && (v === null || typeof v !== 'object' || Array.isArray(v))) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        `Field "voice.${key}" must be an object.`,
+        { voice: value, key, value: v },
+      )
+    }
+  }
+}
+
+function assertOptionalWorkspace(
+  value: unknown,
+): asserts value is Partial<WorkspaceConfig> | undefined {
+  if (value === undefined) return
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Field "workspace" must be an object.', {
+      workspace: value,
+    })
+  }
+  const obj = value as Record<string, unknown>
+  const allowedKeys: ReadonlyArray<keyof WorkspaceConfig> = [
+    'path',
+    'recentPaths',
+    'autoRestore',
+    'excludePatterns',
+  ]
+  for (const key of Object.keys(obj)) {
+    if (!allowedKeys.includes(key as keyof WorkspaceConfig)) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        `Unknown workspace key: "${key}". Allowed: ${allowedKeys.join(', ')}.`,
+        { workspace: value, key },
+      )
+    }
+  }
+  // path: string | null
+  if (obj['path'] !== undefined && obj['path'] !== null && typeof obj['path'] !== 'string') {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      'Field "workspace.path" must be a string or null.',
+      { workspace: value, key: 'path', value: obj['path'] },
+    )
+  }
+  // recentPaths: string[]
+  if (
+    obj['recentPaths'] !== undefined &&
+    (!Array.isArray(obj['recentPaths']) || !obj['recentPaths'].every((p) => typeof p === 'string'))
+  ) {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      'Field "workspace.recentPaths" must be an array of strings.',
+      { workspace: value, key: 'recentPaths', value: obj['recentPaths'] },
+    )
+  }
+  // autoRestore: boolean
+  if (obj['autoRestore'] !== undefined && typeof obj['autoRestore'] !== 'boolean') {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      'Field "workspace.autoRestore" must be a boolean.',
+      { workspace: value, key: 'autoRestore', value: obj['autoRestore'] },
+    )
+  }
+  // excludePatterns: string[]
+  if (
+    obj['excludePatterns'] !== undefined &&
+    (!Array.isArray(obj['excludePatterns']) ||
+      !obj['excludePatterns'].every((p) => typeof p === 'string'))
+  ) {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      'Field "workspace.excludePatterns" must be an array of strings.',
+      { workspace: value, key: 'excludePatterns', value: obj['excludePatterns'] },
+    )
+  }
+}
+
 // ─── IPC 通道处理函数 ─────────────────────────────────────────────
 
 /**
@@ -161,6 +255,8 @@ export function handleUpdateSettings(params: unknown): void {
   assertOptionalStringOrNull(p['defaultModelId'], 'defaultModelId')
   assertOptionalShortcuts(p['shortcuts'])
   assertOptionalNumber(p['approvalTimeoutMs'], 'approvalTimeoutMs')
+  assertOptionalVoice(p['voice'])
+  assertOptionalWorkspace(p['workspace'])
   assertOptionalWindowBounds(p['windowBounds'])
 
   // updatedAt 字段不允许外部覆盖
@@ -179,6 +275,8 @@ export function handleUpdateSettings(params: unknown): void {
     defaultModelId: p['defaultModelId'] as UpdateSettingsParams['defaultModelId'],
     shortcuts: p['shortcuts'] as UpdateSettingsParams['shortcuts'],
     approvalTimeoutMs: p['approvalTimeoutMs'] as UpdateSettingsParams['approvalTimeoutMs'],
+    voice: p['voice'] as UpdateSettingsParams['voice'],
+    workspace: p['workspace'] as UpdateSettingsParams['workspace'],
     windowBounds: p['windowBounds'] as UpdateSettingsParams['windowBounds'],
   }
 

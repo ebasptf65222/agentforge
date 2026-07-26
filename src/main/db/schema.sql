@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
   approval_timeout_ms  INTEGER NOT NULL DEFAULT 300000,
   window_bounds        TEXT,
   voice                TEXT NOT NULL DEFAULT '{"tts":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"tts-1","voice":"alloy","speed":1.0,"format":"mp3","autoPlay":false},"stt":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"whisper-1","language":"","temperature":0.0},"mode":{"vadSilenceThreshold":1.5,"autoAwait":true}}',
+  workspace            TEXT NOT NULL DEFAULT '{"path":null,"recentPaths":[],"autoRestore":true,"excludePatterns":["node_modules",".git","dist",".DS_Store"]}',
   updated_at           INTEGER NOT NULL
 );
 INSERT OR IGNORE INTO app_settings (id, updated_at) VALUES (1, strftime('%s','now') * 1000);
@@ -283,3 +284,11 @@ CREATE TABLE IF NOT EXISTS kg_relations (
 CREATE INDEX IF NOT EXISTS idx_kg_relations_source ON kg_relations(source_id);
 CREATE INDEX IF NOT EXISTS idx_kg_relations_target ON kg_relations(target_id);
 CREATE INDEX IF NOT EXISTS idx_kg_relations_relation ON kg_relations(relation);
+
+-- ─── 6.14 workspace config (WS-01) ───────────────────────────
+-- 工作区配置，存储本地文件工作区设置
+-- 以 JSON 字符串存储在 app_settings 的 workspace 列中
+-- 注意：workspace 列已在 app_settings 建表时定义，此处仅记录版本
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (8, strftime('%s','now') * 1000, 'Add workspace column to app_settings for local file workspace');

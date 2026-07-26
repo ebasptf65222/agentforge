@@ -3,7 +3,7 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { AppSettings, VoiceConfig } from '@shared/types'
+import type { AppSettings, VoiceConfig, WorkspaceConfig } from '@shared/types'
 
 /** Keys of AppSettings that callers are allowed to update (excluding updatedAt). */
 export type SettingsKey = keyof Omit<AppSettings, 'updatedAt'>
@@ -57,6 +57,18 @@ export const useSettingsStore = defineStore('settings', () => {
     await loadSettings()
   }
 
+  /**
+   * Update workspace configuration with partial patch support.
+   * The main process merges the patch with existing workspace config.
+   * When `path` changes, the backend auto-manages recentPaths.
+   */
+  async function updateWorkspace(patch: Partial<WorkspaceConfig>): Promise<void> {
+    await window.electron.settings.update({ workspace: patch } as Partial<
+      Omit<AppSettings, 'updatedAt'>
+    >)
+    await loadSettings()
+  }
+
   return {
     // State
     settings,
@@ -65,5 +77,6 @@ export const useSettingsStore = defineStore('settings', () => {
     loadSettings,
     updateSetting,
     updateVoice,
+    updateWorkspace,
   }
 })

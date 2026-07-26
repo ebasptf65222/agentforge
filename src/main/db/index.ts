@@ -98,6 +98,13 @@ function runConditionalMigrations(db: Database.Database): void {
       `ALTER TABLE app_settings ADD COLUMN voice TEXT NOT NULL DEFAULT '{"tts":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"tts-1","voice":"alloy","speed":1.0,"format":"mp3","autoPlay":false},"stt":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"whisper-1","language":"","temperature":0.0},"mode":{"vadSilenceThreshold":1.5,"autoAwait":true}}'`
     )
   }
+
+  // WS-01: 确保 app_settings 有 workspace 列
+  if (!hasColumn(db, 'app_settings', 'workspace')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN workspace TEXT NOT NULL DEFAULT '{"path":null,"recentPaths":[],"autoRestore":true,"excludePatterns":["node_modules",".git","dist",".DS_Store"]}'`
+    )
+  }
 }
 
 /**

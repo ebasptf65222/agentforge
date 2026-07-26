@@ -3,7 +3,7 @@
 // 与 Spec v0.2 §6.6 表结构一致
 
 import type Database from 'better-sqlite3'
-import type { AppSettings, ApprovalMode, ShortcutConfig, VoiceConfig } from '@shared/types'
+import type { AppSettings, ApprovalMode, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
 import { getDatabase } from '../index'
 import { AppError, ErrorCodes } from '../../utils/error'
 
@@ -23,6 +23,7 @@ interface AppSettingsRow {
   shortcuts: string
   approval_timeout_ms: number
   voice: string
+  workspace: string
   window_bounds: string | null
   updated_at: number
 }
@@ -68,6 +69,16 @@ const DEFAULT_VOICE_CONFIG: VoiceConfig = {
 }
 
 /**
+ * 默认工作区配置（与 schema.sql 中的 DEFAULT 一致）。
+ */
+const DEFAULT_WORKSPACE_CONFIG: WorkspaceConfig = {
+  path: null,
+  recentPaths: [],
+  autoRestore: true,
+  excludePatterns: ['node_modules', '.git', 'dist', '.DS_Store'],
+}
+
+/**
  * 窗口边界类型（与 @shared/types AppSettings.windowBounds 一致）。
  */
 interface WindowBounds {
@@ -90,6 +101,7 @@ export interface UpdateSettingsParams {
   shortcuts?: Partial<ShortcutConfig>
   approvalTimeoutMs?: number
   voice?: Partial<VoiceConfig> | VoiceConfig
+  workspace?: Partial<WorkspaceConfig> | WorkspaceConfig
   windowBounds?: WindowBounds | null
 }
 
@@ -116,6 +128,14 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     voice = { ...DEFAULT_VOICE_CONFIG }
   }
 
+  let workspace: WorkspaceConfig
+  try {
+    const parsed = JSON.parse(row.workspace) as Partial<WorkspaceConfig>
+    workspace = mergeWorkspaceConfig(DEFAULT_WORKSPACE_CONFIG, parsed)
+  } catch {
+    workspace = { ...DEFAULT_WORKSPACE_CONFIG }
+  }
+
   let windowBounds: WindowBounds | undefined
   if (row.window_bounds !== null) {
     try {
@@ -133,6 +153,7 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     shortcuts,
     approvalTimeoutMs: row.approval_timeout_ms,
     voice,
+    workspace,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -155,6 +176,46 @@ function deepMergeVoiceConfig(
   if (partial.mode) {
     result.mode = { ...result.mode, ...partial.mode }
   }
+  return result
+}
+
+/**
+ * 合并工作区配置。
+ * - 当 path 变更为新的非 null 值时，自动将新路径加入 recentPaths（去重、截断到 10 条）
+ * - 允许显式传入 recentPaths 覆盖自动管理的结果
+ */
+function mergeWorkspaceConfig(
+  base: WorkspaceConfig,
+  partial: Partial<WorkspaceConfig>,
+): WorkspaceConfig {
+  const result: WorkspaceConfig = { ...base }
+
+  // 处理 path 变更
+  if (partial.path !== undefined) {
+    const newPath = partial.path
+    // path 变更为新的非 null 值时，自动维护 recentPaths
+    if (newPath !== null && newPath !== base.path) {
+      result.recentPaths = [
+        newPath,
+        ...base.recentPaths.filter((p) => p !== newPath),
+      ].slice(0, 10)
+    }
+    result.path = newPath
+  }
+
+  // 允许显式传入 recentPaths 覆盖（极少使用）
+  if (partial.recentPaths !== undefined) {
+    result.recentPaths = partial.recentPaths
+  }
+
+  if (partial.autoRestore !== undefined) {
+    result.autoRestore = partial.autoRestore
+  }
+
+  if (partial.excludePatterns !== undefined) {
+    result.excludePatterns = partial.excludePatterns
+  }
+
   return result
 }
 
@@ -197,9 +258,9 @@ export function updateSettings(params: UpdateSettingsParams): void {
 
   // 确认 id=1 的行存在
   const existing = db
-    .prepare('SELECT id, shortcuts, voice FROM app_settings WHERE id = 1')
+    .prepare('SELECT id, shortcuts, voice, workspace FROM app_settings WHERE id = 1')
     .get() as
-    { id: number; shortcuts: string; voice: string } | undefined
+    { id: number; shortcuts: string; voice: string; workspace: string } | undefined
 
   if (existing === undefined) {
     throw new AppError(
@@ -263,6 +324,20 @@ export function updateSettings(params: UpdateSettingsParams): void {
     }
     const merged: VoiceConfig = deepMergeVoiceConfig(currentVoice, params.voice)
     setClauses.push('voice = ?')
+    values.push(JSON.stringify(merged))
+  }
+
+  if (params.workspace !== undefined) {
+    // 合并现有 workspace 配置与新提供的部分
+    let currentWorkspace: WorkspaceConfig = { ...DEFAULT_WORKSPACE_CONFIG }
+    try {
+      const parsed = JSON.parse(existing.workspace) as Partial<WorkspaceConfig>
+      currentWorkspace = mergeWorkspaceConfig(DEFAULT_WORKSPACE_CONFIG, parsed)
+    } catch {
+      // 使用默认值
+    }
+    const merged: WorkspaceConfig = mergeWorkspaceConfig(currentWorkspace, params.workspace)
+    setClauses.push('workspace = ?')
     values.push(JSON.stringify(merged))
   }
 

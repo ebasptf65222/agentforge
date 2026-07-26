@@ -70,6 +70,12 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
         autoAwait: true,
       },
     },
+    workspace: {
+      path: null,
+      recentPaths: [],
+      autoRestore: true,
+      excludePatterns: ['node_modules', '.git', 'dist', '.DS_Store'],
+    },
     updatedAt: Date.now(),
     ...overrides,
   }
@@ -213,6 +219,64 @@ describe('Settings IPC Handlers (P1-09b)', () => {
     it('should throw VALIDATION_ERROR when updatedAt is provided', () => {
       expectAppError(() => handleUpdateSettings({ updatedAt: 123 }), 'VALIDATION_ERROR')
     })
+
+    // ─── workspace validation ─────────────────────────────────
+
+    it('should throw VALIDATION_ERROR when workspace is not an object', () => {
+      expectAppError(() => handleUpdateSettings({ workspace: 'bad' }), 'VALIDATION_ERROR')
+    })
+
+    it('should throw VALIDATION_ERROR when workspace is null', () => {
+      expectAppError(() => handleUpdateSettings({ workspace: null }), 'VALIDATION_ERROR')
+    })
+
+    it('should throw VALIDATION_ERROR when workspace has unknown key', () => {
+      expectAppError(
+        () => handleUpdateSettings({ workspace: { unknownKey: 'value' } }),
+        'VALIDATION_ERROR',
+      )
+    })
+
+    it('should throw VALIDATION_ERROR when workspace.path is not string or null', () => {
+      expectAppError(
+        () => handleUpdateSettings({ workspace: { path: 123 } }),
+        'VALIDATION_ERROR',
+      )
+    })
+
+    it('should throw VALIDATION_ERROR when workspace.autoRestore is not boolean', () => {
+      expectAppError(
+        () => handleUpdateSettings({ workspace: { autoRestore: 'yes' } }),
+        'VALIDATION_ERROR',
+      )
+    })
+
+    it('should throw VALIDATION_ERROR when workspace.excludePatterns is not string array', () => {
+      expectAppError(
+        () => handleUpdateSettings({ workspace: { excludePatterns: 'bad' } }),
+        'VALIDATION_ERROR',
+      )
+    })
+
+    it('should throw VALIDATION_ERROR when workspace.recentPaths contains non-string', () => {
+      expectAppError(
+        () => handleUpdateSettings({ workspace: { recentPaths: ['ok', 123] } }),
+        'VALIDATION_ERROR',
+      )
+    })
+
+    // ─── voice validation ─────────────────────────────────────
+
+    it('should throw VALIDATION_ERROR when voice is not an object', () => {
+      expectAppError(() => handleUpdateSettings({ voice: 'bad' }), 'VALIDATION_ERROR')
+    })
+
+    it('should throw VALIDATION_ERROR when voice has unknown key', () => {
+      expectAppError(
+        () => handleUpdateSettings({ voice: { unknownKey: 'value' } }),
+        'VALIDATION_ERROR',
+      )
+    })
   })
 
   // ─── handleUpdateSettings: success ──────────────────────────
@@ -278,6 +342,52 @@ describe('Settings IPC Handlers (P1-09b)', () => {
     it('should accept windowBounds as null', () => {
       handleUpdateSettings({ windowBounds: null })
       expect(mockUpdateSettings).toHaveBeenCalledWith({ windowBounds: null })
+    })
+
+    it('should accept voice partial config', () => {
+      const voice = { tts: { enabled: true } }
+      handleUpdateSettings({ voice })
+      expect(mockUpdateSettings).toHaveBeenCalledWith({ voice })
+    })
+
+    it('should accept workspace partial config with path', () => {
+      const workspace = { path: '/home/user/workspace' }
+      handleUpdateSettings({ workspace })
+      expect(mockUpdateSettings).toHaveBeenCalledWith({ workspace })
+    })
+
+    it('should accept workspace config with null path', () => {
+      const workspace = { path: null }
+      handleUpdateSettings({ workspace })
+      expect(mockUpdateSettings).toHaveBeenCalledWith({ workspace })
+    })
+
+    it('should accept workspace config with excludePatterns', () => {
+      const workspace = { excludePatterns: ['node_modules', 'build'] }
+      handleUpdateSettings({ workspace })
+      expect(mockUpdateSettings).toHaveBeenCalledWith({ workspace })
+    })
+
+    it('should accept workspace config with autoRestore', () => {
+      const workspace = { autoRestore: false }
+      handleUpdateSettings({ workspace })
+      expect(mockUpdateSettings).toHaveBeenCalledWith({ workspace })
+    })
+
+    it('should accept multiple fields including workspace and voice in one call', () => {
+      handleUpdateSettings({
+        theme: 'light',
+        maxExecutionSteps: 30,
+        voice: { stt: { enabled: true } },
+        workspace: { path: '/test/workspace' },
+      })
+
+      expect(mockUpdateSettings).toHaveBeenCalledWith({
+        theme: 'light',
+        maxExecutionSteps: 30,
+        voice: { stt: { enabled: true } },
+        workspace: { path: '/test/workspace' },
+      })
     })
 
     it('should accept multiple fields in one call', () => {

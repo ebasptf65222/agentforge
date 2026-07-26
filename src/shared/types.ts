@@ -108,6 +108,7 @@ interface AppSettings {
   shortcuts: ShortcutConfig
   approvalTimeoutMs: number
   voice: VoiceConfig
+  workspace: WorkspaceConfig
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }
@@ -466,6 +467,46 @@ interface KbStats {
   pendingEmbeddings: number
 }
 
+// ─── 5.7 工作区类型 ──────────────────────────────────────────────
+
+/** 工作区配置 */
+interface WorkspaceConfig {
+  /** 当前工作区绝对路径，null 表示未设置 */
+  path: string | null
+  /** 最近使用的工作区路径列表（最多 10 个） */
+  recentPaths: string[]
+  /** 启动时是否自动恢复上次工作区 */
+  autoRestore: boolean
+  /** 文件树排除的 glob 模式 */
+  excludePatterns: string[]
+}
+
+/** 文件树节点 */
+interface FileTreeNode {
+  /** 节点 ID（相对路径） */
+  id: string
+  /** 显示名称 */
+  name: string
+  /** 相对于工作区根的路径 */
+  relativePath: string
+  /** 是否目录 */
+  isDirectory: boolean
+  /** 文件大小（字节，目录为 0） */
+  size: number
+  /** 修改时间 */
+  modifiedAt: number
+  /** 子节点（仅目录有，懒加载时为 null） */
+  children: FileTreeNode[] | null
+}
+
+/** 工作区目录条目 */
+interface WorkspaceDirectoryEntry {
+  name: string
+  isDirectory: boolean
+  size: number
+  modifiedAt: number
+}
+
 // ─── 5.8 错误类型 ────────────────────────────────────────────────
 
 /** 应用统一错误 */
@@ -535,6 +576,9 @@ export type {
   SttOptions,
   TtsPlayProgress,
   SttRecordProgress,
+  WorkspaceConfig,
+  FileTreeNode,
+  WorkspaceDirectoryEntry,
   KbDocument,
   DocumentChunk,
   SearchResult,

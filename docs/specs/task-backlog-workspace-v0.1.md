@@ -29,7 +29,7 @@ WS-01 → WS-02 → WS-03 → WS-04 → WS-05
 | 字段 | 内容 |
 |------|------|
 | **任务 ID** | WS-01 |
-| **状态** | pending |
+| **状态** | done |
 | **标题** | 工作区配置类型定义 + 数据库迁移 + 设置读写 |
 | **目标** | 定义 WorkspaceConfig / FileTreeNode / WorkspaceDirectoryEntry 类型，在 app_settings 添加 workspace 列，实现配置的读写和路径去重截断逻辑 |
 | **依赖任务** | 无 |
@@ -156,7 +156,7 @@ WS-01 → WS-02 → WS-03 → WS-04 → WS-05
 
 | 任务 | 状态 | 完成时间 | 备注 |
 |------|------|----------|------|
-| WS-01 | pending | — | — |
+| WS-01 | done | 2026-07-26 | 工作区配置类型 + DB 迁移 + recentPaths 去重截断 + settings IPC voice/workspace 透传修复 |
 | WS-02 | pending | — | — |
 | WS-03 | pending | — | — |
 | WS-04 | pending | — | — |
