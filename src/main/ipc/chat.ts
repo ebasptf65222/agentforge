@@ -1,0 +1,445 @@
+// AgentForge Chat 域 IPC Handlers
+// 实现 P1-08: 对话发送/停止 + 流式事件 + 持久化 + 并发控制
+// 实现 P1-09a: 会话 CRUD + 消息查询
+// 通道命名: chat:send, chat:stop, chat:create-conversation,
+//           chat:list-conversations, chat:get-conversation,
+//           chat:delete-conversation, chat:get-messages
+
+import { ipcMain, type IpcMainInvokeHandler, BrowserWindow } from 'electron'
+import type {
+  Conversation,
+  ChatMessage,
+  StreamChunk,
+  StreamEndMetadata,
+  StreamError,
+  MessageMetadata,
+  ApprovalMode,
+} from '@shared/types'
+import { AppError, ErrorCodes } from '../utils/error'
+import {
+  createConversation,
+  listConversations,
+  getConversationById,
+  deleteConversation,
+  updateConversationTitle,
+  incrementMessageCount,
+  updateLastMessageAt,
+} from '../db/repos/conversation'
+import { createMessage, getMessagesByConversationId } from '../db/repos/message'
+import { modelConfigExists } from '../db/repos/model-config'
+import { getModelAdapter } from '../models/router'
+import type { AdapterMessage } from '../models/adapter'
+
+// ─── 并发控制 ─────────────────────────────────────────────────────
+
+/** 当前正在运行的 AbortController，null 表示空闲 */
+let currentAbortController: AbortController | null = null
+
+/**
+ * 获取当前 AbortController（仅供测试使用）。
+ */
+export function getCurrentAbortController(): AbortController | null {
+  return currentAbortController
+}
+
+/**
+ * 重置当前 AbortController（仅供测试使用）。
+ */
+export function resetAbortController(): void {
+  currentAbortController = null
+}
+
+// ─── 参数校验辅助函数 ─────────────────────────────────────────────
+
+function assertNonEmptyString(value: unknown, field: string): asserts value is string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      `Field "${field}" must be a non-empty string.`,
+      { field, value },
+    )
+  }
+}
+
+// ─── 流式事件推送辅助 ─────────────────────────────────────────────
+
+/**
+ * 获取主窗口的 webContents，用于推送流式事件。
+ * 若无窗口则静默跳过（测试环境或窗口已销毁）。
+ */
+function getMainWindowWebContents(): Electron.WebContents | null {
+  const windows = BrowserWindow.getAllWindows()
+  if (windows.length === 0) return null
+  const win = windows[0]
+  if (win.isDestroyed()) return null
+  return win.webContents
+}
+
+/**
+ * 推送流式 chunk 到渲染进程。
+ */
+function sendStreamChunk(chunk: StreamChunk): void {
+  const wc = getMainWindowWebContents()
+  if (wc) {
+    wc.send('chat:stream-chunk', chunk)
+  }
+}
+
+/**
+ * 推送流式结束事件到渲染进程。
+ */
+function sendStreamEnd(metadata: StreamEndMetadata): void {
+  const wc = getMainWindowWebContents()
+  if (wc) {
+    wc.send('chat:stream-end', metadata)
+  }
+}
+
+/**
+ * 推送流式错误事件到渲染进程。
+ */
+function sendStreamError(error: StreamError): void {
+  const wc = getMainWindowWebContents()
+  if (wc) {
+    wc.send('chat:stream-error', error)
+  }
+}
+
+// ─── 近似 token 计算 ──────────────────────────────────────────────
+
+/**
+ * 近似计算 token 数量（content 长度 / 4，无 tiktoken）。
+ */
+function approximateTokenCount(content: string): number {
+  return Math.ceil(content.length / 4)
+}
+
+// ─── IPC 通道处理函数 ─────────────────────────────────────────────
+
+/**
+ * chat:send - 发送消息并流式生成回复。
+ *
+ * 流程：
+ * 1. 检查并发锁（currentAbortController）
+ * 2. 验证 conversationId 存在
+ * 3. 获取模型适配器
+ * 4. 保存用户消息
+ * 5. 构建消息历史，开始流式生成
+ * 6. 每个 chunk 推送到渲染进程
+ * 7. 流式结束后保存助手消息，更新会话统计
+ * 8. 首条消息时自动生成标题
+ */
+export async function handleSend(
+  _event: Electron.IpcMainInvokeEvent,
+  params: unknown,
+): Promise<void> {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Send message params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['conversationId'], 'conversationId')
+  assertNonEmptyString(p['content'], 'content')
+  assertNonEmptyString(p['modelId'], 'modelId')
+
+  const { conversationId, content, modelId } = p as {
+    conversationId: string
+    content: string
+    modelId: string
+  }
+
+  // 1. 并发控制：已有生成任务在运行
+  if (currentAbortController !== null) {
+    throw new AppError(ErrorCodes.CHAT_ALREADY_RUNNING, 'A chat generation is already running.')
+  }
+
+  // 2. 验证会话存在
+  const conversation = getConversationById(conversationId)
+
+  // 3. 获取模型适配器（内部会验证 modelId 对应的配置是否存在）
+  const adapter = getModelAdapter(modelId)
+
+  // 4. 创建 AbortController 并加锁
+  const abortController = new AbortController()
+  currentAbortController = abortController
+
+  // 5. 保存用户消息
+  createMessage({
+    conversationId,
+    role: 'user',
+    content,
+  })
+
+  // 递增消息计数（用户消息 +1，后面助手消息再 +1）
+  incrementMessageCount(conversationId, 1)
+
+  // 6. 首条消息时自动生成标题
+  if (conversation.messageCount === 0 && conversation.title === '新会话') {
+    const newTitle = (content.length > 20 ? content.slice(0, 20) : content).trim()
+    updateConversationTitle(conversationId, newTitle)
+  }
+
+  // 7. 构建消息历史
+  const history = getMessagesByConversationId(conversationId)
+  const adapterMessages: AdapterMessage[] = history.map((msg) => ({
+    role: msg.role,
+    content: msg.content,
+  }))
+
+  // 8. 流式生成
+  const startTime = Date.now()
+  let assistantContent = ''
+  let stopped = false
+
+  try {
+    const stream = adapter.streamChat(adapterMessages, abortController.signal)
+
+    for await (const chunk of stream) {
+      // 推送 chunk 到渲染进程
+      sendStreamChunk(chunk)
+
+      // 收集文本内容
+      if (chunk.type === 'text' && chunk.content) {
+        assistantContent += chunk.content
+      }
+
+      // 检查是否被中断
+      if (abortController.signal.aborted) {
+        stopped = true
+        break
+      }
+    }
+  } catch (error) {
+    // 被中断（AbortError）视为正常停止
+    if (error instanceof Error && error.name === 'AbortError') {
+      stopped = true
+    } else if (error instanceof AppError) {
+      // 推送流式错误
+      const streamError: StreamError = {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      }
+      sendStreamError(streamError)
+      // 仍然保存已生成的内容
+    } else {
+      // 未知错误
+      const streamError: StreamError = {
+        code: ErrorCodes.INTERNAL_ERROR,
+        message: error instanceof Error ? error.message : 'Unknown error during streaming',
+      }
+      sendStreamError(streamError)
+    }
+  } finally {
+    // 9. 保存助手消息
+    const duration = Date.now() - startTime
+    const tokensUsed = approximateTokenCount(assistantContent)
+
+    const assistantMetadata: MessageMetadata = {
+      modelId,
+      tokensUsed,
+      duration,
+      stopped,
+    }
+
+    const assistantMessage = createMessage({
+      conversationId,
+      role: 'assistant',
+      content: assistantContent,
+      metadata: assistantMetadata,
+    })
+
+    // 10. 更新会话统计
+    incrementMessageCount(conversationId, 1)
+    updateLastMessageAt(conversationId)
+
+    // 11. 推送流式结束事件
+    const endMetadata: StreamEndMetadata = {
+      messageId: assistantMessage.id,
+      tokensUsed,
+      duration,
+      modelId,
+      stopped,
+    }
+    sendStreamEnd(endMetadata)
+
+    // 12. 释放并发锁
+    currentAbortController = null
+  }
+}
+
+/**
+ * chat:stop - 中断当前流式生成。
+ */
+export function handleStop(): void {
+  if (currentAbortController !== null) {
+    currentAbortController.abort()
+  }
+}
+
+// ─── P1-09a: 会话 CRUD + 消息查询 ──────────────────────────────────
+
+const VALID_APPROVAL_MODES: readonly ApprovalMode[] = ['suggest', 'auto-edit', 'full-auto']
+
+function assertApprovalMode(value: unknown): asserts value is ApprovalMode {
+  if (
+    value !== undefined &&
+    (typeof value !== 'string' || !VALID_APPROVAL_MODES.includes(value as ApprovalMode))
+  ) {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      `Invalid approvalMode: ${String(value)}. Must be one of: ${VALID_APPROVAL_MODES.join(', ')}.`,
+      { approvalMode: value },
+    )
+  }
+}
+
+/**
+ * chat:create-conversation - 创建会话。
+ *
+ * - title 为空字符串或 undefined 时使用默认值 "新会话"
+ * - approvalMode 为 undefined 时使用默认值 "auto-edit"
+ * - modelId 不存在于 model_configs 表时抛出 MODEL_NOT_FOUND
+ *
+ * @param params - { title?, modelId, approvalMode? }
+ * @returns 新建的 Conversation
+ */
+export function handleCreateConversation(params: unknown): Conversation {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Create conversation params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['modelId'], 'modelId')
+  assertApprovalMode(p['approvalMode'])
+
+  // title 可选；非空字符串才使用，否则使用默认值
+  let title: string | undefined
+  if (p['title'] !== undefined) {
+    if (typeof p['title'] !== 'string') {
+      throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Field "title" must be a string.', {
+        title: p['title'],
+      })
+    }
+    const trimmed = p['title'].trim()
+    title = trimmed === '' ? undefined : trimmed
+  }
+
+  const modelId = p['modelId'] as string
+  const approvalMode = p['approvalMode'] as ApprovalMode | undefined
+
+  // 验证 modelId 在 model_configs 表中存在
+  if (!modelConfigExists(modelId)) {
+    throw new AppError(ErrorCodes.MODEL_NOT_FOUND, `Model with id "${modelId}" not found.`, {
+      modelId,
+    })
+  }
+
+  return createConversation({
+    title,
+    modelId,
+    approvalMode,
+  })
+}
+
+/**
+ * chat:list-conversations - 列出所有会话（按 updated_at 降序）。
+ *
+ * @returns Conversation 数组
+ */
+export function handleListConversations(): Conversation[] {
+  return listConversations()
+}
+
+/**
+ * chat:get-conversation - 查询单个会话。
+ *
+ * @param params - { id }
+ * @returns Conversation
+ * @throws {AppError} CONVERSATION_NOT_FOUND - 会话不存在
+ */
+export function handleGetConversation(params: unknown): Conversation {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Get conversation params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['id'], 'id')
+
+  return getConversationById(p['id'] as string)
+}
+
+/**
+ * chat:delete-conversation - 删除会话（级联删除消息）。
+ *
+ * @param params - { id }
+ * @throws {AppError} CONVERSATION_NOT_FOUND - 会话不存在
+ */
+export function handleDeleteConversation(params: unknown): void {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Delete conversation params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['id'], 'id')
+
+  deleteConversation(p['id'] as string)
+}
+
+/**
+ * chat:get-messages - 查询会话下的所有消息（按 created_at 升序）。
+ *
+ * @param params - { conversationId }
+ * @returns ChatMessage 数组
+ */
+export function handleGetMessages(params: unknown): ChatMessage[] {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Get messages params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['conversationId'], 'conversationId')
+
+  return getMessagesByConversationId(p['conversationId'] as string)
+}
+
+// ─── 通道注册表 ───────────────────────────────────────────────────
+
+interface ChannelRegistration {
+  channel: string
+  handler: IpcMainInvokeHandler
+}
+
+const registrations: ChannelRegistration[] = [
+  { channel: 'chat:send', handler: handleSend },
+  { channel: 'chat:stop', handler: () => handleStop() },
+  // P1-09a: 会话 CRUD + 消息查询
+  {
+    channel: 'chat:create-conversation',
+    handler: (_event, params: unknown) => handleCreateConversation(params),
+  },
+  { channel: 'chat:list-conversations', handler: () => handleListConversations() },
+  {
+    channel: 'chat:get-conversation',
+    handler: (_event, params: unknown) => handleGetConversation(params),
+  },
+  {
+    channel: 'chat:delete-conversation',
+    handler: (_event, params: unknown) => handleDeleteConversation(params),
+  },
+  {
+    channel: 'chat:get-messages',
+    handler: (_event, params: unknown) => handleGetMessages(params),
+  },
+]
+
+/**
+ * 注册 Chat 域的 IPC handlers。
+ * 幂等：重复调用时会先移除已注册的 handler 再重新注册。
+ */
+export function registerChatHandlers(): void {
+  for (const { channel, handler } of registrations) {
+    ipcMain.removeHandler(channel)
+    ipcMain.handle(channel, handler)
+  }
+}

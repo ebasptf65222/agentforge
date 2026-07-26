@@ -1,0 +1,59 @@
+{
+  "name": "agentforge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first personal AI Agent desktop workstation",
+  "main": "./out/main/index.js",
+  "type": "module",
+  "packageManager": "pnpm@10.28.1",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,vue}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,vue}\"",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.1",
+    "dompurify": "^3.4.12",
+    "marked": "^18.0.7",
+    "openai": "^6.49.0",
+    "shiki": "^4.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.1",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "@vueuse/core": "^14.3.0",
+    "electron": "^43.2.0",
+    "electron-vite": "^5.0.0",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.10.0",
+    "globals": "^17.7.0",
+    "naive-ui": "^2.44.1",
+    "pinia": "^4.0.2",
+    "prettier": "^3.9.6",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.65.0",
+    "unocss": "^66.7.5",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10",
+    "vue": "^3.5.0",
+    "vue-eslint-parser": "^10.4.1",
+    "vue-tsc": "^3.3.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "vue-demi"
+    ]
+  }
+}

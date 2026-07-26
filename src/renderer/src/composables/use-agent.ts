@@ -1,0 +1,43 @@
+// P2-09: useAgent composable
+// Sets up agent event listeners and wires them to AgentStore
+
+import { onMounted, onUnmounted } from 'vue'
+import type { TAOTrajectory, ApprovalRequest, StreamChunk } from '@shared/types'
+import { useAgentStore } from '@/stores/agent'
+
+/**
+ * Composable that sets up agent event listeners.
+ * Must be called in a component's setup() that has AgentStore access.
+ */
+export function useAgent(): void {
+  const agentStore = useAgentStore()
+
+  let cleanupTrajectory: (() => void) | undefined
+  let cleanupApproval: (() => void) | undefined
+  let cleanupChunk: (() => void) | undefined
+
+  onMounted(() => {
+    // Trajectory listener
+    cleanupTrajectory = window.electron.agent.onTrajectory((trajectory: TAOTrajectory) => {
+      agentStore.handleTrajectory(trajectory)
+    })
+
+    // Approval request listener
+    cleanupApproval = window.electron.agent.onApprovalRequest(
+      (request: ApprovalRequest) => {
+        agentStore.handleApprovalRequest(request)
+      },
+    )
+
+    // Stream chunk listener
+    cleanupChunk = window.electron.agent.onStreamChunk((chunk: StreamChunk) => {
+      agentStore.handleStreamChunk(chunk)
+    })
+  })
+
+  onUnmounted(() => {
+    cleanupTrajectory?.()
+    cleanupApproval?.()
+    cleanupChunk?.()
+  })
+}
