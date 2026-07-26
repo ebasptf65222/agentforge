@@ -117,6 +117,16 @@ export const ErrorCodes = {
   /** 关系不存在 */
   KG_RELATION_NOT_FOUND: 'KG_RELATION_NOT_FOUND',
 
+  // ─── 工作区相关（WS） ────────────────────────────────────────
+  /** 未设置工作区 */
+  WORKSPACE_NOT_SET: 'WORKSPACE_NOT_SET',
+  /** 工作区路径无效 */
+  WORKSPACE_PATH_INVALID: 'WORKSPACE_PATH_INVALID',
+  /** 路径逃逸 */
+  WORKSPACE_PATH_ESCAPE: 'WORKSPACE_PATH_ESCAPE',
+  /** 目录非空 */
+  DIRECTORY_NOT_EMPTY: 'DIRECTORY_NOT_EMPTY',
+
   // ─── 通用 ────────────────────────────────────────────────────
   /** 数据库错误 */
   DB_ERROR: 'DB_ERROR',
