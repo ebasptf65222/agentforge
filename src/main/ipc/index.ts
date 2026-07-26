@@ -9,6 +9,7 @@ import { registerFileHandlers } from './file'
 import { registerSystemHandlers } from './system'
 import { registerMcpHandlers } from './mcp'
 import { registerAgentHandlers } from './agent'
+import { registerSkillHandlers } from './skill'
 
 /**
  * 注册所有 IPC handlers。
@@ -36,4 +37,7 @@ export function registerIpcHandlers(): void {
 
   // ─── Agent 域 (P2-04) ──────────────────────────────────────────
   registerAgentHandlers()
+
+  // ─── Skill 域 (P3-02) ──────────────────────────────────────────
+  registerSkillHandlers()
 }

@@ -126,6 +126,25 @@ const mcp = {
     ipcRenderer.invoke('mcp:toggle-enable', { id, enabled }),
 }
 
+// ─── Skill 命名空间 (P3-02) ─────────────────────────────────────
+
+const skill = {
+  list: (params?: Record<string, unknown>): Promise<unknown[]> =>
+    ipcRenderer.invoke('skill:list', params ?? {}),
+
+  get: (id: string): Promise<unknown> => ipcRenderer.invoke('skill:get', { id }),
+
+  getByName: (name: string): Promise<unknown> => ipcRenderer.invoke('skill:getByName', { name }),
+
+  create: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('skill:create', params),
+
+  update: (params: Record<string, unknown>): Promise<void> =>
+    ipcRenderer.invoke('skill:update', params),
+
+  delete: (id: string): Promise<void> => ipcRenderer.invoke('skill:delete', { id }),
+}
+
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
@@ -139,6 +158,7 @@ if (process.contextIsolated) {
       system,
       agent,
       mcp,
+      skill,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)

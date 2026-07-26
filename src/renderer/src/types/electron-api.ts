@@ -16,6 +16,9 @@ import type {
   ExecutionResult,
   MCPServerConfig,
   MCPServerStatus,
+  Skill,
+  SkillVariable,
+  SkillTrigger,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -180,6 +183,46 @@ interface McpAPI {
   toggleEnable(id: string, enabled: boolean): Promise<void>
 }
 
+/** 创建 Skill 参数 */
+interface CreateSkillParams {
+  name: string
+  displayName: string
+  description: string
+  prompt: string
+  modelId?: string
+  allowedTools: string[]
+  trigger: SkillTrigger
+  variables?: SkillVariable[]
+}
+
+/** 更新 Skill 参数 */
+interface UpdateSkillParams {
+  id: string
+  displayName?: string
+  description?: string
+  prompt?: string
+  modelId?: string | null
+  allowedTools?: string[]
+  trigger?: SkillTrigger
+  variables?: SkillVariable[]
+}
+
+/** Skill 列表查询参数 */
+interface ListSkillParams {
+  trigger?: SkillTrigger
+  builtinOnly?: boolean
+}
+
+/** Skill 命名空间 */
+interface SkillAPI {
+  list(params?: ListSkillParams): Promise<Skill[]>
+  get(id: string): Promise<Skill>
+  getByName(name: string): Promise<Skill | null>
+  create(params: CreateSkillParams): Promise<Skill>
+  update(params: UpdateSkillParams): Promise<void>
+  delete(id: string): Promise<void>
+}
+
 /** window.electron 完整类型 */
 interface ElectronAPI {
   chat: ChatAPI
@@ -189,6 +232,7 @@ interface ElectronAPI {
   system: SystemAPI
   agent: AgentAPI
   mcp: McpAPI
+  skill: SkillAPI
 }
 
 export type {
@@ -211,5 +255,9 @@ export type {
   McpAddParams,
   McpServerInfo,
   McpAPI,
+  CreateSkillParams,
+  UpdateSkillParams,
+  ListSkillParams,
+  SkillAPI,
   ElectronAPI,
 }
