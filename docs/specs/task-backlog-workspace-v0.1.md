@@ -119,7 +119,7 @@ WS-01 → WS-02 → WS-03 → WS-04 → WS-05
 | 字段 | 内容 |
 |------|------|
 | **任务 ID** | WS-06 |
-| **状态** | pending |
+| **状态** | done |
 | **标题** | 端到端集成测试 + 路径安全渗透测试 |
 | **目标** | 验证所有 ws_* 工具的端到端流程，包括路径安全渗透测试 |
 | **依赖任务** | WS-01 ~ WS-05 |
@@ -161,4 +161,4 @@ WS-01 → WS-02 → WS-03 → WS-04 → WS-05
 | WS-03 | done | 2026-07-26 | 7 个 ws_* 工具 + 7 个 IPC 通道 + preload workspace API + electron-api 类型声明 |
 | WS-04 | done | 2026-07-26 | WorkspaceConfig 组件 + SettingsView 新增工作区 Tab + 排除规则编辑 + autoRestore 开关 |
 | WS-05 | done | 2026-07-26 | FileTreePanel + FilePreview + FileTreeNodeItem 递归组件 + workspace store + ui store filePanelVisible + ChatView 集成 + SidebarHeader 文件按钮 |
-| WS-06 | pending | — | — |
+| WS-06 | done | 2026-07-26 | 68 个 workspace IPC 测试 + 34 个 ws_* 工具测试 + 路径安全渗透测试 + 修复 rmdir 空目录删除 |

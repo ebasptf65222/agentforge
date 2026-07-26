@@ -3,7 +3,7 @@
 // 通道命名: ws:read, ws:write, ws:list, ws:mkdir, ws:delete, ws:rename, ws:tree
 
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
-import { readFile, writeFile, readdir, stat, mkdir, rm, rename } from 'node:fs/promises'
+import { readFile, writeFile, readdir, stat, mkdir, rm, rmdir, rename } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, basename, resolve } from 'node:path'
 import type { FileTreeNode, WorkspaceDirectoryEntry } from '@shared/types'
@@ -277,7 +277,11 @@ export async function handleWsDelete(relativePath: string): Promise<void> {
   }
 
   try {
-    await rm(absPath, { recursive: false })
+    if (stats.isDirectory()) {
+      await rmdir(absPath)
+    } else {
+      await rm(absPath, { recursive: false })
+    }
   } catch (error) {
     const err = error as NodeJS.ErrnoException
     if (err.code === 'EACCES' || err.code === 'EPERM') {
