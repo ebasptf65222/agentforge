@@ -177,8 +177,20 @@ const displayText = computed(() => {
             播放速度
           </NTooltip>
           <Transition name="fade">
-            <div v-show="showSpeedSlider" class="voice-control-panel__slider">
+            <div v-show="showSpeedSlider" class="voice-control-panel__slider voice-control-panel__slider--wide">
               <NSlider v-model:value="playbackRate" :min="0.5" :max="2.0" :step="0.1" />
+              <!-- Speed preset buttons (OPT-UI-08) -->
+              <div class="speed-presets">
+                <button
+                  v-for="rate in [0.75, 1.0, 1.25, 1.5]"
+                  :key="rate"
+                  class="speed-preset-btn"
+                  :class="{ active: Math.abs(playbackRate - rate) < 0.05 }"
+                  @click="playbackRate = rate"
+                >
+                  {{ rate }}x
+                </button>
+              </div>
             </div>
           </Transition>
         </div>
@@ -317,6 +329,40 @@ const displayText = computed(() => {
   border-radius: 8px;
   padding: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.voice-control-panel__slider--wide {
+  width: 180px;
+}
+
+/* Speed preset buttons (OPT-UI-08) */
+.speed-presets {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  justify-content: center;
+}
+
+.speed-preset-btn {
+  padding: 3px 8px;
+  background: var(--af-bg-input, #1f2937);
+  border: 1px solid var(--af-border, #374151);
+  border-radius: 4px;
+  color: var(--af-text-secondary, #d1d5db);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.speed-preset-btn:hover {
+  border-color: var(--af-brand, #6366f1);
+  color: var(--af-text-primary, #e5e7eb);
+}
+
+.speed-preset-btn.active {
+  background: var(--af-brand, #6366f1);
+  border-color: var(--af-brand, #6366f1);
+  color: #fff;
 }
 
 /* Transitions - OPT-11: 恢复被注释的过渡动画 */

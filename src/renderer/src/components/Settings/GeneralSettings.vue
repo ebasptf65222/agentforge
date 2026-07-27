@@ -3,7 +3,7 @@
 // Each field change saves immediately via the settings store.
 
 import { computed, onMounted } from 'vue'
-import { NSelect, NInputNumber } from 'naive-ui'
+import { NSelect, NInputNumber, NRadioGroup, NRadioButton } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import type { AppSettings, ApprovalMode } from '@shared/types'
 import { useSettingsStore } from '@/stores/settings'
@@ -173,18 +173,30 @@ const approvalTimeoutValue = computed<number | null>({
 
     <!-- Form -->
     <div v-else class="general-settings__form">
-      <!-- 主题 -->
+      <!-- 主题 (OPT-UI-13) -->
       <div class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">主题</span>
           <span class="setting-row__desc">选择应用界面颜色主题</span>
         </div>
         <div class="setting-row__control">
-          <NSelect
+          <NRadioGroup
             :value="settings?.theme ?? 'dark'"
-            :options="themeOptions"
             @update:value="(v) => updateTheme(v as AppSettings['theme'])"
-          />
+          >
+            <NRadioButton value="dark" class="theme-option">
+              <div class="theme-preview theme-preview--dark" />
+              <span>深色</span>
+            </NRadioButton>
+            <NRadioButton value="light" class="theme-option">
+              <div class="theme-preview theme-preview--light" />
+              <span>浅色</span>
+            </NRadioButton>
+            <NRadioButton value="system" class="theme-option">
+              <div class="theme-preview theme-preview--system" />
+              <span>跟随系统</span>
+            </NRadioButton>
+          </NRadioGroup>
         </div>
       </div>
 
@@ -349,5 +361,45 @@ const approvalTimeoutValue = computed<number | null>({
 .setting-row__control {
   width: 280px;
   flex-shrink: 0;
+}
+
+/* Theme preview cards (OPT-UI-13) */
+.theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px !important;
+}
+
+.theme-option :deep(.n-radio-button__content) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-preview {
+  width: 48px;
+  height: 32px;
+  border-radius: 6px;
+  border: 2px solid var(--af-border, #374151);
+  transition: border-color 0.15s ease;
+}
+
+.theme-preview--dark {
+  background: linear-gradient(135deg, #0f172a 50%, #1e293b 50%);
+}
+
+.theme-preview--light {
+  background: linear-gradient(135deg, #f8fafc 50%, #e2e8f0 50%);
+}
+
+.theme-preview--system {
+  background: linear-gradient(135deg, #0f172a 33%, #64748b 33%, #64748b 66%, #f8fafc 66%);
+}
+
+.theme-option.n-radio-button--checked .theme-preview {
+  border-color: var(--af-brand, #4f46e5);
 }
 </style>

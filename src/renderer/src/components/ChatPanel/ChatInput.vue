@@ -3,7 +3,8 @@
 // V1-06: + 语音输入按钮
 
 import { ref, computed, nextTick, onMounted } from 'vue'
-import { NSelect } from 'naive-ui'
+import { NSelect, NSwitch, NIcon, NTooltip } from 'naive-ui'
+import { BookOutlined, CloseOutlined } from '@vicons/material'
 import AppButton from '@/components/common/AppButton.vue'
 import VoiceInputButton from './VoiceInputButton.vue'
 import VoiceModeToggle from './VoiceModeToggle.vue'
@@ -11,8 +12,6 @@ import { useSkillStore } from '@/stores/skill'
 import { useChatStore } from '@/stores/chat'
 import { useVoiceStore } from '@/stores/voice'
 import type { Skill } from '@shared/types'
-import { NSwitch } from 'naive-ui'
-import { BookOutlined } from '@vicons/material'
 
 const props = defineProps<{
   disabled?: boolean
@@ -42,6 +41,19 @@ const skillOptions = computed(() => {
     ...manual.map((s: Skill) => ({ label: s.displayName, value: s.name })),
   ]
 })
+
+/** Currently selected skill info for the mode banner (OPT-UI-03) */
+const selectedSkillInfo = computed(() => {
+  if (!selectedSkill.value) return null
+  return skillStore.skills.find((s) => s.name === selectedSkill.value) ?? null
+})
+
+/** Whether to show the skill mode banner */
+const showSkillBanner = computed(() => selectedSkillInfo.value !== null)
+
+function clearSkill(): void {
+  selectedSkill.value = null
+}
 
 /** Maximum allowed characters in the input (P1-13 spec) */
 const MAX_CHARS = 32000
@@ -131,12 +143,25 @@ function handleInput(): void {
         <VoiceModeToggle />
       </div>
     </div>
+    <!-- Skill mode banner (OPT-UI-03) -->
+    <div v-if="showSkillBanner" class="skill-mode-banner">
+      <span class="skill-mode-banner__text">
+        当前模式：<strong>{{ selectedSkillInfo?.displayName }}</strong>
+        <span v-if="selectedSkillInfo?.description" class="skill-mode-banner__desc">
+          — {{ selectedSkillInfo.description }}
+        </span>
+      </span>
+      <button class="skill-mode-banner__close" title="关闭 Skill 模式" @click="clearSkill">
+        <NIcon :size="14"><CloseOutlined /></NIcon>
+      </button>
+    </div>
+
     <div class="chat-input__wrapper">
       <textarea
         ref="textareaRef"
         v-model="inputContent"
         class="chat-input__textarea"
-        placeholder="输入消息... (Shift+Enter 换行)"
+        :placeholder="showSkillBanner ? '输入消息，使用当前 Skill 执行...' : '输入消息... (Shift+Enter 换行)'"
         :disabled="disabled"
         :maxlength="MAX_CHARS"
         rows="1"
@@ -262,5 +287,60 @@ function handleInput(): void {
 
 .chat-input__counter.is-warning {
   color: var(--af-warning, #f59e0b);
+}
+
+/* Skill mode banner (OPT-UI-03) */
+.skill-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  background: color-mix(in srgb, var(--af-brand, #4f46e5) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--af-brand, #4f46e5) 30%, transparent);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--af-text-secondary, #d1d5db);
+}
+
+.skill-mode-banner__text {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.skill-mode-banner__text strong {
+  color: var(--af-brand, #818cf8);
+  font-weight: 600;
+}
+
+.skill-mode-banner__desc {
+  color: var(--af-text-muted, #9ca3af);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.skill-mode-banner__close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--af-text-muted, #9ca3af);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.skill-mode-banner__close:hover {
+  color: var(--af-text-primary, #e5e7eb);
+  background: var(--af-bg-hover, #374151);
 }
 </style>

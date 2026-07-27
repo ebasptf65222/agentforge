@@ -6,6 +6,8 @@
 // - Stream ended: auto-collapses, shows "查看思考过程"
 
 import { ref, watch } from 'vue'
+import { NIcon, NTooltip } from 'naive-ui'
+import { ContentCopyOutlined } from '@vicons/material'
 
 const props = withDefaults(
   defineProps<{
@@ -46,6 +48,20 @@ function toggle(): void {
   if (props.isStreaming) return
   isOpen.value = !isOpen.value
 }
+
+/** Copy thinking content to clipboard */
+async function handleCopy(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(props.thought)
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = props.thought
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+  }
+}
 </script>
 
 <template>
@@ -71,7 +87,17 @@ function toggle(): void {
     </button>
     <Transition name="thinking-collapse">
       <div v-show="isOpen" class="thinking-content">
-        <p class="thinking-text">{{ thought }}</p>
+        <div class="thinking-content__header">
+          <p class="thinking-text">{{ thought }}</p>
+          <NTooltip placement="top" :delay="400">
+            <template #trigger>
+              <button class="thinking-copy-btn" @click.stop="handleCopy">
+                <NIcon :size="14"><ContentCopyOutlined /></NIcon>
+              </button>
+            </template>
+            <span>复制思考过程</span>
+          </NTooltip>
+        </div>
       </div>
     </Transition>
   </div>
@@ -134,6 +160,12 @@ function toggle(): void {
   border-top: 1px solid var(--af-border, #334155);
 }
 
+.thinking-content__header {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
 .thinking-text {
   margin: 8px 0 0;
   font-size: 13px;
@@ -141,6 +173,28 @@ function toggle(): void {
   color: var(--af-text-primary, #f1f5f9);
   white-space: pre-wrap;
   word-break: break-word;
+  flex: 1;
+}
+
+.thinking-copy-btn {
+  flex-shrink: 0;
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--af-text-muted, #9ca3af);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.thinking-copy-btn:hover {
+  color: var(--af-text-primary, #e5e7eb);
+  background-color: var(--af-bg-hover, #374151);
 }
 
 /* Collapse transition */

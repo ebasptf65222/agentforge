@@ -15,6 +15,9 @@ import {
   NSpace,
   NEmpty,
   NSpin,
+  NCollapse,
+  NCollapseItem,
+  NTooltip,
   type DataTableColumns,
 } from 'naive-ui'
 import {
@@ -434,17 +437,40 @@ const columns = computed<DataTableColumns<KbDocument>>(() => [
           <NSelect v-model:value="chunkStrategy" :options="CHUNK_STRATEGY_OPTIONS" />
         </div>
 
-        <!-- Chunk Size / Overlap -->
-        <div class="kb-form-row">
-          <div class="kb-form-group">
-            <span class="kb-form-label">分块大小 (tokens)</span>
-            <NInputNumber v-model:value="chunkSize" :min="50" :max="2000" :step="50" />
-          </div>
-          <div class="kb-form-group">
-            <span class="kb-form-label">重叠大小 (tokens)</span>
-            <NInputNumber v-model:value="overlap" :min="0" :max="500" :step="10" />
-          </div>
-        </div>
+        <!-- Advanced settings (OPT-UI-05) -->
+        <NCollapse>
+          <NCollapseItem title="高级设置">
+            <NSpace vertical :size="12">
+              <!-- Chunk Size -->
+              <div class="kb-form-group">
+                <div class="kb-form-label-with-tip">
+                  <span class="kb-form-label">分块大小</span>
+                  <NTooltip placement="top" :delay="300">
+                    <template #trigger>
+                      <span class="kb-form-tip">?</span>
+                    </template>
+                    <span>每个文本片段的最大 token 数，默认 500</span>
+                  </NTooltip>
+                </div>
+                <NInputNumber v-model:value="chunkSize" :min="50" :max="2000" :step="50" />
+              </div>
+
+              <!-- Overlap -->
+              <div class="kb-form-group">
+                <div class="kb-form-label-with-tip">
+                  <span class="kb-form-label">重叠大小</span>
+                  <NTooltip placement="top" :delay="300">
+                    <template #trigger>
+                      <span class="kb-form-tip">?</span>
+                    </template>
+                    <span>相邻分块之间的重叠 token 数，默认 50，有助于保持上下文连贯</span>
+                  </NTooltip>
+                </div>
+                <NInputNumber v-model:value="overlap" :min="0" :max="500" :step="10" />
+              </div>
+            </NSpace>
+          </NCollapseItem>
+        </NCollapse>
       </NSpace>
 
       <template #footer>
@@ -634,6 +660,28 @@ const columns = computed<DataTableColumns<KbDocument>>(() => [
   font-size: 12px;
   font-weight: 600;
   color: var(--af-text-tertiary, #94a3b8);
+}
+
+.kb-form-label-with-tip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.kb-form-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--af-bg-hover, #374151);
+  color: var(--af-text-muted, #9ca3af);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: help;
+  line-height: 1;
 }
 
 .kb-form-file-row {
