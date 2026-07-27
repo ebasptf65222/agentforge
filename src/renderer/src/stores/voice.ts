@@ -3,7 +3,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { TtsPlayState, SttRecordState, VoiceModeState, TtsPlayProgress, SttRecordProgress } from '@shared/types'
+import type { TtsPlayState, SttRecordState, VoiceModeState, TtsPlayProgress } from '@shared/types'
 import { TtsPlayer } from '@/utils/tts-player'
 import { SttRecorder } from '@/utils/stt-recorder'
 import { useSettingsStore } from './settings'
@@ -40,8 +40,6 @@ export const useVoiceStore = defineStore('voice', () => {
   const streamMessageId = ref<string | null>(null)
   /** 流式累积缓冲区（未合成的不完整句子） */
   let streamBuffer = ''
-  /** 已合成并排入队列的句子数 */
-  let streamEnqueuedCount = 0
   /** 流式播放完成回调 */
   let streamEndResolve: (() => void) | null = null
 
@@ -169,24 +167,6 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   /**
-   * 暂停播放。
-   */
-  function pausePlayback(): void {
-    if (player) {
-      player.pause()
-    }
-  }
-
-  /**
-   * 继续播放。
-   */
-  function resumePlayback(): void {
-    if (player) {
-      player.resume()
-    }
-  }
-
-  /**
    * 停止播放。
    */
   function stopPlayback(): void {
@@ -250,7 +230,6 @@ export const useVoiceStore = defineStore('voice', () => {
     streamMessageId.value = messageId
     currentMessageId.value = messageId
     streamBuffer = ''
-    streamEnqueuedCount = 0
     streamPlaying.value = true
     streamEndResolve = null
   }
@@ -346,8 +325,6 @@ export const useVoiceStore = defineStore('voice', () => {
       p.setVolume(volume.value)
       p.setPlaybackRate(playbackRate.value)
       p.enqueue(audioBuffer, text, `audio/${ttsConfig.format}`)
-
-      streamEnqueuedCount++
     } catch (error) {
       console.error('[Voice] Stream TTS synthesis error:', error)
       // 单句失败不中断整个流式播放
@@ -454,8 +431,6 @@ export const useVoiceStore = defineStore('voice', () => {
   // ─── Voice Mode Actions (V1-07) ─────────────────────────────
 
   /** VAD 相关状态 */
-  let vadTimer: number | null = null
-  let silenceTimer: number | null = null
   let vadActive = false
 
   /**
@@ -498,10 +473,6 @@ export const useVoiceStore = defineStore('voice', () => {
     cancelRecording()
     stopPlayback()
     cancelStream()
-  }
-
-  function setVoiceMode(mode: VoiceModeState): void {
-    voiceMode.value = mode
   }
 
   /**
@@ -577,14 +548,6 @@ export const useVoiceStore = defineStore('voice', () => {
    */
   function stopVadListening(): void {
     vadActive = false
-    if (vadTimer !== null) {
-      clearInterval(vadTimer)
-      vadTimer = null
-    }
-    if (silenceTimer !== null) {
-      clearTimeout(silenceTimer)
-      silenceTimer = null
-    }
   }
 
   /**
@@ -739,8 +702,6 @@ export const useVoiceStore = defineStore('voice', () => {
     // TTS Actions
     playMessage,
     togglePlayPause,
-    pausePlayback,
-    resumePlayback,
     stopPlayback,
     seek,
     setVolume,
@@ -756,6 +717,5 @@ export const useVoiceStore = defineStore('voice', () => {
     cancelRecording,
     // Voice Mode
     toggleVoiceMode,
-    setVoiceMode,
   }
 })

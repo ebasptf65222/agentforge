@@ -11,12 +11,12 @@ import ApprovalCard from './ApprovalCard.vue'
 const agentStore = useAgentStore()
 
 const statusLabels: Record<string, string> = {
-  idle: 'Idle',
-  running: 'Running...',
-  paused: 'Paused',
-  completed: 'Completed',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
+  idle: '空闲',
+  running: '运行中...',
+  paused: '已暂停',
+  completed: '已完成',
+  failed: '已失败',
+  cancelled: '已取消',
 }
 
 const statusColors: Record<string, string> = {
@@ -28,7 +28,7 @@ const statusColors: Record<string, string> = {
   cancelled: 'var(--af-text-muted, #64748b)',
 }
 
-const statusLabel = computed(() => statusLabels[agentStore.status] ?? 'Unknown')
+const statusLabel = computed(() => statusLabels[agentStore.status] ?? '未知')
 const statusColor = computed(() => statusColors[agentStore.status] ?? '#666')
 const hasTrajectories = computed(() => agentStore.trajectories.length > 0)
 
@@ -40,8 +40,16 @@ const actionStatusColors: Record<string, string> = {
   rejected: 'var(--af-error, #ef4444)',
 }
 
+const actionStatusLabels: Record<string, string> = {
+  success: '成功',
+  error: '失败',
+  'pending-approval': '等待审批',
+  approved: '已批准',
+  rejected: '已拒绝',
+}
+
 function getActionLabel(traj: TAOTrajectory): string {
-  if (!traj.action) return 'Finish'
+  if (!traj.action) return '完成'
   return traj.action.toolName
 }
 
@@ -67,12 +75,12 @@ function handleReject(reason?: string): void {
         <span class="status-text" :style="{ color: statusColor }">{{ statusLabel }}</span>
       </div>
       <div v-if="hasTrajectories" class="stats">
-        <span class="stat">{{ agentStore.totalSteps }} steps</span>
+        <span class="stat">{{ agentStore.totalSteps }} 步</span>
         <span v-if="agentStore.successCount > 0" class="stat success">
-          {{ agentStore.successCount }} ok
+          {{ agentStore.successCount }} 成功
         </span>
         <span v-if="agentStore.errorCount > 0" class="stat error">
-          {{ agentStore.errorCount }} err
+          {{ agentStore.errorCount }} 失败
         </span>
       </div>
     </div>
@@ -106,7 +114,7 @@ function handleReject(reason?: string): void {
                 />
               </svg>
             </span>
-            <span class="action-label">Action:</span>
+            <span class="action-label">操作:</span>
             <span class="action-name">{{ getActionLabel(traj) }}</span>
             <span
               class="action-status"
@@ -114,7 +122,7 @@ function handleReject(reason?: string): void {
                 color: actionStatusColors[traj.status] || '#999',
               }"
             >
-              {{ traj.status }}
+              {{ actionStatusLabels[traj.status] || traj.status }}
             </span>
           </div>
           <pre v-if="traj.action.arguments" class="action-args">{{
@@ -124,7 +132,7 @@ function handleReject(reason?: string): void {
 
         <!-- Observation -->
         <div v-if="traj.observation" class="observation">
-          <span class="obs-label">Observation:</span>
+          <span class="obs-label">观察结果:</span>
           <p class="obs-text">{{ traj.observation }}</p>
         </div>
       </div>
@@ -140,18 +148,18 @@ function handleReject(reason?: string): void {
 
     <!-- Summary (when completed) -->
     <div v-if="agentStore.lastResult && agentStore.status === 'completed'" class="summary">
-      <div class="summary-header">Summary</div>
+      <div class="summary-header">总结</div>
       <p class="summary-text">{{ agentStore.lastResult.summary }}</p>
       <div class="summary-stats">
-        <span>{{ agentStore.lastResult.totalSteps }} steps</span>
-        <span>{{ Math.round(agentStore.lastResult.duration / 1000) }}s</span>
-        <span>~{{ agentStore.lastResult.tokensUsed }} tokens</span>
+        <span>{{ agentStore.lastResult.totalSteps }} 步</span>
+        <span>{{ Math.round(agentStore.lastResult.duration / 1000) }}秒</span>
+        <span>约 {{ agentStore.lastResult.tokensUsed }} tokens</span>
       </div>
     </div>
 
     <!-- Stop button -->
     <button v-if="agentStore.isRunning" class="btn-stop" @click="agentStore.stop()">
-      Stop Execution
+      停止执行
     </button>
   </div>
 </template>

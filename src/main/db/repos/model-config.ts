@@ -294,13 +294,22 @@ export function updateModelConfig(params: UpdateModelParams): void {
     values.push(JSON.stringify(merged))
   }
 
-  if (params.isDefault !== undefined) {
-    if (params.isDefault) {
+  // OPT2-09: 设置默认模型使用事务，确保原子性
+  if (params.isDefault !== undefined && params.isDefault) {
+    db.transaction(() => {
       // 取消其他模型的默认状态
       db.prepare('UPDATE model_configs SET is_default = 0, updated_at = ?').run(now)
-    }
+      setClauses.push('is_default = ?')
+      values.push(1)
+      values.push(params.id)
+      db.prepare(`UPDATE model_configs SET ${setClauses.join(', ')} WHERE id = ?`).run(...values)
+    })()
+    return
+  }
+
+  if (params.isDefault !== undefined) {
     setClauses.push('is_default = ?')
-    values.push(params.isDefault ? 1 : 0)
+    values.push(0)
   }
 
   values.push(params.id)

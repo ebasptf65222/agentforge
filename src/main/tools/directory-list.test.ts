@@ -1,12 +1,27 @@
-// AgentForge P2-05: directory_list 工具单元测试
-// 使用临时目录验证目录列举与路径安全
+// AgentForge OPT-01: directory_list 工具单元测试
+// directory_list 委托 workspace IPC handler (handleWsList) 执行实际列举，
+// 路径边界校验由 path-guard 模块在 handler 内部统一完成。
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { AppError } from '../utils/error'
-import { directoryListTool, isPathSafe } from './directory-list'
+import { directoryListTool } from './directory-list'
+
+// ─── Mocks ───────────────────────────────────────────────────────
+
+const { mockGetSettings } = vi.hoisted(() => ({
+  mockGetSettings: vi.fn(),
+}))
+
+vi.mock('../db/repos/app-settings', () => ({
+  getSettings: () => mockGetSettings(),
+}))
+
+vi.mock('electron', () => ({
+  ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
+}))
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -24,6 +39,7 @@ interface ParsedEntry {
   name: string
   isDirectory: boolean
   size: number
+  modifiedAt: number
 }
 
 // ─── Tests ───────────────────────────────────────────────────────
@@ -33,6 +49,9 @@ describe('directory_list tool', () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'agentforge-dir-list-test-'))
+    mockGetSettings.mockReturnValue({
+      workspace: { path: tempDir, excludePatterns: ['node_modules', '.git'] },
+    })
   })
 
   afterEach(() => {
@@ -47,7 +66,9 @@ describe('directory_list tool', () => {
     })
 
     it('should have a description', () => {
-      expect(directoryListTool.definition.description).toBe('List directory contents')
+      expect(directoryListTool.definition.description).toBe(
+        'List directory contents within the workspace directory.',
+      )
     })
 
     it('should have riskLevel="low"', () => {
@@ -71,20 +92,6 @@ describe('directory_list tool', () => {
     })
   })
 
-  // ─── isPathSafe ────────────────────────────────────────────
-
-  describe('isPathSafe', () => {
-    it('should return true for normal paths', () => {
-      expect(isPathSafe('/tmp')).toBe(true)
-      expect(isPathSafe('relative/path')).toBe(true)
-    })
-
-    it('should return false for paths containing ".."', () => {
-      expect(isPathSafe('../etc')).toBe(false)
-      expect(isPathSafe('/tmp/../etc')).toBe(false)
-    })
-  })
-
   // ─── execute: validation ───────────────────────────────────
 
   describe('execute validation', () => {
@@ -104,8 +111,8 @@ describe('directory_list tool', () => {
       await expectAppErrorAsync(directoryListTool.execute({}), 'VALIDATION_ERROR')
     })
 
-    it('should throw FILE_ACCESS_ERROR when path contains ".."', async () => {
-      await expectAppErrorAsync(directoryListTool.execute({ path: '../etc' }), 'FILE_ACCESS_ERROR')
+    it('should throw WORKSPACE_PATH_ESCAPE when path contains ".."', async () => {
+      await expectAppErrorAsync(directoryListTool.execute({ path: '../etc' }), 'WORKSPACE_PATH_ESCAPE')
     })
   })
 
@@ -113,7 +120,7 @@ describe('directory_list tool', () => {
 
   describe('execute success', () => {
     it('should list entries in an empty directory', async () => {
-      const result = await directoryListTool.execute({ path: tempDir })
+      const result = await directoryListTool.execute({ path: '.' })
 
       expect(result.isError).toBe(false)
       const parsed = JSON.parse(result.content) as { path: string; entries: ParsedEntry[] }
@@ -125,7 +132,7 @@ describe('directory_list tool', () => {
       writeFileSync(join(tempDir, 'file2.txt'), 'world!', 'utf-8')
       mkdirSync(join(tempDir, 'subdir'))
 
-      const result = await directoryListTool.execute({ path: tempDir })
+      const result = await directoryListTool.execute({ path: '.' })
 
       const parsed = JSON.parse(result.content) as { path: string; entries: ParsedEntry[] }
       const names = parsed.entries.map((e) => e.name).sort()
@@ -134,46 +141,45 @@ describe('directory_list tool', () => {
       const file1 = parsed.entries.find((e) => e.name === 'file1.txt')
       expect(file1?.isDirectory).toBe(false)
       expect(file1?.size).toBe(5)
+      expect(typeof file1?.modifiedAt).toBe('number')
 
       const subdir = parsed.entries.find((e) => e.name === 'subdir')
       expect(subdir?.isDirectory).toBe(true)
+      expect(typeof subdir?.modifiedAt).toBe('number')
     })
 
     it('should report size=0 for directories', async () => {
       mkdirSync(join(tempDir, 'emptydir'))
 
-      const result = await directoryListTool.execute({ path: tempDir })
+      const result = await directoryListTool.execute({ path: '.' })
 
       const parsed = JSON.parse(result.content) as { entries: ParsedEntry[] }
       const dir = parsed.entries.find((e) => e.name === 'emptydir')
       expect(dir?.isDirectory).toBe(true)
-      // 目录的 size 在不同平台语义不同，这里仅校验字段存在且为数字
-      expect(typeof dir?.size).toBe('number')
+      expect(dir?.size).toBe(0)
     })
 
     it('should include count in metadata', async () => {
       writeFileSync(join(tempDir, 'a.txt'), 'a', 'utf-8')
       writeFileSync(join(tempDir, 'b.txt'), 'b', 'utf-8')
 
-      const result = await directoryListTool.execute({ path: tempDir })
+      const result = await directoryListTool.execute({ path: '.' })
 
       expect(result.metadata).toMatchObject({ count: 2 })
     })
 
     it('should include path in returned JSON', async () => {
-      const result = await directoryListTool.execute({ path: tempDir })
+      const result = await directoryListTool.execute({ path: '.' })
 
       const parsed = JSON.parse(result.content) as { path: string }
-      expect(parsed.path).toBe(tempDir)
+      expect(parsed.path).toBe('.')
     })
 
     it('should list nested directory contents', async () => {
       mkdirSync(join(tempDir, 'parent', 'child'), { recursive: true })
       writeFileSync(join(tempDir, 'parent', 'child', 'nested.txt'), 'nested', 'utf-8')
 
-      const result = await directoryListTool.execute({
-        path: join(tempDir, 'parent', 'child'),
-      })
+      const result = await directoryListTool.execute({ path: 'parent/child' })
 
       const parsed = JSON.parse(result.content) as { entries: ParsedEntry[] }
       expect(parsed.entries).toHaveLength(1)
@@ -186,16 +192,19 @@ describe('directory_list tool', () => {
 
   describe('execute error cases', () => {
     it('should throw FILE_NOT_FOUND when directory does not exist', async () => {
-      const missingPath = join(tempDir, 'does-not-exist')
-
-      await expectAppErrorAsync(directoryListTool.execute({ path: missingPath }), 'FILE_NOT_FOUND')
+      await expectAppErrorAsync(
+        directoryListTool.execute({ path: 'does-not-exist' }),
+        'FILE_NOT_FOUND',
+      )
     })
 
     it('should throw FILE_ACCESS_ERROR when path is a file', async () => {
-      const filePath = join(tempDir, 'afile.txt')
-      writeFileSync(filePath, 'content', 'utf-8')
+      writeFileSync(join(tempDir, 'afile.txt'), 'content', 'utf-8')
 
-      await expectAppErrorAsync(directoryListTool.execute({ path: filePath }), 'FILE_ACCESS_ERROR')
+      await expectAppErrorAsync(
+        directoryListTool.execute({ path: 'afile.txt' }),
+        'FILE_ACCESS_ERROR',
+      )
     })
   })
 })

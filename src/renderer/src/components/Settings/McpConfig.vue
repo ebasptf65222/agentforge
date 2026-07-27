@@ -20,7 +20,7 @@ import {
 } from 'naive-ui'
 import { AddOutlined, DeleteOutlined, RefreshOutlined, EditOutlined } from '@vicons/material'
 import type { MCPServerConfig } from '@shared/types'
-import type { McpAddParams } from '@/types/electron-api'
+import type { McpAddParams, McpUpdateParams } from '@/types/electron-api'
 import { useMcpStore } from '@/stores/mcp'
 
 const mcpStore = useMcpStore()
@@ -151,11 +151,19 @@ async function handleSave(): Promise<void> {
     const env = parseEnvText(form.envText)
     if (env) params.env = env
 
+    // OPT2-12: 编辑模式使用原子 update 而非先删后增，避免 addServer 失败时数据丢失
     if (editingId.value) {
-      // Edit mode: remove old and add new
-      await mcpStore.removeServer(editingId.value)
+      const updateParams: McpUpdateParams = { id: editingId.value }
+      updateParams.name = params.name
+      updateParams.transport = params.transport
+      if (params.command) updateParams.command = params.command
+      if (params.args) updateParams.args = params.args
+      if (params.env) updateParams.env = params.env
+      if (params.url) updateParams.url = params.url
+      await mcpStore.updateServer(updateParams)
+    } else {
+      await mcpStore.addServer(params)
     }
-    await mcpStore.addServer(params)
     modalVisible.value = false
   } catch {
     // 错误已在 store 中处理

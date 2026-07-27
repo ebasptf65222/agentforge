@@ -19,9 +19,9 @@ const riskColors: Record<string, string> = {
 }
 
 const riskLabels: Record<string, string> = {
-  low: 'Low Risk',
-  medium: 'Medium Risk',
-  high: 'High Risk',
+  low: '低风险',
+  medium: '中风险',
+  high: '高风险',
 }
 
 function handleApprove(): void {
@@ -29,19 +29,19 @@ function handleApprove(): void {
 }
 
 function handleReject(): void {
-  emit('reject', 'User rejected')
+  emit('reject', '用户拒绝')
 }
 </script>
 
 <template>
   <div class="approval-card">
     <div class="approval-header">
-      <span class="approval-title">Approval Required</span>
+      <span class="approval-title">需要审批</span>
       <span
         class="risk-badge"
         :style="{ backgroundColor: riskColors[props.request.toolAction.riskLevel] || '#999' }"
       >
-        {{ riskLabels[props.request.toolAction.riskLevel] || 'Unknown' }}
+        {{ riskLabels[props.request.toolAction.riskLevel] || '未知' }}
       </span>
     </div>
     <div class="approval-body">
@@ -54,8 +54,8 @@ function handleReject(): void {
       </div>
     </div>
     <div class="approval-actions">
-      <button class="btn-approve" @click="handleApprove">Approve</button>
-      <button class="btn-reject" @click="handleReject">Reject</button>
+      <button class="btn-approve" @click="handleApprove">批准</button>
+      <button class="btn-reject" @click="handleReject">拒绝</button>
     </div>
   </div>
 </template>

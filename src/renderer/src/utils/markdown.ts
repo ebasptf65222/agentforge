@@ -5,6 +5,7 @@ import { marked } from 'marked'
 import { createHighlighter, type Highlighter } from 'shiki'
 import DOMPurify from 'dompurify'
 import type { Tokens } from 'marked'
+import { escapeHtml } from './html'
 
 // ─── Preloaded languages for shiki ─────────────────────────────
 const PRELOADED_LANGS = [
@@ -45,16 +46,6 @@ export async function getHighlighter(): Promise<Highlighter> {
   })
 
   return highlighterPromise
-}
-
-// ─── Helper: escape HTML entities ───────────────────────────────
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
 }
 
 // ─── Configure marked ───────────────────────────────────────────

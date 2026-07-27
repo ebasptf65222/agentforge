@@ -109,6 +109,19 @@ async function handleStop(): Promise<void> {
 
 const hasConversation = computed(() => chatStore.currentConversationId !== null)
 
+// OPT2-11: Agent 模式下流式内容在 agentStore 中累积，
+// 但 MessageList 接收的是 chatStore.streamingContent，导致 Agent 流式文本不显示。
+// 统一计算属性，根据当前是否在 Agent 执行模式选择正确来源。
+const activeStreamingContent = computed(() => {
+  if (agentStore.isRunning || agentStore.status === 'running') {
+    return agentStore.streamingContent
+  }
+  return chatStore.streamingContent
+})
+
+/** Whether any generation (chat or agent) is in progress */
+const isGenerating = computed(() => chatStore.isGenerating || agentStore.isRunning)
+
 /** Sidebar width based on collapsed state (P1-12) */
 const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px'))
 </script>
@@ -163,13 +176,13 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
     <main class="chat-view__main">
       <MessageList
         :messages="chatStore.messages"
-        :streaming-content="chatStore.streamingContent"
-        :is-generating="chatStore.isGenerating"
+        :streaming-content="activeStreamingContent"
+        :is-generating="isGenerating"
       />
       <ExecutionPanel />
       <ChatInput
         :disabled="!hasConversation"
-        :is-generating="chatStore.isGenerating"
+        :is-generating="isGenerating"
         @send="handleSend"
         @stop="handleStop"
       />

@@ -3,13 +3,32 @@
 // 与 Spec v0.2 §5.5 ITransport 接口一致
 
 import { spawn, type ChildProcess } from 'node:child_process'
+import { basename, sep } from 'node:path'
 import type { ITransport } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 
 // ─── 常量 ─────────────────────────────────────────────────────────
 
-/** 命令黑名单：禁止启动危险命令 */
-const COMMAND_BLOCKLIST = ['rm', 'del', 'format', 'mkfs'] as const
+/**
+ * 命令黑名单：禁止通过 MCP stdio 传输启动的命令。
+ * OPT-03: 扩展黑名单，屏蔽可执行任意命令的 shell / 脚本解释器。
+ * 允许: git, npm, npx, pnpm, yarn, cargo, pip, uvx 等安全工具链。
+ */
+const COMMAND_BLOCKLIST = [
+  // 系统破坏
+  'rm', 'del', 'format', 'mkfs',
+  // Shell / 命令解释器（可执行任意命令）
+  'bash', 'sh', 'zsh', 'csh', 'tcsh', 'fish', 'dash', 'ksh',
+  'cmd', 'powershell', 'pwsh', 'wsl',
+  // 脚本解释器
+  'python', 'python3', 'node', 'deno', 'bun',
+  'ruby', 'perl', 'php', 'go', 'java', 'javac',
+  'lua', 'racket', 'guile', 'ghci',
+  // 远程执行 / 下载工具（可被用于反弹 shell 或下载恶意脚本）
+  'curl', 'wget', 'nc', 'ncat', 'socat', 'telnet', 'ssh',
+  // 包管理器中的 eval 风险（通过 run/script 执行任意代码）
+  // npm/pnpm/yarn 本身保留允许，但直接调用解释器已屏蔽
+] as const
 
 /** 自动重连最大次数 */
 const MAX_RECONNECT_ATTEMPTS = 1
@@ -20,6 +39,9 @@ const RECONNECT_DELAY_MS = 2000
 /** 连接超时时间（毫秒）- 等待服务器进程启动 */
 const CONNECT_TIMEOUT_MS = 10_000
 
+/** close() 等待子进程退出的超时时间（毫秒） */
+const CLOSE_EXIT_TIMEOUT_MS = 5_000
+
 // ─── StdioTransport ───────────────────────────────────────────────
 
 /**
@@ -29,7 +51,7 @@ const CONNECT_TIMEOUT_MS = 10_000
  * 通过 stdin/stdout 进行 JSON-RPC 2.0 通信。
  *
  * 特性：
- * - 命令黑名单检查（rm, del, format, mkfs）
+ * - 命令黑名单检查（shell、脚本解释器、远程执行工具等）
  * - 进程退出时自动重连 1 次（等待 2000ms）
  * - 10s 连接超时
  * - spawn 失败（如命令不存在）抛出 MCP_SPAWN_FAILED
@@ -54,7 +76,17 @@ export class StdioTransport implements ITransport {
     private readonly args: string[] = [],
     private readonly env: Record<string, string> = {},
   ) {
-    const baseCmd = command.toLowerCase().trim()
+    // OPT2-02: 提取 basename 防止路径变体绕过（如 /bin/bash、./bash）
+    // 同时禁止包含路径分隔符的 command（如 ./script、../bin/sh）
+    if (command.includes('/') || command.includes('\\') || command.includes(sep)) {
+      throw new AppError(
+        ErrorCodes.MCP_SPAWN_FAILED,
+        `Command path "${command}" is not allowed. Only bare command names are permitted.`,
+        { command },
+      )
+    }
+
+    const baseCmd = basename(command).toLowerCase()
     if ((COMMAND_BLOCKLIST as readonly string[]).includes(baseCmd)) {
       throw new AppError(
         ErrorCodes.MCP_SPAWN_FAILED,
@@ -257,22 +289,77 @@ export class StdioTransport implements ITransport {
   /**
    * 关闭传输层，终止子进程。
    * 不会触发自动重连。
+   *
+   * OPT2-13: 调用 kill() 后等待 'exit' 事件（最多 5s），
+   * 超时则发送 SIGKILL 强制终止，最后移除所有事件监听器以防内存泄漏。
    */
   async close(): Promise<void> {
     this.isClosing = true
     this.isClosed = true
 
-    if (this.process) {
-      try {
-        this.process.kill()
-      } catch {
-        // 进程可能已退出，忽略错误
-      }
+    const child = this.process
+    if (child) {
+      await this.terminateProcess(child)
       this.process = null
     }
 
     this.buffer = ''
     this.emitClose()
+  }
+
+  /**
+   * 终止子进程并等待其退出。
+   * - 发送 SIGTERM（默认 kill 信号）
+   * - 等待 'exit' 事件，最多 CLOSE_EXIT_TIMEOUT_MS 毫秒
+   * - 超时后发送 SIGKILL 强制终止
+   * - 移除所有事件监听器以防泄漏
+   */
+  private terminateProcess(child: ChildProcess): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let settled = false
+      // timer 在 kill() 之后赋值；finish() 可能在 kill() 同步触发 exit 时被调用，
+      // 此时 timer 尚未赋值，因此用闭包变量保存引用。
+      let timer: ReturnType<typeof setTimeout> | null = null
+
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        // 移除所有事件监听器，防止内存泄漏
+        child.removeAllListeners()
+        // 同时移除 stdout/stderr 上的监听器
+        child.stdout?.removeAllListeners()
+        child.stderr?.removeAllListeners()
+        resolve()
+      }
+
+      // 监听 exit 事件（code 或 signal 任一即视为已退出）
+      child.once('exit', () => {
+        finish()
+      })
+
+      // 发送 SIGTERM
+      try {
+        child.kill()
+      } catch {
+        // 进程可能已退出，直接结束
+        finish()
+        return
+      }
+
+      // 5s 超时后发送 SIGKILL
+      timer = setTimeout(() => {
+        if (!settled && !child.killed) {
+          try {
+            child.kill('SIGKILL')
+          } catch {
+            // 忽略：进程可能已退出
+          }
+        }
+        // 即使 SIGKILL 发送失败也结束等待，避免 close() 永久挂起
+        finish()
+      }, CLOSE_EXIT_TIMEOUT_MS)
+    })
   }
 
   // ─── 内部辅助方法 ─────────────────────────────────────────────

@@ -308,7 +308,7 @@ const displayText = computed(() => {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
-/* Transitions
+/* Transitions - OPT-11: 恢复被注释的过渡动画 */
 .slide-up-enter-active,
 .slide-up-leave-active {
   transition: all 0.25s ease;

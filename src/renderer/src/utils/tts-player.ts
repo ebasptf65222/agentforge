@@ -220,6 +220,10 @@ export class TtsPlayer {
       await audio.play()
       this.setState('playing')
     } catch (error) {
+      // OPT2-23: play() 失败时清理 Object URL，避免内存泄漏
+      if (audio) {
+        URL.revokeObjectURL(audio.src)
+      }
       this.setState('error')
       this.options.onError?.(error instanceof Error ? error : new Error(String(error)))
     }

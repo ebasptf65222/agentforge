@@ -3,7 +3,8 @@
 // P4-02: 基础文本解析
 // P5-02: 完善 PDF/DOCX/XLSX 二进制格式解析
 
-import { readFileSync } from 'node:fs'
+// OPT2-16: 使用异步文件读取避免阻塞主进程
+import { readFile } from 'node:fs/promises'
 import type { KbDocument } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 
@@ -33,7 +34,8 @@ const PARSERS: Record<KbDocument['fileType'], Parser> = {
  * - 去除 BOM
  */
 async function parseTextFile(filePath: string): Promise<ParseResult> {
-  const raw = readFileSync(filePath, 'utf-8')
+  // OPT2-16: 改用异步读取
+  const raw = await readFile(filePath, 'utf-8')
   const content = raw
     .replace(/^\uFEFF/, '') // 去除 BOM
     .replace(/\r\n/g, '\n') // 统一换行符
@@ -49,7 +51,9 @@ async function parseTextFile(filePath: string): Promise<ParseResult> {
 async function parsePdf(filePath: string): Promise<ParseResult> {
   const { extractText } = await import('unpdf')
 
-  const buffer = new Uint8Array(readFileSync(filePath))
+  // OPT2-16: 改用异步读取
+  const data = await readFile(filePath)
+  const buffer = new Uint8Array(data)
   const { text } = await extractText(buffer, { mergePages: true })
 
   const content = text

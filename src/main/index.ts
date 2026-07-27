@@ -14,18 +14,25 @@ import { registerIpcHandlers } from './ipc/index'
 // P1-03: db.close() 已注册
 // P1-08: AbortController.abort()
 // P2: MCP Server 子进程关闭
-const cleanupTasks: Array<() => void> = []
+const cleanupTasks: Array<() => void | Promise<void>> = []
 
 /**
  * 注册资源清理函数，在 before-quit 时依次调用。
- * 供后续任务注册数据库关闭、AbortController 中断等清理逻辑。
+ * OPT-13: 支持异步清理函数（返回 Promise），退出时会 await。
+ * 供后续任务注册数据库关闭、AbortController 中断、MCP Server 关闭等清理逻辑。
  */
-export function registerCleanup(fn: () => void): void {
+export function registerCleanup(fn: () => void | Promise<void>): void {
   cleanupTasks.push(fn)
 }
 
 // 注册数据库关闭（P1-03）
 registerCleanup(closeDatabase)
+
+// OPT-13: 注册 MCP Server 异步清理（关闭所有子进程）
+registerCleanup(async () => {
+  const { getMcpServerManager } = await import('./mcp/manager')
+  await getMcpServerManager().closeAll()
+})
 
 // ─── CSP 策略（生产环境注入） ──────────────────────────────────────
 // 与 Spec v0.2 §2 CSP 配置一致
@@ -252,10 +259,11 @@ if (!gotTheLock) {
   })
 
   // 资源清理（Spec v0.2 §2 应用生命周期与资源管理）
-  app.on('before-quit', () => {
+  // OPT-13: 支持异步清理（如 MCP Server 关闭需要 await closeAll）
+  app.on('before-quit', async () => {
     for (const cleanup of cleanupTasks) {
       try {
-        cleanup()
+        await cleanup()
       } catch (error) {
         console.error('[AgentForge] Cleanup task failed:', error)
       }

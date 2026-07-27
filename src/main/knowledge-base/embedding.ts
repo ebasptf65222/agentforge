@@ -164,16 +164,33 @@ interface OllamaEmbedResponse {
 async function generateOllamaEmbedding(text: string, config: EmbeddingConfig): Promise<number[]> {
   const url = `${config.baseUrl}/api/embeddings`
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: config.model,
-      prompt: text,
-    }),
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 30_000)
+
+  let response: Response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        prompt: text,
+      }),
+      signal: controller.signal,
+    })
+  } catch (error) {
+    clearTimeout(timeoutId)
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new AppError(
+        ErrorCodes.KB_EMBEDDING_ERROR,
+        'Embedding API request timed out after 30s',
+      )
+    }
+    throw error
+  }
+  clearTimeout(timeoutId)
 
   if (!response.ok) {
     const body = await response.text()
@@ -208,14 +225,31 @@ async function generateOpenAiEmbedding(text: string, config: EmbeddingConfig): P
     headers['Authorization'] = `Bearer ${config.apiKey}`
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: config.model,
-      input: text,
-    }),
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 30_000)
+
+  let response: Response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: config.model,
+        input: text,
+      }),
+      signal: controller.signal,
+    })
+  } catch (error) {
+    clearTimeout(timeoutId)
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new AppError(
+        ErrorCodes.KB_EMBEDDING_ERROR,
+        'Embedding API request timed out after 30s',
+      )
+    }
+    throw error
+  }
+  clearTimeout(timeoutId)
 
   if (!response.ok) {
     const body = await response.text()
@@ -252,14 +286,31 @@ async function generateOpenAiEmbeddingsBatch(
     const batch = texts.slice(i, i + BATCH_SIZE)
     const validInputs = batch.map((t) => t || '')
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: config.model,
-        input: validInputs,
-      }),
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30_000)
+
+    let response: Response
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: config.model,
+          input: validInputs,
+        }),
+        signal: controller.signal,
+      })
+    } catch (error) {
+      clearTimeout(timeoutId)
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new AppError(
+          ErrorCodes.KB_EMBEDDING_ERROR,
+          'Embedding API request timed out after 30s',
+        )
+      }
+      throw error
+    }
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
       const body = await response.text()

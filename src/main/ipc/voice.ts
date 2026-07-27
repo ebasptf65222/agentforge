@@ -7,7 +7,8 @@ import type { IpcMainInvokeEvent } from 'electron'
 import type { VoiceConfig, TtsOptions, SttOptions } from '@shared/types'
 import { ttsService } from '../services/tts-service'
 import { sttService } from '../services/stt-service'
-import { AppError } from '../utils/error'
+import { AppError, ErrorCodes } from '../utils/error'
+import { assertNonEmptyString } from '../utils/assertions'
 
 // ─── TTS Handlers ──────────────────────────────────────────────
 
@@ -21,10 +22,11 @@ async function handleTtsSynthesize(
   _event: IpcMainInvokeEvent,
   params: { text: string; options?: TtsOptions },
 ): Promise<ArrayBuffer> {
-  const { text, options } = params
-  if (!text?.trim()) {
-    throw new AppError('VALIDATION_ERROR', '合成文本不能为空')
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'tts-synthesize params must be an object.')
   }
+  const { text, options } = params
+  assertNonEmptyString(text, 'text')
   return await ttsService.synthesize(text, options)
 }
 
@@ -37,7 +39,13 @@ async function handleTtsTest(
   _event: IpcMainInvokeEvent,
   params: { config: VoiceConfig },
 ): Promise<ArrayBuffer> {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'tts-test params must be an object.')
+  }
   const { config } = params
+  if (config === null || typeof config !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Field "config" must be an object.')
+  }
   return await ttsService.testConfig(config.tts)
 }
 
@@ -53,9 +61,15 @@ async function handleSttTranscribe(
   _event: IpcMainInvokeEvent,
   params: { audioBuffer: ArrayBuffer; options?: SttOptions },
 ): Promise<string> {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'stt-transcribe params must be an object.')
+  }
   const { audioBuffer, options } = params
-  if (!audioBuffer || audioBuffer.byteLength === 0) {
-    throw new AppError('VALIDATION_ERROR', '音频数据不能为空')
+  if (!(audioBuffer instanceof ArrayBuffer)) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Field "audioBuffer" must be an ArrayBuffer.')
+  }
+  if (audioBuffer.byteLength === 0) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, '音频数据不能为空')
   }
   return await sttService.transcribe(audioBuffer, options)
 }
@@ -69,7 +83,16 @@ async function handleSttTest(
   _event: IpcMainInvokeEvent,
   params: { config: VoiceConfig; audioBuffer?: ArrayBuffer },
 ): Promise<string> {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'stt-test params must be an object.')
+  }
   const { config, audioBuffer } = params
+  if (config === null || typeof config !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Field "config" must be an object.')
+  }
+  if (audioBuffer !== undefined && !(audioBuffer instanceof ArrayBuffer)) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Field "audioBuffer" must be an ArrayBuffer.')
+  }
   if (audioBuffer && audioBuffer.byteLength > 0) {
     return await sttService.testWithAudio(config.stt, audioBuffer)
   }
@@ -102,8 +125,10 @@ export const voiceIpcHandlers = [
  * 注册所有语音 IPC 处理器。
  * 在主进程启动时调用一次。
  */
+// OPT2-29: 统一使用 removeHandler + handle 幂等注册模式
 export function registerVoiceHandlers(): void {
   for (const { channel, handler } of voiceIpcHandlers) {
+    ipcMain.removeHandler(channel)
     ipcMain.handle(channel, handler)
   }
 }

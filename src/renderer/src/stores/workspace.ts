@@ -89,11 +89,19 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   /**
    * Load children of a directory node (lazy loading).
+   * OPT2-27: 实现真正的缓存逻辑，优先从缓存读取。
    * @param node - the directory node to expand
    */
   async function loadChildren(node: FileTreeNode): Promise<void> {
     if (node.children !== null) {
       // Already loaded, just toggle expansion
+      return
+    }
+
+    const cached = childrenCache.value.get(node.relativePath)
+    if (cached) {
+      // 使用缓存
+      node.children = cached
       return
     }
 

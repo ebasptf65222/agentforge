@@ -4,6 +4,7 @@
 
 import { ref, onMounted } from 'vue'
 import { getHighlighter } from '@/utils/markdown'
+import { escapeHtml } from '@/utils/html'
 
 const props = withDefaults(
   defineProps<{
@@ -37,15 +38,6 @@ onMounted(async () => {
     highlightedHtml.value = `<pre><code>${escapeHtml(props.code)}</code></pre>`
   }
 })
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
 
 function handleCopy(): void {
   navigator.clipboard.writeText(props.code).then(() => {

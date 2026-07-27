@@ -17,6 +17,7 @@ import {
   type UpdateModelParams,
 } from '../db/repos/model-config'
 import { invalidateModelCache } from '../models/router'
+import { assertNonEmptyString } from '../utils/assertions'
 
 /**
  * 清除 ModelRouter 缓存。
@@ -38,16 +39,6 @@ function assertProvider(value: unknown): asserts value is ModelProvider {
       ErrorCodes.VALIDATION_ERROR,
       `Invalid provider: ${String(value)}. Must be one of: ${VALID_PROVIDERS.join(', ')}.`,
       { provider: value },
-    )
-  }
-}
-
-function assertNonEmptyString(value: unknown, field: string): asserts value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
     )
   }
 }

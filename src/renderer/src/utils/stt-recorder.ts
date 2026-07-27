@@ -32,6 +32,8 @@ export class SttRecorder {
   private startTime = 0
   private durationTimer: number | null = null
   private volumeTimer: number | null = null
+  /** OPT-12: 保存超时 timer ID，确保 stop/cancel 时清理 */
+  private timeoutTimer: number | null = null
   private maxDurationMs: number
   private volumeIntervalMs: number
   private options: RecorderOptions
@@ -223,9 +225,10 @@ export class SttRecorder {
       }, 1000)
     }
 
-    // 超时检查
+    // 超时检查 - OPT-12: 保存 timer ID 以便清理
     if (this.maxDurationMs > 0) {
-      setTimeout(() => {
+      this.timeoutTimer = window.setTimeout(() => {
+        this.timeoutTimer = null
         if (this.state === 'recording') {
           this.options.onTimeout?.()
           void this.stop()
@@ -242,6 +245,11 @@ export class SttRecorder {
     if (this.durationTimer !== null) {
       clearInterval(this.durationTimer)
       this.durationTimer = null
+    }
+    // OPT-12: 清理超时 timer
+    if (this.timeoutTimer !== null) {
+      clearTimeout(this.timeoutTimer)
+      this.timeoutTimer = null
     }
   }
 

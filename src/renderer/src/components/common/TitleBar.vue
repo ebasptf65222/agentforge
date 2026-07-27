@@ -19,9 +19,12 @@ import {
 } from '@vicons/material'
 import { useUiStore } from '@/stores/ui'
 import { useChatStore } from '@/stores/chat'
+import { useModelStore } from '@/stores/model'
+import { useToast } from '@/utils/toast'
 
 const uiStore = useUiStore()
 const chatStore = useChatStore()
+const modelStore = useModelStore()
 
 const isMaximized = ref(false)
 // 渲染进程中无法访问 Node.js process，使用 navigator 检测平台
@@ -42,9 +45,15 @@ onUnmounted(() => {
 
 // ─── 菜单动作 ──────────────────────────────────────────────────
 
+// OPT2-04: 使用真实模型 ID 而非硬编码 'default'
 async function handleNewChat(): Promise<void> {
   uiStore.setCurrentView('chat')
-  await chatStore.newConversation('default')
+  const modelId = modelStore.models[0]?.id
+  if (!modelId) {
+    useToast().showToast('请先在设置中配置至少一个模型', 'warning')
+    return
+  }
+  await chatStore.newConversation(modelId)
 }
 
 function handleOpenKb(): void {

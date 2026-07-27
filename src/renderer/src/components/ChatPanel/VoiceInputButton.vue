@@ -3,21 +3,18 @@
 // 点击开始录音，再次点击停止并转写，转写完成后将文本填入输入框并发送
 // 显示录音状态、时长、音量波形动画
 
-import { computed, ref, watch } from 'vue'
-import { NIcon, NTooltip, NModal, NSpace, NButton } from 'naive-ui'
-import { MicOutlined, MicOffOutlined, SendOutlined, CloseOutlined } from '@vicons/material'
+import { computed } from 'vue'
+import { NIcon, NTooltip } from 'naive-ui'
+import { MicOutlined, MicOffOutlined } from '@vicons/material'
 import { useVoiceStore } from '@/stores/voice'
-import { useSettingsStore } from '@/stores/settings'
 
 const emit = defineEmits<{
   submit: [text: string]
 }>()
 
 const voiceStore = useVoiceStore()
-const settingsStore = useSettingsStore()
 
-const showConfirmModal = ref(false)
-const transcribedResult = ref('')
+// OPT2-25: 移除未使用的 settingsStore、showConfirmModal、transcribedResult
 
 const isRecording = computed(() => voiceStore.sttState === 'recording')
 const isTranscribing = computed(() => voiceStore.sttState === 'transcribing')
@@ -63,19 +60,7 @@ async function handleClick(): Promise<void> {
   }
 }
 
-// 监听转写结果
-watch(
-  () => voiceStore.transcribedText,
-  (text) => {
-    if (text && voiceStore.sttState === 'idle') {
-      transcribedResult.value = text
-    }
-  },
-)
-
-function handleCancel(): void {
-  voiceStore.cancelRecording()
-}
+// OPT2-25: 移除未使用的 watch（transcribedResult 已删除）和 handleCancel
 </script>
 
 <template>

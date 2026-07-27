@@ -22,8 +22,11 @@ export const useKbStore = defineStore('kb', () => {
   /** Whether an import is in progress. */
   const importing = ref(false)
 
-  /** Whether an index/reindex operation is in progress (keyed by documentId). */
-  const indexing = ref<Set<string>>(new Set())
+  /** Whether an index/reindex operation is in progress (keyed by documentId).
+   *  OPT-09: 使用 ref<string[]> 替代 ref<Set<string>>，
+   *  因为 Vue 3 对 Set 的响应式追踪有限（add/delete 不触发更新）。
+   */
+  const indexing = ref<string[]>([])
 
   /** Semantic search results. */
   const searchResults = ref<SearchResult[]>([])
@@ -97,7 +100,10 @@ export const useKbStore = defineStore('kb', () => {
 
   /** Generate embeddings for a document. */
   async function indexDocument(id: string, batchSize?: number): Promise<void> {
-    indexing.value.add(id)
+    // OPT-09: 使用数组 push/filter 保证响应式
+    if (!indexing.value.includes(id)) {
+      indexing.value = [...indexing.value, id]
+    }
     try {
       const params: KbIndexParams = { id }
       if (batchSize !== undefined) params.batchSize = batchSize
@@ -108,13 +114,16 @@ export const useKbStore = defineStore('kb', () => {
       const message = getErrorMessage(error)
       showToast(`索引失败: ${message}`, 'error')
     } finally {
-      indexing.value.delete(id)
+      indexing.value = indexing.value.filter((docId) => docId !== id)
     }
   }
 
   /** Reindex a document (force regenerate all embeddings). */
   async function reindexDocument(id: string): Promise<void> {
-    indexing.value.add(id)
+    // OPT-09: 使用数组 push/filter 保证响应式
+    if (!indexing.value.includes(id)) {
+      indexing.value = [...indexing.value, id]
+    }
     try {
       const count = await window.electron.kb.reindex({ id })
       showToast(`重新索引完成，已生成 ${count} 个嵌入`, 'success')
@@ -123,7 +132,7 @@ export const useKbStore = defineStore('kb', () => {
       const message = getErrorMessage(error)
       showToast(`重新索引失败: ${message}`, 'error')
     } finally {
-      indexing.value.delete(id)
+      indexing.value = indexing.value.filter((docId) => docId !== id)
     }
   }
 
@@ -148,7 +157,7 @@ export const useKbStore = defineStore('kb', () => {
 
   /** Check if a document is currently being indexed. */
   function isIndexing(id: string): boolean {
-    return indexing.value.has(id)
+    return indexing.value.includes(id)
   }
 
   return {

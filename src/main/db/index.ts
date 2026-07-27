@@ -61,22 +61,30 @@ export function initDatabase(dbPath?: string): Database.Database {
 
   const filePath = dbPath ?? join(app.getPath('userData'), 'agentforge.db')
 
-  db = new Database(filePath)
+  const newDb = new Database(filePath)
 
-  // PRAGMA 配置（Spec v0.2 §6.1）
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  db.pragma('busy_timeout = 5000')
+  try {
+    // PRAGMA 配置（Spec v0.2 §6.1）
+    newDb.pragma('journal_mode = WAL')
+    newDb.pragma('foreign_keys = ON')
+    newDb.pragma('busy_timeout = 5000')
 
-  // 执行 schema.sql 初始化
-  const schemaPath = resolveSchemaPath()
-  const schemaSql = readFileSync(schemaPath, 'utf-8')
-  db.exec(schemaSql)
+    // 执行 schema.sql 初始化
+    const schemaPath = resolveSchemaPath()
+    const schemaSql = readFileSync(schemaPath, 'utf-8')
+    newDb.exec(schemaSql)
 
-  // 运行条件迁移（处理已存在数据库的 schema 变更）
-  runConditionalMigrations(db)
+    // 运行条件迁移（处理已存在数据库的 schema 变更）
+    runConditionalMigrations(newDb)
 
-  return db
+    db = newDb
+    return db
+  } catch (error) {
+    // OPT2-20: 初始化失败时关闭连接、清理全局实例，避免返回坏状态
+    try { newDb.close() } catch { /* ignore */ }
+    db = null
+    throw error
+  }
 }
 
 /**

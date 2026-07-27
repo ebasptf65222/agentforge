@@ -3,8 +3,11 @@
 // 实现 P5-01: 知识库 IPC 层，连接 KB 后端与渲染进程
 
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
+import { resolve } from 'node:path'
 import type { KbDocument, SearchResult, KbStats } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+import { getSettings } from '../db/repos/app-settings'
+import { isPathInWorkspace } from '../tools/path-guard'
 import { listKbDocuments, getKbDocumentById, countKbDocuments } from '../db/repos/kb-document'
 import { countAllKbChunks, getKbChunksWithEmbeddings } from '../db/repos/kb-chunk'
 import { importDocument, reimportDocument, removeDocument } from '../knowledge-base/importer'
@@ -80,6 +83,19 @@ async function handleImport(
 
   const filePath = params['filePath']
   const fileName = params['fileName']
+
+  // OPT2-01: 限制文件路径必须在工作区内，防止任意文件读取
+  const settings = getSettings()
+  if (settings.workspacePath) {
+    const resolvedPath = resolve(filePath)
+    if (!isPathInWorkspace(settings.workspacePath, resolvedPath)) {
+      throw new AppError(
+        ErrorCodes.WORKSPACE_PATH_ESCAPE,
+        `File path "${filePath}" is outside the workspace boundary.`,
+        { filePath, workspacePath: settings.workspacePath },
+      )
+    }
+  }
   const fileType = params['fileType'] as KbDocument['fileType']
 
   const options: ImportOptions = {}
@@ -232,15 +248,12 @@ const handlers: Array<{ channel: string; handler: IpcMainInvokeHandler }> = [
   { channel: 'kb:stats', handler: handleStats },
 ]
 
-let registered = false
-
+// OPT2-29: 移除 registered 标志位，统一使用 removeHandler + handle 幂等模式
 /**
  * 注册知识库 IPC handlers。
  * 幂等：重复调用安全。
  */
 export function registerKbHandlers(): void {
-  if (registered) return
-
   for (const { channel, handler } of handlers) {
     // 包装 handler，统一捕获 AppError 并转换为 IPC 错误
     const wrappedHandler: IpcMainInvokeHandler = async (event, ...args) => {
@@ -254,8 +267,7 @@ export function registerKbHandlers(): void {
         throw new AppError(ErrorCodes.INTERNAL_ERROR, message, { channel })
       }
     }
+    ipcMain.removeHandler(channel)
     ipcMain.handle(channel, wrappedHandler)
   }
-
-  registered = true
 }

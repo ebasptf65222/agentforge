@@ -1,31 +1,23 @@
 // AgentForge P2-05: file_write 内置工具
-// 写入内容到文件，自动创建目录，拒绝路径穿越
-// 与 Spec v0.2 §5.5 工具类型一致
+// 写入内容到文件，自动创建目录
+// OPT-01: 路径校验统一委托 workspace IPC handler（内部使用 path-guard 模块）
 
-import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
 import type { ToolDefinition, ToolExecutionResult } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+import { handleWsWrite } from '../ipc/workspace'
 import type { BuiltinTool } from './types'
-
-/**
- * 路径安全检查：拒绝包含 `..` 的路径，防止目录穿越。
- */
-export function isPathSafe(path: string): boolean {
-  return !path.includes('..')
-}
 
 /** file_write 工具定义与执行函数 */
 export const fileWriteTool: BuiltinTool = {
   definition: {
     name: 'file_write',
-    description: 'Write content to a file',
+    description: 'Write content to a file in the workspace directory.',
     inputSchema: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
-          description: 'Absolute or relative file path',
+          description: 'Relative file path within the workspace directory',
         },
         content: {
           type: 'string',
@@ -50,25 +42,17 @@ export const fileWriteTool: BuiltinTool = {
       })
     }
 
-    if (!isPathSafe(path)) {
-      throw new AppError(ErrorCodes.FILE_ACCESS_ERROR, `Path traversal not allowed: ${path}`, {
-        path,
-      })
-    }
-
+    // OPT-01: 委托 handleWsWrite，其内部通过 resolveWorkspacePath
+    // 进行完整路径边界校验：绝对路径拒绝、../ 逃逸、符号链接逃逸
     try {
-      // 自动创建父目录
-      const dir = dirname(path)
-      if (dir) {
-        await mkdir(dir, { recursive: true })
-      }
-      await writeFile(path, content, 'utf-8')
+      const bytes = await handleWsWrite(path, content)
       return {
         isError: false,
-        content: `Successfully wrote ${content.length} characters to ${path}`,
-        metadata: { path, bytes: content.length },
+        content: `Successfully wrote ${bytes} bytes to ${path}`,
+        metadata: { path, bytes },
       }
     } catch (error) {
+      if (error instanceof AppError) throw error
       throw new AppError(
         ErrorCodes.FILE_ACCESS_ERROR,
         `Failed to write file: ${error instanceof Error ? error.message : String(error)}`,

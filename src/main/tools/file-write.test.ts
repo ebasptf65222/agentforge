@@ -1,12 +1,27 @@
-// AgentForge P2-05: file_write 工具单元测试
-// 使用临时目录验证文件写入、目录自动创建与路径安全
+// AgentForge OPT-01: file_write 工具单元测试
+// file_write 委托 workspace IPC handler (handleWsWrite) 执行实际写入，
+// 路径边界校验由 path-guard 模块在 handler 内部统一完成。
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, readFileSync, existsSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { AppError } from '../utils/error'
-import { fileWriteTool, isPathSafe } from './file-write'
+import { fileWriteTool } from './file-write'
+
+// ─── Mocks ───────────────────────────────────────────────────────
+
+const { mockGetSettings } = vi.hoisted(() => ({
+  mockGetSettings: vi.fn(),
+}))
+
+vi.mock('../db/repos/app-settings', () => ({
+  getSettings: () => mockGetSettings(),
+}))
+
+vi.mock('electron', () => ({
+  ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
+}))
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -27,6 +42,9 @@ describe('file_write tool', () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'agentforge-file-write-test-'))
+    mockGetSettings.mockReturnValue({
+      workspace: { path: tempDir, excludePatterns: ['node_modules', '.git'] },
+    })
   })
 
   afterEach(() => {
@@ -41,7 +59,9 @@ describe('file_write tool', () => {
     })
 
     it('should have a description', () => {
-      expect(fileWriteTool.definition.description).toBe('Write content to a file')
+      expect(fileWriteTool.definition.description).toBe(
+        'Write content to a file in the workspace directory.',
+      )
     })
 
     it('should have riskLevel="medium"', () => {
@@ -65,20 +85,6 @@ describe('file_write tool', () => {
 
     it('should expose an execute function', () => {
       expect(typeof fileWriteTool.execute).toBe('function')
-    })
-  })
-
-  // ─── isPathSafe ────────────────────────────────────────────
-
-  describe('isPathSafe', () => {
-    it('should return true for normal paths', () => {
-      expect(isPathSafe('/tmp/file.txt')).toBe(true)
-      expect(isPathSafe('relative/path/file.txt')).toBe(true)
-    })
-
-    it('should return false for paths containing ".."', () => {
-      expect(isPathSafe('../etc/passwd')).toBe(false)
-      expect(isPathSafe('/tmp/../etc/passwd')).toBe(false)
     })
   })
 
@@ -112,26 +118,25 @@ describe('file_write tool', () => {
 
     it('should throw VALIDATION_ERROR when content is not a string', async () => {
       await expectAppErrorAsync(
-        fileWriteTool.execute({ path: '/tmp/x', content: 123 }),
+        fileWriteTool.execute({ path: 'x.txt', content: 123 }),
         'VALIDATION_ERROR',
       )
     })
 
     it('should throw VALIDATION_ERROR when content is missing', async () => {
-      await expectAppErrorAsync(fileWriteTool.execute({ path: '/tmp/x' }), 'VALIDATION_ERROR')
+      await expectAppErrorAsync(fileWriteTool.execute({ path: 'x.txt' }), 'VALIDATION_ERROR')
     })
 
     it('should accept empty string content', async () => {
-      const filePath = join(tempDir, 'empty.txt')
-      const result = await fileWriteTool.execute({ path: filePath, content: '' })
+      const result = await fileWriteTool.execute({ path: 'empty.txt', content: '' })
       expect(result.isError).toBe(false)
-      expect(readFileSync(filePath, 'utf-8')).toBe('')
+      expect(readFileSync(join(tempDir, 'empty.txt'), 'utf-8')).toBe('')
     })
 
-    it('should throw FILE_ACCESS_ERROR when path contains ".."', async () => {
+    it('should throw WORKSPACE_PATH_ESCAPE when path contains ".."', async () => {
       await expectAppErrorAsync(
         fileWriteTool.execute({ path: '../etc/passwd', content: 'x' }),
-        'FILE_ACCESS_ERROR',
+        'WORKSPACE_PATH_ESCAPE',
       )
     })
   })
@@ -140,71 +145,62 @@ describe('file_write tool', () => {
 
   describe('execute success', () => {
     it('should write content to a new file', async () => {
-      const filePath = join(tempDir, 'new.txt')
-
-      const result = await fileWriteTool.execute({ path: filePath, content: 'hello world' })
+      const result = await fileWriteTool.execute({ path: 'new.txt', content: 'hello world' })
 
       expect(result.isError).toBe(false)
-      expect(readFileSync(filePath, 'utf-8')).toBe('hello world')
+      expect(readFileSync(join(tempDir, 'new.txt'), 'utf-8')).toBe('hello world')
     })
 
     it('should overwrite existing file', async () => {
-      const filePath = join(tempDir, 'existing.txt')
-      writeFileSync(filePath, 'old content', 'utf-8')
+      writeFileSync(join(tempDir, 'existing.txt'), 'old content', 'utf-8')
 
-      await fileWriteTool.execute({ path: filePath, content: 'new content' })
+      await fileWriteTool.execute({ path: 'existing.txt', content: 'new content' })
 
-      expect(readFileSync(filePath, 'utf-8')).toBe('new content')
+      expect(readFileSync(join(tempDir, 'existing.txt'), 'utf-8')).toBe('new content')
     })
 
     it('should auto-create parent directories', async () => {
-      const filePath = join(tempDir, 'a', 'b', 'c', 'deep.txt')
-
-      const result = await fileWriteTool.execute({ path: filePath, content: 'deep' })
+      const result = await fileWriteTool.execute({ path: 'a/b/c/deep.txt', content: 'deep' })
 
       expect(result.isError).toBe(false)
-      expect(existsSync(filePath)).toBe(true)
-      expect(readFileSync(filePath, 'utf-8')).toBe('deep')
+      const absPath = join(tempDir, 'a', 'b', 'c', 'deep.txt')
+      expect(existsSync(absPath)).toBe(true)
+      expect(readFileSync(absPath, 'utf-8')).toBe('deep')
     })
 
     it('should write UTF-8 content with special characters', async () => {
-      const filePath = join(tempDir, 'unicode.txt')
       const text = '你好世界\n\t"quoted" & <tagged>'
 
-      await fileWriteTool.execute({ path: filePath, content: text })
+      await fileWriteTool.execute({ path: 'unicode.txt', content: text })
 
-      expect(readFileSync(filePath, 'utf-8')).toBe(text)
+      expect(readFileSync(join(tempDir, 'unicode.txt'), 'utf-8')).toBe(text)
     })
 
     it('should include path and bytes in metadata', async () => {
-      const filePath = join(tempDir, 'meta.txt')
       const text = 'hello'
 
-      const result = await fileWriteTool.execute({ path: filePath, content: text })
+      const result = await fileWriteTool.execute({ path: 'meta.txt', content: text })
 
       expect(result.metadata).toMatchObject({
-        path: filePath,
-        bytes: text.length,
+        path: 'meta.txt',
+        bytes: Buffer.byteLength(text, 'utf-8'),
       })
     })
 
     it('should return success message in content', async () => {
-      const filePath = join(tempDir, 'msg.txt')
       const text = 'hello'
 
-      const result = await fileWriteTool.execute({ path: filePath, content: text })
+      const result = await fileWriteTool.execute({ path: 'msg.txt', content: text })
 
       expect(result.content).toContain('Successfully wrote')
-      expect(result.content).toContain(String(text.length))
-      expect(result.content).toContain(filePath)
+      expect(result.content).toContain('bytes')
+      expect(result.content).toContain('msg.txt')
     })
 
-    it('should write file at root of temp dir (no subdirectory)', async () => {
-      const filePath = join(tempDir, 'root.txt')
+    it('should write file at root of workspace (no subdirectory)', async () => {
+      await fileWriteTool.execute({ path: 'root.txt', content: 'root' })
 
-      await fileWriteTool.execute({ path: filePath, content: 'root' })
-
-      expect(readFileSync(filePath, 'utf-8')).toBe('root')
+      expect(readFileSync(join(tempDir, 'root.txt'), 'utf-8')).toBe('root')
     })
   })
 
@@ -212,25 +208,22 @@ describe('file_write tool', () => {
 
   describe('execute error cases', () => {
     it('should throw FILE_ACCESS_ERROR when parent is a file (cannot mkdir)', async () => {
-      const blockerPath = join(tempDir, 'blocker')
-      writeFileSync(blockerPath, 'im a file', 'utf-8')
-      const filePath = join(blockerPath, 'sub', 'file.txt')
+      writeFileSync(join(tempDir, 'blocker'), 'im a file', 'utf-8')
 
       await expectAppErrorAsync(
-        fileWriteTool.execute({ path: filePath, content: 'x' }),
+        fileWriteTool.execute({ path: 'blocker/sub/file.txt', content: 'x' }),
         'FILE_ACCESS_ERROR',
       )
     })
 
     it('should update mtime after overwrite', async () => {
-      const filePath = join(tempDir, 'mtime.txt')
-      await fileWriteTool.execute({ path: filePath, content: 'first' })
-      const before = statSync(filePath).mtimeMs
+      await fileWriteTool.execute({ path: 'mtime.txt', content: 'first' })
+      const before = statSync(join(tempDir, 'mtime.txt')).mtimeMs
 
       // 等待一小段时间确保时间戳变化
       await new Promise((resolve) => setTimeout(resolve, 20))
-      await fileWriteTool.execute({ path: filePath, content: 'second' })
-      const after = statSync(filePath).mtimeMs
+      await fileWriteTool.execute({ path: 'mtime.txt', content: 'second' })
+      const after = statSync(join(tempDir, 'mtime.txt')).mtimeMs
 
       expect(after).toBeGreaterThanOrEqual(before)
     })

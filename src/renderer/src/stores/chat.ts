@@ -44,14 +44,19 @@ export const useChatStore = defineStore('chat', () => {
    * Load all conversations from electron.
    * Sets loading=true during the request for skeleton placeholders.
    */
-  async function loadConversations(): Promise<void> {
-    loading.value = true
+  // OPT2-24: 支持 silent 模式，避免流结束后骨架屏闪烁
+  async function loadConversations(options?: { silent?: boolean }): Promise<void> {
+    if (!options?.silent) {
+      loading.value = true
+    }
     try {
       const result = await window.electron.chat.listConversations()
       conversations.value = result as Conversation[]
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      showToast(`加载会话失败: ${message}`, 'error')
+      if (!options?.silent) {
+        showToast(`加载会话失败: ${message}`, 'error')
+      }
       console.error('[ChatStore] loadConversations error:', error)
     } finally {
       loading.value = false
@@ -238,7 +243,7 @@ export const useChatStore = defineStore('chat', () => {
     })()
     // Reload conversation list to get updated title/message count
     try {
-      await loadConversations()
+      await loadConversations({ silent: true })
     } catch (error) {
       console.error('[ChatStore] handleStreamEnd reload error:', error)
     }

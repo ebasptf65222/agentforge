@@ -1,12 +1,27 @@
-// AgentForge P2-05: file_read 工具单元测试
-// 使用临时目录验证文件读取与路径安全
+// AgentForge OPT-01: file_read 工具单元测试
+// file_read 委托 workspace IPC handler (handleWsRead) 执行实际读取，
+// 路径边界校验由 path-guard 模块在 handler 内部统一完成。
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { AppError } from '../utils/error'
-import { fileReadTool, isPathSafe } from './file-read'
+import { fileReadTool } from './file-read'
+
+// ─── Mocks ───────────────────────────────────────────────────────
+
+const { mockGetSettings } = vi.hoisted(() => ({
+  mockGetSettings: vi.fn(),
+}))
+
+vi.mock('../db/repos/app-settings', () => ({
+  getSettings: () => mockGetSettings(),
+}))
+
+vi.mock('electron', () => ({
+  ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
+}))
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -27,6 +42,9 @@ describe('file_read tool', () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'agentforge-file-read-test-'))
+    mockGetSettings.mockReturnValue({
+      workspace: { path: tempDir, excludePatterns: ['node_modules', '.git'] },
+    })
   })
 
   afterEach(() => {
@@ -41,7 +59,9 @@ describe('file_read tool', () => {
     })
 
     it('should have a description', () => {
-      expect(fileReadTool.definition.description).toBe('Read text file content')
+      expect(fileReadTool.definition.description).toBe(
+        'Read text file content from the workspace directory.',
+      )
     })
 
     it('should have riskLevel="low"', () => {
@@ -65,22 +85,6 @@ describe('file_read tool', () => {
     })
   })
 
-  // ─── isPathSafe ────────────────────────────────────────────
-
-  describe('isPathSafe', () => {
-    it('should return true for normal paths', () => {
-      expect(isPathSafe('/tmp/file.txt')).toBe(true)
-      expect(isPathSafe('relative/path/file.txt')).toBe(true)
-      expect(isPathSafe('./file.txt')).toBe(true)
-    })
-
-    it('should return false for paths containing ".."', () => {
-      expect(isPathSafe('../etc/passwd')).toBe(false)
-      expect(isPathSafe('/tmp/../etc/passwd')).toBe(false)
-      expect(isPathSafe('a/../../b')).toBe(false)
-    })
-  })
-
   // ─── execute: validation ───────────────────────────────────
 
   describe('execute validation', () => {
@@ -100,10 +104,10 @@ describe('file_read tool', () => {
       await expectAppErrorAsync(fileReadTool.execute({}), 'VALIDATION_ERROR')
     })
 
-    it('should throw FILE_ACCESS_ERROR when path contains ".."', async () => {
+    it('should throw WORKSPACE_PATH_ESCAPE when path contains ".."', async () => {
       await expectAppErrorAsync(
         fileReadTool.execute({ path: '../etc/passwd' }),
-        'FILE_ACCESS_ERROR',
+        'WORKSPACE_PATH_ESCAPE',
       )
     })
   })
@@ -112,44 +116,36 @@ describe('file_read tool', () => {
 
   describe('execute success', () => {
     it('should read file content as UTF-8', async () => {
-      const filePath = join(tempDir, 'test.txt')
-      writeFileSync(filePath, 'hello world\n你好', 'utf-8')
+      writeFileSync(join(tempDir, 'test.txt'), 'hello world\n你好', 'utf-8')
 
-      const result = await fileReadTool.execute({ path: filePath })
+      const result = await fileReadTool.execute({ path: 'test.txt' })
 
       expect(result.isError).toBe(false)
       expect(result.content).toBe('hello world\n你好')
     })
 
-    it('should include path and size in metadata', async () => {
-      const filePath = join(tempDir, 'test.txt')
-      const text = 'hello world'
-      writeFileSync(filePath, text, 'utf-8')
+    it('should include path in metadata', async () => {
+      writeFileSync(join(tempDir, 'test.txt'), 'hello world', 'utf-8')
 
-      const result = await fileReadTool.execute({ path: filePath })
+      const result = await fileReadTool.execute({ path: 'test.txt' })
 
-      expect(result.metadata).toMatchObject({
-        path: filePath,
-        size: Buffer.byteLength(text, 'utf-8'),
-      })
+      expect(result.metadata).toMatchObject({ path: 'test.txt' })
     })
 
     it('should read empty file', async () => {
-      const filePath = join(tempDir, 'empty.txt')
-      writeFileSync(filePath, '', 'utf-8')
+      writeFileSync(join(tempDir, 'empty.txt'), '', 'utf-8')
 
-      const result = await fileReadTool.execute({ path: filePath })
+      const result = await fileReadTool.execute({ path: 'empty.txt' })
 
       expect(result.isError).toBe(false)
       expect(result.content).toBe('')
     })
 
     it('should read file with special characters', async () => {
-      const filePath = join(tempDir, 'special.txt')
       const text = 'line1\n\tline2\n"quoted" & <tagged>'
-      writeFileSync(filePath, text, 'utf-8')
+      writeFileSync(join(tempDir, 'special.txt'), text, 'utf-8')
 
-      const result = await fileReadTool.execute({ path: filePath })
+      const result = await fileReadTool.execute({ path: 'special.txt' })
 
       expect(result.content).toBe(text)
     })
@@ -159,35 +155,31 @@ describe('file_read tool', () => {
 
   describe('execute error cases', () => {
     it('should throw FILE_NOT_FOUND when file does not exist', async () => {
-      const filePath = join(tempDir, 'nonexistent.txt')
-
-      await expectAppErrorAsync(fileReadTool.execute({ path: filePath }), 'FILE_NOT_FOUND')
+      await expectAppErrorAsync(fileReadTool.execute({ path: 'nonexistent.txt' }), 'FILE_NOT_FOUND')
     })
 
     it('should throw FILE_ACCESS_ERROR when path is a directory', async () => {
-      const dirPath = join(tempDir, 'subdir')
-      mkdirSync(dirPath)
+      mkdirSync(join(tempDir, 'subdir'))
 
-      await expectAppErrorAsync(fileReadTool.execute({ path: dirPath }), 'FILE_ACCESS_ERROR')
+      await expectAppErrorAsync(fileReadTool.execute({ path: 'subdir' }), 'FILE_ACCESS_ERROR')
     })
 
     it('should throw FILE_TOO_LARGE when file exceeds 1MB', async () => {
-      const filePath = join(tempDir, 'large.txt')
       // 1MB + 1 byte
       const big = Buffer.alloc(1024 * 1024 + 1, 'x')
-      writeFileSync(filePath, big)
+      writeFileSync(join(tempDir, 'large.txt'), big)
 
-      await expectAppErrorAsync(fileReadTool.execute({ path: filePath }), 'FILE_TOO_LARGE')
+      await expectAppErrorAsync(fileReadTool.execute({ path: 'large.txt' }), 'FILE_TOO_LARGE')
     })
 
     it('should accept file exactly at 1MB limit', async () => {
-      const filePath = join(tempDir, 'exactly-1mb.txt')
       const exact = Buffer.alloc(1024 * 1024, 'a')
-      writeFileSync(filePath, exact)
+      writeFileSync(join(tempDir, 'exactly-1mb.txt'), exact)
 
-      const result = await fileReadTool.execute({ path: filePath })
+      const result = await fileReadTool.execute({ path: 'exactly-1mb.txt' })
 
       expect(result.isError).toBe(false)
+      expect(result.metadata).toMatchObject({ path: 'exactly-1mb.txt' })
     })
   })
 })

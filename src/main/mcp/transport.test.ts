@@ -50,7 +50,12 @@ function createMockChild(): EventEmitter & {
   stderr.setEncoding = vi.fn()
   child.stderr = stderr
 
-  child.kill = vi.fn()
+  child.kill = vi.fn(() => {
+    // 模拟真实进程行为：kill 后标记 killed 并触发 exit 事件
+    child.killed = true
+    child.emit('exit', null, 'SIGTERM')
+    return true
+  })
   child.killed = false
   child.pid = 12345
 
@@ -85,8 +90,8 @@ describe('StdioTransport', () => {
     })
 
     it('should allow safe commands', () => {
-      expect(() => new StdioTransport('node', ['server.js'])).not.toThrow()
-      expect(() => new StdioTransport('python', ['-m', 'server'])).not.toThrow()
+      expect(() => new StdioTransport('git', ['server.js'])).not.toThrow()
+      expect(() => new StdioTransport('npm', ['-m', 'server'])).not.toThrow()
     })
   })
 
@@ -97,14 +102,14 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', ['server.js'])
+      const transport = new StdioTransport('git', ['server.js'])
       const connectPromise = transport.connect()
 
       mockChild.emit('spawn')
       await expect(connectPromise).resolves.toBeUndefined()
 
       expect(mockSpawn).toHaveBeenCalledWith(
-        'node',
+        'git',
         ['server.js'],
         expect.objectContaining({
           stdio: ['pipe', 'pipe', 'pipe'],
@@ -116,14 +121,14 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', [], { MCP_PORT: '3000' })
+      const transport = new StdioTransport('git', [], { MCP_PORT: '3000' })
       const connectPromise = transport.connect()
 
       mockChild.emit('spawn')
       await connectPromise
 
       expect(mockSpawn).toHaveBeenCalledWith(
-        'node',
+        'git',
         [],
         expect.objectContaining({
           env: expect.objectContaining({
@@ -150,7 +155,7 @@ describe('StdioTransport', () => {
         throw new Error('Invalid command')
       })
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const connectPromise = transport.connect()
 
       await expect(connectPromise).rejects.toThrow(/MCP_SPAWN_FAILED|spawn/i)
@@ -162,7 +167,7 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const connectPromise = transport.connect()
 
       // 先附加 rejection 处理器，避免 unhandled rejection
@@ -182,7 +187,7 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', ['server.js'])
+      const transport = new StdioTransport('git', ['server.js'])
       const connectPromise = transport.connect()
       mockChild.emit('spawn')
       await connectPromise
@@ -194,7 +199,7 @@ describe('StdioTransport', () => {
     })
 
     it('should throw when not connected', async () => {
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
 
       await expect(transport.send('test')).rejects.toThrow(/not connected/i)
     })
@@ -203,7 +208,7 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const connectPromise = transport.connect()
       mockChild.emit('spawn')
       await connectPromise
@@ -225,7 +230,7 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const connectPromise = transport.connect()
       mockChild.emit('spawn')
       await connectPromise
@@ -243,7 +248,7 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const connectPromise = transport.connect()
       mockChild.emit('spawn')
       await connectPromise
@@ -262,7 +267,7 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const connectPromise = transport.connect()
       mockChild.emit('spawn')
       await connectPromise
@@ -283,7 +288,7 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const connectPromise = transport.connect()
       mockChild.emit('spawn')
       await connectPromise
@@ -297,7 +302,7 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const connectPromise = transport.connect()
       mockChild.emit('spawn')
       await connectPromise
@@ -317,7 +322,7 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const _connectPromise = transport.connect()
       mockChild.emit('spawn')
       await vi.advanceTimersByTimeAsync(0)
@@ -343,7 +348,7 @@ describe('StdioTransport', () => {
       const mockChild2 = createMockChild()
       mockSpawn.mockReturnValueOnce(mockChild1).mockReturnValueOnce(mockChild2)
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const _connectPromise = transport.connect()
       mockChild1.emit('spawn')
       await vi.advanceTimersByTimeAsync(0)
@@ -369,7 +374,7 @@ describe('StdioTransport', () => {
       const mockChild2 = createMockChild()
       mockSpawn.mockReturnValueOnce(mockChild1).mockReturnValueOnce(mockChild2)
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const _connectPromise = transport.connect()
       mockChild1.emit('spawn')
       await vi.advanceTimersByTimeAsync(0)
@@ -396,7 +401,7 @@ describe('StdioTransport', () => {
       mockSpawn.mockReturnValueOnce(mockChild1).mockReturnValueOnce(mockChild2)
 
       let closeCalled = false
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       transport.onClose(() => {
         closeCalled = true
       })
@@ -429,7 +434,7 @@ describe('StdioTransport', () => {
       mockSpawn.mockReturnValueOnce(mockChild1).mockReturnValueOnce(mockChild2)
 
       let closeCalled = false
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       transport.onClose(() => {
         closeCalled = true
       })
@@ -458,7 +463,7 @@ describe('StdioTransport', () => {
       const mockChild = createMockChild()
       mockSpawn.mockReturnValue(mockChild)
 
-      const transport = new StdioTransport('node', [])
+      const transport = new StdioTransport('git', [])
       const connectPromise = transport.connect()
       mockChild.emit('spawn')
       await connectPromise

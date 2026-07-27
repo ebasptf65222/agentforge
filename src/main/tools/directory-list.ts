@@ -1,38 +1,23 @@
 // AgentForge P2-05: directory_list 内置工具
-// 列出目录条目（name / isDirectory / size），拒绝路径穿越
-// 与 Spec v0.2 §5.5 工具类型一致
+// 列出目录条目（name / isDirectory / size）
+// OPT-01: 路径校验统一委托 workspace IPC handler（内部使用 path-guard 模块）
 
-import { readdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
 import type { ToolDefinition, ToolExecutionResult } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+import { handleWsList } from '../ipc/workspace'
 import type { BuiltinTool } from './types'
-
-/** 目录条目 */
-export interface DirectoryEntry {
-  name: string
-  isDirectory: boolean
-  size: number
-}
-
-/**
- * 路径安全检查：拒绝包含 `..` 的路径，防止目录穿越。
- */
-export function isPathSafe(path: string): boolean {
-  return !path.includes('..')
-}
 
 /** directory_list 工具定义与执行函数 */
 export const directoryListTool: BuiltinTool = {
   definition: {
     name: 'directory_list',
-    description: 'List directory contents',
+    description: 'List directory contents within the workspace directory.',
     inputSchema: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
-          description: 'Absolute or relative directory path',
+          description: 'Relative directory path within the workspace directory',
         },
       },
       required: ['path'],
@@ -46,50 +31,22 @@ export const directoryListTool: BuiltinTool = {
       throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Path must be a non-empty string.', { path })
     }
 
-    if (!isPathSafe(path)) {
-      throw new AppError(ErrorCodes.FILE_ACCESS_ERROR, `Path traversal not allowed: ${path}`, {
-        path,
-      })
-    }
-
-    let names: string[]
+    // OPT-01: 委托 handleWsList，其内部通过 resolveWorkspacePath
+    // 进行完整路径边界校验：绝对路径拒绝、../ 逃逸、符号链接逃逸
     try {
-      names = await readdir(path)
+      const entries = await handleWsList(path)
+      return {
+        isError: false,
+        content: JSON.stringify({ path, entries }),
+        metadata: { count: entries.length },
+      }
     } catch (error) {
-      const err = error as NodeJS.ErrnoException
-      if (err.code === 'ENOENT') {
-        throw new AppError(ErrorCodes.FILE_NOT_FOUND, `Directory not found: ${path}`, { path })
-      }
-      if (err.code === 'ENOTDIR') {
-        throw new AppError(ErrorCodes.FILE_ACCESS_ERROR, `Path is not a directory: ${path}`, {
-          path,
-        })
-      }
-      throw new AppError(ErrorCodes.FILE_ACCESS_ERROR, `Cannot list directory: ${err.message}`, {
-        path,
-        errno: err.code,
-      })
-    }
-
-    const entries: DirectoryEntry[] = []
-    for (const name of names) {
-      const fullPath = join(path, name)
-      try {
-        const stats = await stat(fullPath)
-        entries.push({
-          name,
-          isDirectory: stats.isDirectory(),
-          size: stats.size,
-        })
-      } catch {
-        // 跳过无法 stat 的条目（如权限不足、已删除等）
-      }
-    }
-
-    return {
-      isError: false,
-      content: JSON.stringify({ path, entries }),
-      metadata: { count: entries.length },
+      if (error instanceof AppError) throw error
+      throw new AppError(
+        ErrorCodes.FILE_ACCESS_ERROR,
+        `Failed to list directory: ${error instanceof Error ? error.message : String(error)}`,
+        { path },
+      )
     }
   },
 }

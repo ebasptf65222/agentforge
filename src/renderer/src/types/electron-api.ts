@@ -168,6 +168,19 @@ interface AgentAPI {
   onStreamChunk(callback: (data: StreamChunk) => void): () => void
 }
 
+/** OPT2-12: MCP 更新 Server 参数 */
+interface McpUpdateParams {
+  id: string
+  name?: string
+  transport?: 'stdio' | 'http'
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  enabled?: boolean
+}
+
 /** MCP 添加 Server 参数 */
 interface McpAddParams {
   name: string
@@ -190,6 +203,7 @@ interface McpServerInfo {
 /** MCP 命名空间 */
 interface McpAPI {
   add(params: McpAddParams): Promise<MCPServerConfig>
+  update(params: McpUpdateParams): Promise<MCPServerConfig>
   remove(id: string): Promise<void>
   list(): Promise<MCPServerConfig[]>
   getStatus(id: string): Promise<McpServerInfo>
@@ -316,8 +330,9 @@ interface VoiceAPI {
   // ─── TTS ───
   /** 合成语音，返回音频 ArrayBuffer */
   synthesize(text: string, options?: TtsOptions): Promise<ArrayBuffer>
-  /** 测试 TTS 配置（合成一句测试音频） */
-  testTts(config: VoiceConfig): Promise<void>
+  // OPT2-05: 修复返回类型与实际实现一致（preload 返回 ArrayBuffer）
+  /** 测试 TTS 配置（合成一句测试音频），返回音频 ArrayBuffer */
+  testTts(config: VoiceConfig): Promise<ArrayBuffer>
 
   // ─── STT ───
   /** 上传音频并转录，返回识别文本 */
@@ -366,6 +381,7 @@ export type {
   AgentApproveParams,
   AgentAPI,
   McpAddParams,
+  McpUpdateParams,
   McpServerInfo,
   McpAPI,
   CreateSkillParams,

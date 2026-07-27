@@ -5,7 +5,7 @@
 //           chat:list-conversations, chat:get-conversation,
 //           chat:delete-conversation, chat:get-messages
 
-import { ipcMain, type IpcMainInvokeHandler, BrowserWindow } from 'electron'
+import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import type {
   Conversation,
   ChatMessage,
@@ -16,6 +16,8 @@ import type {
   ApprovalMode,
 } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+import { assertNonEmptyString } from '../utils/assertions'
+import { getMainWindowWebContents } from '../utils/electron-helpers'
 import {
   createConversation,
   listConversations,
@@ -30,6 +32,7 @@ import { modelConfigExists } from '../db/repos/model-config'
 import { getModelAdapter } from '../models/router'
 import type { AdapterMessage } from '../models/adapter'
 import { semanticSearch } from '../knowledge-base/search'
+import { getDatabase } from '../db'
 
 // ─── 并发控制 ─────────────────────────────────────────────────────
 
@@ -50,31 +53,7 @@ export function resetAbortController(): void {
   currentAbortController = null
 }
 
-// ─── 参数校验辅助函数 ─────────────────────────────────────────────
-
-function assertNonEmptyString(value: unknown, field: string): asserts value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
-    )
-  }
-}
-
 // ─── 流式事件推送辅助 ─────────────────────────────────────────────
-
-/**
- * 获取主窗口的 webContents，用于推送流式事件。
- * 若无窗口则静默跳过（测试环境或窗口已销毁）。
- */
-function getMainWindowWebContents(): Electron.WebContents | null {
-  const windows = BrowserWindow.getAllWindows()
-  if (windows.length === 0) return null
-  const win = windows[0]
-  if (win.isDestroyed()) return null
-  return win.webContents
-}
 
 /**
  * 推送流式 chunk 到渲染进程。
@@ -164,132 +143,149 @@ export async function handleSend(
   const abortController = new AbortController()
   currentAbortController = abortController
 
-  // 5. 保存用户消息
-  createMessage({
-    conversationId,
-    role: 'user',
-    content,
-  })
-
-  // 递增消息计数（用户消息 +1，后面助手消息再 +1）
-  incrementMessageCount(conversationId, 1)
-
-  // 6. 首条消息时自动生成标题
-  if (conversation.messageCount === 0 && conversation.title === '新会话') {
-    const newTitle = (content.length > 20 ? content.slice(0, 20) : content).trim()
-    updateConversationTitle(conversationId, newTitle)
-  }
-
-  // 7. 构建消息历史
-  const history = getMessagesByConversationId(conversationId)
-  const adapterMessages: AdapterMessage[] = []
-
-  // 7a. 如果启用了知识库关联，先搜索知识库并注入结果
-  const kbEnabled = p['kbEnabled'] === true
-  if (kbEnabled) {
-    try {
-      const kbResults = await semanticSearch(content, { topK: 5, threshold: 0.5 })
-      if (kbResults.length > 0) {
-        const kbContext = [
-          '以下是从知识库中检索到的相关信息，请在回答时参考这些内容：',
-          ...kbResults.map(
-            (r, i) =>
-              `[${i + 1}] 来源: ${r.fileName}（相似度: ${(r.score * 100).toFixed(1)}%）\n内容: ${r.content}`,
-          ),
-        ].join('\n\n')
-        adapterMessages.push({ role: 'system', content: kbContext })
-      }
-    } catch (kbError) {
-      console.error('[ChatIPC] KB search error:', kbError)
-      // 知识库搜索失败不影响正常对话，继续执行
-    }
-  }
-
-  adapterMessages.push(
-    ...history.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-    })),
-  )
-
-  // 8. 流式生成
-  const startTime = Date.now()
-  let assistantContent = ''
-  let stopped = false
-
+  // OPT2-06: 所有后续操作包入 try/finally，确保锁在异常时也能释放
   try {
-    const stream = adapter.streamChat(adapterMessages, abortController.signal)
+    // OPT2-08: 消息持久化添加数据库事务，确保数据一致性
+    const db = getDatabase()
+    const execTransaction = db.transaction(() => {
+      // 5. 保存用户消息
+      createMessage({
+        conversationId,
+        role: 'user',
+        content,
+      })
 
-    for await (const chunk of stream) {
-      // 推送 chunk 到渲染进程
-      sendStreamChunk(chunk)
+      // 递增消息计数（用户消息 +1，后面助手消息再 +1）
+      incrementMessageCount(conversationId, 1)
 
-      // 收集文本内容
-      if (chunk.type === 'text' && chunk.content) {
-        assistantContent += chunk.content
+      // 6. 首条消息时自动生成标题
+      if (conversation.messageCount === 0 && conversation.title === '新会话') {
+        const newTitle = (content.length > 20 ? content.slice(0, 20) : content).trim()
+        updateConversationTitle(conversationId, newTitle)
       }
+    })
+    execTransaction()
 
-      // 检查是否被中断
-      if (abortController.signal.aborted) {
-        stopped = true
-        break
+    // 7. 构建消息历史
+    const history = getMessagesByConversationId(conversationId)
+    const adapterMessages: AdapterMessage[] = []
+
+    // 7a. 如果启用了知识库关联，先搜索知识库并注入结果
+    const kbEnabled = p['kbEnabled'] === true
+    if (kbEnabled) {
+      try {
+        const kbResults = await semanticSearch(content, { topK: 5, threshold: 0.5 })
+        if (kbResults.length > 0) {
+          const kbContext = [
+            '以下是从知识库中检索到的相关信息，请在回答时参考这些内容：',
+            ...kbResults.map(
+              (r, i) =>
+                `[${i + 1}] 来源: ${r.fileName}（相似度: ${(r.score * 100).toFixed(1)}%）\n内容: ${r.content}`,
+            ),
+          ].join('\n\n')
+          adapterMessages.push({ role: 'system', content: kbContext })
+        }
+      } catch (kbError) {
+        console.error('[ChatIPC] KB search error:', kbError)
+        // 知识库搜索失败不影响正常对话，继续执行
       }
     }
-  } catch (error) {
-    // 被中断（AbortError）视为正常停止
-    if (error instanceof Error && error.name === 'AbortError') {
-      stopped = true
-    } else if (error instanceof AppError) {
-      // 推送流式错误
-      const streamError: StreamError = {
-        code: error.code,
-        message: error.message,
-        details: error.details,
+
+    adapterMessages.push(
+      ...history.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      })),
+    )
+
+    // 8. 流式生成
+    const startTime = Date.now()
+    let assistantContent = ''
+    let stopped = false
+
+    try {
+      const stream = adapter.streamChat(adapterMessages, abortController.signal)
+
+      for await (const chunk of stream) {
+        // 推送 chunk 到渲染进程
+        sendStreamChunk(chunk)
+
+        // 收集文本内容
+        if (chunk.type === 'text' && chunk.content) {
+          assistantContent += chunk.content
+        }
+
+        // 检查是否被中断
+        if (abortController.signal.aborted) {
+          stopped = true
+          break
+        }
       }
-      sendStreamError(streamError)
-      // 仍然保存已生成的内容
-    } else {
-      // 未知错误
-      const streamError: StreamError = {
-        code: ErrorCodes.INTERNAL_ERROR,
-        message: error instanceof Error ? error.message : 'Unknown error during streaming',
+    } catch (error) {
+      // 被中断（AbortError）视为正常停止
+      if (error instanceof Error && error.name === 'AbortError') {
+        stopped = true
+      } else if (error instanceof AppError) {
+        // 推送流式错误
+        const streamError: StreamError = {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+        }
+        sendStreamError(streamError)
+        // 仍然保存已生成的内容
+      } else {
+        // 未知错误
+        const streamError: StreamError = {
+          code: ErrorCodes.INTERNAL_ERROR,
+          message: error instanceof Error ? error.message : 'Unknown error during streaming',
+        }
+        sendStreamError(streamError)
       }
-      sendStreamError(streamError)
+    } finally {
+      // 9. 保存助手消息（OPT2-08: 事务内持久化助手消息 + 会话统计更新）
+      const duration = Date.now() - startTime
+      const tokensUsed = approximateTokenCount(assistantContent)
+
+      const assistantMetadata: MessageMetadata = {
+        modelId,
+        tokensUsed,
+        duration,
+        stopped,
+      }
+
+      const saveAssistantTx = getDatabase().transaction(() => {
+        const assistantMessage = createMessage({
+          conversationId,
+          role: 'assistant',
+          content: assistantContent,
+          metadata: assistantMetadata,
+        })
+
+        // 10. 更新会话统计
+        incrementMessageCount(conversationId, 1)
+        updateLastMessageAt(conversationId)
+
+        return assistantMessage
+      })
+      const assistantMessage = saveAssistantTx()
+
+      // 11. 推送流式结束事件
+      const endMetadata: StreamEndMetadata = {
+        messageId: assistantMessage.id,
+        tokensUsed,
+        duration,
+        modelId,
+        stopped,
+      }
+      sendStreamEnd(endMetadata)
+
+      // 12. 释放并发锁
+      currentAbortController = null
     }
   } finally {
-    // 9. 保存助手消息
-    const duration = Date.now() - startTime
-    const tokensUsed = approximateTokenCount(assistantContent)
-
-    const assistantMetadata: MessageMetadata = {
-      modelId,
-      tokensUsed,
-      duration,
-      stopped,
-    }
-
-    const assistantMessage = createMessage({
-      conversationId,
-      role: 'assistant',
-      content: assistantContent,
-      metadata: assistantMetadata,
-    })
-
-    // 10. 更新会话统计
-    incrementMessageCount(conversationId, 1)
-    updateLastMessageAt(conversationId)
-
-    // 11. 推送流式结束事件
-    const endMetadata: StreamEndMetadata = {
-      messageId: assistantMessage.id,
-      tokensUsed,
-      duration,
-      modelId,
-      stopped,
-    }
-    sendStreamEnd(endMetadata)
-
-    // 12. 释放并发锁
+    // OPT2-06: 外层 finally 确保锁在任何异常下都能释放
+    //（内层 finally 已释放，此处幂等）
     currentAbortController = null
   }
 }
@@ -459,13 +455,16 @@ const registrations: ChannelRegistration[] = [
   },
   {
     channel: 'chat:update-title',
-    handler: (_event, params: { id: string; title: string }) => {
-      const { id, title } = params
-      if (!id || !title?.trim()) {
-        throw new AppError('INVALID_PARAMS', '会话 ID 和标题不能为空')
+    // OPT2-18: 使用统一的 ErrorCodes.VALIDATION_ERROR
+    handler: (_event, params: unknown) => {
+      if (params === null || typeof params !== 'object') {
+        throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Update title params must be an object.')
       }
-      updateConversationTitle(id, title.trim())
-      return getConversationById(id)
+      const p = params as Record<string, unknown>
+      assertNonEmptyString(p['id'], 'id')
+      assertNonEmptyString(p['title'], 'title')
+      updateConversationTitle(p['id'] as string, (p['title'] as string).trim())
+      return getConversationById(p['id'] as string)
     },
   },
 ]

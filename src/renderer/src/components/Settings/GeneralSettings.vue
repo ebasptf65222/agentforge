@@ -2,7 +2,7 @@
 // P1-16: GeneralSettings - application-level settings UI.
 // Each field change saves immediately via the settings store.
 
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted } from 'vue'
 import { NSelect, NInputNumber } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import type { AppSettings, ApprovalMode } from '@shared/types'
@@ -27,6 +27,9 @@ const settings = computed<AppSettings | null>(() => settingsStore.settings)
 const isLoading = computed(() => settingsStore.loading || settings.value === null)
 
 // ─── Theme handling ───────────────────────────────────────────
+// OPT2-10: 删除独立的 applyTheme 逻辑和 matchMedia 监听器。
+// 主题切换统一由 useTheme composable（在 App.vue 中）管理，
+// 此组件仅负责更新 settings store 的值。
 
 const THEME_OPTIONS: ReadonlyArray<{ value: AppSettings['theme']; label: string }> = [
   { value: 'dark', label: '深色' },
@@ -40,51 +43,15 @@ const APPROVAL_OPTIONS: ReadonlyArray<{ value: ApprovalMode; label: string }> = 
   { value: 'full-auto', label: '全自动' },
 ]
 
-// ─── Apply theme to document root ─────────────────────────────
-
-/**
- * Apply the theme to the document root so the change is visible immediately
- * (P1-16 acceptance: theme switches immediately).
- */
-function applyTheme(theme: AppSettings['theme']): void {
-  const root = document.documentElement
-  let effective: 'dark' | 'light'
-  if (theme === 'system') {
-    effective = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-  } else {
-    effective = theme
-  }
-  if (effective === 'dark') {
-    root.classList.add('theme-dark')
-    root.classList.remove('theme-light')
-  } else {
-    root.classList.add('theme-light')
-    root.classList.remove('theme-dark')
-  }
-}
-
-watch(
-  () => settings.value?.theme,
-  (theme) => {
-    if (theme !== undefined && theme !== null) {
-      applyTheme(theme)
-    }
-  },
-)
-
-// React to system theme changes when in 'system' mode.
-if (typeof window !== 'undefined' && window.matchMedia) {
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (settings.value?.theme === 'system') {
-      applyTheme('system')
-    }
-  })
-}
+// OPT2-10: 移除独立的 applyTheme 函数和 watch/matchMedia 监听器，
+// 避免 'theme-dark'/'theme-light' 类名与 useTheme 的 'dark'/'light' 冲突，
+// 同时修复 matchMedia 监听器在组件卸载后未移除的泄漏问题。
 
 // ─── Field change handlers (immediate save) ───────────────────
 
 async function updateTheme(value: AppSettings['theme']): Promise<void> {
-  applyTheme(value)
+  // OPT2-10: 不再需要手动调用 applyTheme，useTheme composable
+  // 通过 watch settingsStore.settings.theme 自动响应变化
   try {
     await settingsStore.updateSetting('theme', value)
     showToast('主题已更新', 'success')

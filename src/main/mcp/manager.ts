@@ -12,6 +12,7 @@ import {
   updateMcpServer,
   deleteMcpServer,
   type CreateMcpServerParams,
+  type UpdateMcpServerParams,
 } from './db-repo'
 import { getToolRegistry } from '../tools/registry'
 import type { ToolExecuteFn } from '../tools/types'
@@ -74,8 +75,9 @@ export class MCPServerManager {
     if (config.enabled) {
       try {
         await this.connectServer(config.id)
-      } catch {
-        // 连接失败不阻止添加，状态已标记为 error
+      } catch (error) {
+        // OPT-13: 连接失败不阻止添加，但记录日志
+        console.error(`[MCP] Failed to auto-connect server "${config.id}":`, error)
       }
     }
 
@@ -111,6 +113,51 @@ export class MCPServerManager {
 
     // 4. 从 DB 删除
     deleteMcpServer(id)
+  }
+
+  // OPT2-12: 原子更新 MCP Server 配置，避免先删后增导致的数据丢失
+  /**
+   * 更新 MCP Server 配置（原子操作）。
+   * 1. 持久化更新到 SQLite
+   * 2. 断开旧连接 + 注销旧工具
+   * 3. 更新内存中的配置
+   * 4. 如果 enabled，重新连接并发现工具
+   *
+   * @param id - Server ID
+   * @param updates - 要更新的字段
+   * @returns 更新后的 MCPServerConfig
+   * @throws {AppError} MCP_CONNECT_FAILED - Server 不存在
+   */
+  async updateServerConfig(id: string, updates: UpdateMcpServerParams): Promise<MCPServerConfig> {
+    const server = this.servers.get(id)
+    if (!server) {
+      throw new AppError(ErrorCodes.MCP_CONNECT_FAILED, `MCP Server with id "${id}" not found.`, {
+        id,
+      })
+    }
+
+    // 1. 断开旧连接 + 注销旧工具
+    await this.disconnectServer(id)
+    getToolRegistry().unregisterMcpServer(id)
+
+    // 2. 持久化更新（DB 操作本身是原子的）
+    const updatedConfig = updateMcpServer(id, updates)
+
+    // 3. 更新内存中的配置
+    server.config = updatedConfig
+    server.tools = []
+    server.status = 'disconnected'
+
+    // 4. 如果 enabled，重新连接
+    if (updatedConfig.enabled) {
+      try {
+        await this.connectServer(id)
+      } catch (error) {
+        console.error(`[MCP] Failed to reconnect server "${id}" after update:`, error)
+      }
+    }
+
+    return updatedConfig
   }
 
   /**
@@ -162,8 +209,9 @@ export class MCPServerManager {
       // 启用 -> 连接
       try {
         await this.connectServer(id)
-      } catch {
-        // 连接失败不阻止启用，状态已标记为 error
+      } catch (error) {
+        // OPT-13: 连接失败不阻止启用，但记录日志
+        console.error(`[MCP] Failed to connect server "${id}" on enable:`, error)
       }
     } else {
       // 禁用 -> 断开
@@ -197,8 +245,9 @@ export class MCPServerManager {
     for (const [id, server] of this.servers) {
       if (server.config.enabled && server.status !== 'connected') {
         promises.push(
-          this.connectServer(id).catch(() => {
-            // 单个 Server 连接失败不影响其他
+          this.connectServer(id).catch((error) => {
+            // OPT-13: 单个 Server 连接失败不影响其他，但记录日志
+            console.error(`[MCP] Failed to connect server "${id}" during connectAll:`, error)
           }),
         )
       }
@@ -314,6 +363,13 @@ export class MCPServerManager {
       server.client = null
       server.tools = []
 
+      // OPT2-21: 注册失败时清理已注册的工具，避免孤儿工具指向失效 client
+      try {
+        getToolRegistry().unregisterMcpServer(id)
+      } catch (cleanupErr) {
+        console.error(`[MCP Manager] Failed to cleanup tools for server ${id}:`, cleanupErr)
+      }
+
       // 包装非 AppError 错误
       if (err instanceof AppError) {
         throw err
@@ -338,8 +394,9 @@ export class MCPServerManager {
     if (server.client) {
       try {
         await server.client.close()
-      } catch {
-        // 忽略关闭错误
+      } catch (error) {
+        // OPT-13: 关闭错误记录日志但不阻断流程
+        console.error(`[MCP] Error closing server "${id}":`, error)
       }
     }
 

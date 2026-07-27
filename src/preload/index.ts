@@ -120,6 +120,10 @@ const mcp = {
 
   remove: (id: string): Promise<void> => ipcRenderer.invoke('mcp:remove', { id }),
 
+  // OPT2-12: 原子更新，替代先删后增
+  update: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('mcp:update', params),
+
   list: (): Promise<unknown[]> => ipcRenderer.invoke('mcp:list'),
 
   getStatus: (id: string): Promise<unknown> => ipcRenderer.invoke('mcp:get-status', { id }),

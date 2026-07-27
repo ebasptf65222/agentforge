@@ -5,6 +5,7 @@
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import type { Skill, SkillTrigger } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+import { assertNonEmptyString } from '../utils/assertions'
 import {
   createSkill,
   getSkillById,
@@ -19,16 +20,6 @@ import {
 // ─── 参数校验辅助函数 ─────────────────────────────────────────────
 
 const VALID_TRIGGERS: readonly SkillTrigger[] = ['auto', 'manual']
-
-function assertNonEmptyString(value: unknown, field: string): asserts value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
-    )
-  }
-}
 
 function assertOptionalString(value: unknown, field: string): asserts value is string | undefined {
   if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {

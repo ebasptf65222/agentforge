@@ -3,7 +3,7 @@
 // agent:execute, agent:stop, agent:approve
 // 事件推送: agent:trajectory, agent:approval-request, agent:stream-chunk
 
-import { ipcMain, type IpcMainInvokeHandler, BrowserWindow } from 'electron'
+import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import type {
   AgentExecutionRequest,
   ExecutionResult,
@@ -12,6 +12,8 @@ import type {
   ApprovalMode,
 } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+import { assertNonEmptyString } from '../utils/assertions'
+import { getMainWindowWebContents } from '../utils/electron-helpers'
 import { getModelAdapter } from '../models/router'
 import { getSettings } from '../db/repos/app-settings'
 import { getConversationById, updateLastMessageAt } from '../db/repos/conversation'
@@ -40,15 +42,7 @@ export function resetCurrentExecutor(): void {
   currentExecutor = null
 }
 
-// ─── 主窗口获取辅助 ───────────────────────────────────────────────
-
-function getMainWindowWebContents(): Electron.WebContents | null {
-  const windows = BrowserWindow.getAllWindows()
-  if (windows.length === 0) return null
-  const win = windows[0]
-  if (win.isDestroyed()) return null
-  return win.webContents
-}
+// ─── 主窗口事件推送 ───────────────────────────────────────────────
 
 function sendTrajectory(trajectory: TAOTrajectory): void {
   const wc = getMainWindowWebContents()
@@ -72,16 +66,6 @@ function sendStreamChunk(chunk: { type: string; content: string }): void {
 }
 
 // ─── 参数校验 ─────────────────────────────────────────────────────
-
-function assertNonEmptyString(value: unknown, field: string): asserts value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
-    )
-  }
-}
 
 const VALID_APPROVAL_MODES: readonly ApprovalMode[] = ['suggest', 'auto-edit', 'full-auto']
 
@@ -152,81 +136,74 @@ export async function handleExecute(
     skillName: p['skillName'] as string | undefined,
   }
 
-  // 1. 并发控制
+  // 1. 并发控制 - OPT-02: 在任何 await 之前设置锁，防止竞态条件
   if (currentExecutor !== null) {
     throw new AppError(ErrorCodes.CHAT_ALREADY_RUNNING, 'An agent execution is already running.')
   }
 
-  // 2. 验证会话存在
-  getConversationById(request.conversationId)
-
-  // 3. 获取模型适配器
-  const adapter = getModelAdapter(request.modelId)
-
-  // 4. 获取设置
+  // 2. 构建可变的执行器配置（在锁内创建，任何字段后续可安全更新）
   const settings = getSettings()
-  const approvalTimeoutMs = settings.approvalTimeoutMs
-
-  // 5. 保存用户消息
-  createMessage({
-    conversationId: request.conversationId,
-    role: 'user',
-    content: request.userInput,
-  })
-
-  // 6. 构建事件回调
-  const callbacks: AgentEventCallbacks = {
-    onTrajectory: (trajectory) => sendTrajectory(trajectory),
-    onApprovalRequest: (approvalRequest) => sendApprovalRequest(approvalRequest),
-    onStreamChunk: (chunk) => sendStreamChunk(chunk),
-  }
-
-  // 7. 获取工具列表
-  let tools = getToolsMap()
-
-  // 8. 解析 Skill（用户指定或意图匹配）
-  let skillPrompt: string | undefined
-  let effectiveAdapter = adapter
-
-  const skillResolution = await resolveSkill(request.userInput, request.skillName, adapter)
-
-  if (skillResolution.skill !== null) {
-    const skill = skillResolution.skill
-
-    // 8a. 如果 Skill 指定了 modelId，使用该模型
-    if (skill.modelId !== undefined) {
-      effectiveAdapter = getModelAdapter(skill.modelId)
-    }
-
-    // 8b. 构建执行上下文（替换变量、过滤工具）
-    const skillCtx = buildSkillExecutionContext(skill, tools)
-    skillPrompt = skillCtx.skillPrompt
-
-    // 8c. 过滤工具列表
-    const filteredToolMap = filterTools(tools, skill.allowedTools)
-    tools = filteredToolMap
-  }
-
-  // 9. 获取模型能力中的 maxContextLength
-  const maxContextLength = 4096 // 从 model config 获取，暂用默认值
-
-  // 10. 创建执行器配置
   const executorConfig: AgentExecutorConfig = {
-    adapter: effectiveAdapter,
-    tools,
-    callbacks,
-    approvalTimeoutMs,
-    maxContextLength,
-    skillPrompt,
+    adapter: getModelAdapter(request.modelId),
+    tools: getToolsMap(),
+    callbacks: {
+      onTrajectory: (trajectory) => sendTrajectory(trajectory),
+      onApprovalRequest: (approvalRequest) => sendApprovalRequest(approvalRequest),
+      onStreamChunk: (chunk) => sendStreamChunk(chunk),
+    },
+    approvalTimeoutMs: settings.approvalTimeoutMs,
+    maxContextLength: 4096,
+    skillPrompt: undefined,
   }
 
-  // 11. 创建并执行
+  // 3. 在任何 await 之前创建执行器并持有锁
   const executor = new AgentExecutor(executorConfig)
   currentExecutor = executor
 
+  // OPT2-03: 所有后续操作包入 try/finally，确保锁在异常时也能释放
   let result: ExecutionResult
   try {
+    // 4. 验证会话存在
+    getConversationById(request.conversationId)
+
+    // 5. 保存用户消息
+    createMessage({
+      conversationId: request.conversationId,
+      role: 'user',
+      content: request.userInput,
+    })
+
+    // 6. 解析 Skill（用户指定或意图匹配）
+    const skillResolution = await resolveSkill(request.userInput, request.skillName, executorConfig.adapter)
+
+    if (skillResolution.skill !== null) {
+      const skill = skillResolution.skill
+
+      // 6a. 如果 Skill 指定了 modelId，使用该模型
+      if (skill.modelId !== undefined) {
+        executorConfig.adapter = getModelAdapter(skill.modelId)
+      }
+
+      // 6b. 构建执行上下文（替换变量、过滤工具）
+      const skillCtx = buildSkillExecutionContext(skill, executorConfig.tools)
+      executorConfig.skillPrompt = skillCtx.skillPrompt
+
+      // 6c. 过滤工具列表
+      executorConfig.tools = filterTools(executorConfig.tools, skill.allowedTools)
+    }
+
+    // 7. 执行 Agent
     result = await executor.execute(request)
+
+    // 8. 保存助手回复
+    createMessage({
+      conversationId: request.conversationId,
+      role: 'assistant',
+      content: result.summary,
+      thinking: result.trajectories.map((t) => `Step ${t.step}: ${t.thought}`).join('\n\n'),
+    })
+
+    updateLastMessageAt(request.conversationId)
   } catch (error) {
     // 保存错误信息到消息
     const errorMessage = error instanceof AppError ? error.message : 'Execution failed'
@@ -241,16 +218,6 @@ export async function handleExecute(
   } finally {
     currentExecutor = null
   }
-
-  // 12. 保存助手回复
-  createMessage({
-    conversationId: request.conversationId,
-    role: 'assistant',
-    content: result.summary,
-    thinking: result.trajectories.map((t) => `Step ${t.step}: ${t.thought}`).join('\n\n'),
-  })
-
-  updateLastMessageAt(request.conversationId)
 
   return result
 }
@@ -275,8 +242,16 @@ export function handleApprove(params: unknown): void {
 
   assertNonEmptyString(p['executionId'], 'executionId')
 
+  // OPT2-07: 校验 approved 必须是 boolean，防止字符串 'false' 被当 truthy
+  if (typeof p['approved'] !== 'boolean') {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      'Field "approved" must be a boolean (true or false).',
+      { approved: p['approved'] },
+    )
+  }
   const approved = p['approved'] as boolean
-  const reason = p['reason'] as string | undefined
+  const reason = typeof p['reason'] === 'string' ? p['reason'] : undefined
 
   if (currentExecutor) {
     currentExecutor.respondApproval(approved, reason)

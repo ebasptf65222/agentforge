@@ -14,6 +14,7 @@ import {
 import { batchCreateKbChunks, deleteKbChunksByDocumentId } from '../db/repos/kb-chunk'
 import { parseDocument } from './parser'
 import { chunkText } from './chunking'
+import { clearSearchCache } from './search'
 import type { ChunkingOptions } from './chunking'
 
 /** 导入选项 */
@@ -204,4 +205,6 @@ export async function reimportDocument(
 export function removeDocument(documentId: string): void {
   deleteKbChunksByDocumentId(documentId)
   deleteKbDocument(documentId)
+  // OPT2-22: 删除文档后清理 fileNameCache，避免返回过时数据
+  clearSearchCache()
 }

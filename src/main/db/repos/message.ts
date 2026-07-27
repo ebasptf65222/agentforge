@@ -32,6 +32,15 @@ export interface CreateMessageParams {
   metadata?: MessageMetadata
 }
 
+// OPT2-17: 安全 JSON 解析，无效 JSON 返回 undefined 而非崩溃
+function safeParseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * 将数据库行转换为 ChatMessage 实体。
  */
@@ -51,7 +60,7 @@ function rowToMessage(row: MessageRow): ChatMessage {
     role: row.role as MessageRole,
     content: row.content,
     thinking: row.thinking ?? undefined,
-    toolCalls: row.tool_calls !== null ? JSON.parse(row.tool_calls) : undefined,
+    toolCalls: row.tool_calls !== null ? safeParseJson(row.tool_calls) : undefined,
     metadata,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

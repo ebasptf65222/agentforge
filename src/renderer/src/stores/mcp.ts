@@ -3,7 +3,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { MCPServerConfig, MCPServerStatus } from '@shared/types'
-import type { McpAddParams, McpServerInfo } from '@/types/electron-api'
+import type { McpAddParams, McpUpdateParams, McpServerInfo } from '@/types/electron-api'
 import { showToast } from '@/utils/toast'
 
 export const useMcpStore = defineStore('mcp', () => {
@@ -37,6 +37,19 @@ export const useMcpStore = defineStore('mcp', () => {
     } catch (error) {
       console.error('[McpStore] addServer failed:', error)
       showToast('添加 MCP 服务器失败', 'error')
+      throw error
+    }
+  }
+
+  // OPT2-12: 原子更新，替代先删后增
+  async function updateServer(params: McpUpdateParams): Promise<void> {
+    try {
+      await window.electron.mcp.update(params)
+      showToast('MCP 服务器已更新', 'success')
+      await loadServers()
+    } catch (error) {
+      console.error('[McpStore] updateServer failed:', error)
+      showToast('更新 MCP 服务器失败', 'error')
       throw error
     }
   }
@@ -83,6 +96,7 @@ export const useMcpStore = defineStore('mcp', () => {
     serverStatus,
     loadServers,
     addServer,
+    updateServer,
     removeServer,
     toggleEnable,
     loadStatus,

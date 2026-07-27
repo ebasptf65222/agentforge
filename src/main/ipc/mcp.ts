@@ -5,20 +5,11 @@
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import type { MCPServerConfig, MCPServerStatus, TransportType } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+import { assertNonEmptyString } from '../utils/assertions'
 import { getMcpServerManager, type ServerListEntry } from '../mcp/manager'
-import type { CreateMcpServerParams } from '../mcp/db-repo'
+import type { CreateMcpServerParams, UpdateMcpServerParams } from '../mcp/db-repo'
 
 // ─── 参数校验辅助函数 ─────────────────────────────────────────────
-
-function assertNonEmptyString(value: unknown, field: string): asserts value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
-    )
-  }
-}
 
 function assertOptionalString(value: unknown, field: string): asserts value is string | undefined {
   if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {
@@ -135,6 +126,44 @@ export async function handleRemoveMcp(params: unknown): Promise<void> {
 }
 
 /**
+ * mcp:update - 更新 MCP Server 配置（原子操作）。
+ * 断开旧连接、更新 DB、按需重连。
+ *
+ * @param params - { id, ...UpdateMcpServerParams }
+ * @returns 更新后的 MCPServerConfig
+ * @throws {AppError} MCP_CONNECT_FAILED - Server 不存在
+ */
+export async function handleUpdateMcp(params: unknown): Promise<MCPServerConfig> {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Update MCP server params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['id'], 'id')
+  assertOptionalString(p['name'], 'name')
+  if (p['transport'] !== undefined) assertTransportType(p['transport'])
+  assertOptionalString(p['command'], 'command')
+  assertOptionalStringArray(p['args'], 'args')
+  assertOptionalRecord(p['env'], 'env')
+  assertOptionalString(p['url'], 'url')
+  assertOptionalRecord(p['headers'], 'headers')
+
+  const id = p['id'] as string
+  const updates: UpdateMcpServerParams = {}
+  if (p['name'] !== undefined) updates.name = p['name'] as string
+  if (p['transport'] !== undefined) updates.transport = p['transport'] as TransportType
+  if (p['command'] !== undefined) updates.command = p['command'] as string
+  if (p['args'] !== undefined) updates.args = p['args'] as string[]
+  if (p['env'] !== undefined) updates.env = p['env'] as Record<string, string>
+  if (p['url'] !== undefined) updates.url = p['url'] as string
+  if (p['headers'] !== undefined) updates.headers = p['headers'] as Record<string, string>
+  if (p['enabled'] !== undefined) updates.enabled = Boolean(p['enabled'])
+
+  const manager = getMcpServerManager()
+  return manager.updateServerConfig(id, updates)
+}
+
+/**
  * mcp:list - 列出所有 MCP Server。
  *
  * @returns ServerListEntry 数组
@@ -196,6 +225,10 @@ const registrations: ChannelRegistration[] = [
   {
     channel: 'mcp:remove',
     handler: (_event, params: unknown) => handleRemoveMcp(params),
+  },
+  {
+    channel: 'mcp:update',
+    handler: (_event, params: unknown) => handleUpdateMcp(params),
   },
   { channel: 'mcp:list', handler: () => handleListMcp() },
   {

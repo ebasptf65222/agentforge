@@ -16,6 +16,44 @@ const MCP_PROTOCOL_VERSION = '2024-11-05'
 /** 客户端信息 */
 const CLIENT_INFO = { name: 'AgentForge', version: '0.1.0' }
 
+// ─── 致命错误判定 ────────────────────────────────────────────────
+
+/**
+ * 致命错误代码集合（Node.js 系统错误码）。
+ * 这些错误通常意味着传输通道已损坏，pending 请求无法再收到响应。
+ * - EPIPE: 写入已关闭的管道
+ * - ECONNRESET: 连接被对端重置
+ * - ECONNREFUSED: 连接被拒绝
+ * - EHOSTUNREACH: 主机不可达
+ * - ENOTFOUND: 域名解析失败
+ * - ENOENT: 命令/文件不存在（spawn 失败）
+ * - EACCES: 权限不足
+ */
+const FATAL_ERROR_CODES = new Set([
+  'EPIPE',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'EHOSTUNREACH',
+  'ENOTFOUND',
+  'ENOENT',
+  'EACCES',
+  'EOF',
+])
+
+/**
+ * 判断错误是否为致命错误（连接已不可用）。
+ * 通过 Node.js 系统错误码（error.code）或消息内容判定。
+ */
+function isFatalError(error: Error): boolean {
+  const nodeErr = error as NodeJS.ErrnoException
+  if (nodeErr.code && FATAL_ERROR_CODES.has(nodeErr.code)) {
+    return true
+  }
+  // 兜底：消息中包含 EPIPE 等关键字
+  const msg = error.message
+  return [...FATAL_ERROR_CODES].some((code) => msg.includes(code))
+}
+
 // ─── JSON-RPC 类型 ────────────────────────────────────────────────
 
 /** JSON-RPC 请求 */
@@ -313,10 +351,29 @@ export class MCPClient {
 
   /**
    * 处理传输层错误。
+   *
+   * OPT2-14: 添加 console.error 日志记录错误信息；
+   * 对于致命错误（如 EPIPE），拒绝所有 pending 请求，
+   * 因为这类错误通常意味着连接已不可用，pending 请求无法再收到响应。
    */
-  private handleError(_error: Error): void {
-    // 错误通过 onError 回调传递给上层
-    // 此处不拒绝 pending 请求，因为错误可能是暂时的
-    // 连接关闭时会通过 handleClose 处理
+  private handleError(error: Error): void {
+    console.error(`[MCP Client] Transport error: ${error.message}`, error)
+
+    // 判断是否为致命错误（连接已不可用，pending 请求无法再完成）
+    const isFatal = isFatalError(error)
+
+    if (isFatal && this.pendingRequests.size > 0) {
+      const reason = `MCP transport fatal error: ${error.message}`
+      for (const [id, pending] of this.pendingRequests) {
+        clearTimeout(pending.timeout)
+        pending.reject(
+          new AppError(ErrorCodes.MCP_CONNECT_FAILED, reason, {
+            id,
+            cause: error.message,
+          }),
+        )
+      }
+      this.pendingRequests.clear()
+    }
   }
 }

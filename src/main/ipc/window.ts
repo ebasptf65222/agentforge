@@ -3,11 +3,21 @@
 
 import { ipcMain, app, BrowserWindow } from 'electron'
 
-let registered = false
+// OPT2-29: 移除 registered 标志位，统一使用 removeHandler + handle 幂等模式
+const WINDOW_CHANNELS = [
+  'window:minimize',
+  'window:maximize-toggle',
+  'window:close',
+  'window:is-maximized',
+  'window:toggle-devtools',
+  'app:quit',
+] as const
 
 export function registerWindowHandlers(): void {
-  if (registered) return
-  registered = true
+  // 幂等：先移除再注册
+  for (const channel of WINDOW_CHANNELS) {
+    ipcMain.removeHandler(channel)
+  }
 
   // 最小化窗口
   ipcMain.handle('window:minimize', (event) => {
@@ -50,6 +60,7 @@ export function registerWindowHandlers(): void {
   })
 
   // 为每个窗口注册最大化状态变化监听，通知渲染进程
+  // 注意: app 事件监听器本身是幂等的（重复监听同一事件不会重复触发）
   app.on('browser-window-created', (_event, win) => {
     win.on('maximize', () => {
       win.webContents.send('window:maximize-state-changed', { maximized: true })
