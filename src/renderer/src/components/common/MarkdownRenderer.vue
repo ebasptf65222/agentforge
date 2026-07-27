@@ -113,7 +113,7 @@ onUnmounted(() => {
   margin: 2px 0;
 }
 .markdown-renderer :deep(a) {
-  color: #60a5fa;
+  color: var(--af-link, #60a5fa);
   text-decoration: none;
 }
 .markdown-renderer :deep(a:hover) {
@@ -126,16 +126,16 @@ onUnmounted(() => {
 }
 .markdown-renderer :deep(th),
 .markdown-renderer :deep(td) {
-  border: 1px solid #374151;
+  border: 1px solid var(--af-code-border, #374151);
   padding: 6px 12px;
   text-align: left;
 }
 .markdown-renderer :deep(th) {
-  background-color: #1f2937;
+  background-color: var(--af-code-bg, #1f2937);
   font-weight: 600;
 }
 .markdown-renderer :deep(pre) {
-  background-color: #1f2937;
+  background-color: var(--af-code-bg, #1f2937);
   border-radius: 6px;
   padding: 12px;
   overflow-x: auto;
@@ -146,7 +146,7 @@ onUnmounted(() => {
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
 }
 .markdown-renderer :deep(p code) {
-  background-color: #374151;
+  background-color: var(--af-code-bg, #1f2937);
   padding: 2px 6px;
   border-radius: 3px;
   font-size: 0.9em;
@@ -155,25 +155,25 @@ onUnmounted(() => {
   margin: 8px 0;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #374151;
+  border: 1px solid var(--af-code-border, #374151);
 }
 .markdown-renderer :deep(.code-block__header) {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 6px 12px;
-  background-color: #1a1a2e;
-  border-bottom: 1px solid #374151;
+  background-color: var(--af-code-header-bg, #1a1a2e);
+  border-bottom: 1px solid var(--af-code-border, #374151);
 }
 .markdown-renderer :deep(.code-block__lang) {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--af-text-muted, #9ca3af);
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
 }
 .markdown-renderer :deep(.code-block__copy) {
   background: none;
-  border: 1px solid #4b5563;
-  color: #d1d5db;
+  border: 1px solid var(--af-code-border, #374151);
+  color: var(--af-code-text, #d1d5db);
   font-size: 12px;
   padding: 2px 10px;
   border-radius: 4px;
@@ -181,23 +181,23 @@ onUnmounted(() => {
   transition: all 0.15s ease;
 }
 .markdown-renderer :deep(.code-block__copy:hover) {
-  background-color: #374151;
-  border-color: #6b7280;
+  background-color: var(--af-code-border, #374151);
+  border-color: var(--af-text-muted, #9ca3af);
 }
 .markdown-renderer :deep(blockquote) {
-  border-left: 3px solid #4b5563;
+  border-left: 3px solid var(--af-blockquote-border, #4b5563);
   padding-left: 12px;
   margin: 8px 0;
-  color: #9ca3af;
+  color: var(--af-blockquote-text, #9ca3af);
 }
 .markdown-renderer :deep(hr) {
   border: none;
-  border-top: 1px solid #374151;
+  border-top: 1px solid var(--af-hr, #374151);
   margin: 12px 0;
 }
 .markdown-renderer :deep(strong) {
   font-weight: 600;
-  color: #f3f4f6;
+  color: var(--af-text-primary, #f1f5f9);
 }
 .markdown-renderer :deep(em) {
   font-style: italic;

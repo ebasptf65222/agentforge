@@ -65,7 +65,7 @@ function handleCopy(): void {
   margin: 8px 0;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #374151;
+  border: 1px solid var(--af-code-border, #374151);
 }
 
 .code-block__header {
@@ -73,20 +73,20 @@ function handleCopy(): void {
   justify-content: space-between;
   align-items: center;
   padding: 6px 12px;
-  background-color: #1a1a2e;
-  border-bottom: 1px solid #374151;
+  background-color: var(--af-code-header-bg, #1a1a2e);
+  border-bottom: 1px solid var(--af-code-border, #374151);
 }
 
 .code-block__lang {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--af-text-muted, #9ca3af);
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
 }
 
 .code-block__copy {
   background: none;
-  border: 1px solid #4b5563;
-  color: #d1d5db;
+  border: 1px solid var(--af-code-border, #374151);
+  color: var(--af-code-text, #d1d5db);
   font-size: 12px;
   padding: 2px 10px;
   border-radius: 4px;
@@ -95,7 +95,7 @@ function handleCopy(): void {
 }
 
 .code-block__copy:hover {
-  background-color: #374151;
-  border-color: #6b7280;
+  background-color: var(--af-code-border, #374151);
+  border-color: var(--af-text-muted, #9ca3af);
 }
 </style>
