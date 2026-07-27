@@ -237,6 +237,13 @@ const workspace = {
     ipcRenderer.invoke('ws:tree', { path, maxDepth }),
 }
 
+// ─── Wiki 命名空间 (LLM Wiki / Karpathy 模式) ─────────────────
+
+const wiki = {
+  status: (): Promise<unknown> => ipcRenderer.invoke('wiki:status'),
+  init: (): Promise<unknown> => ipcRenderer.invoke('wiki:init'),
+}
+
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
@@ -255,6 +262,7 @@ if (process.contextIsolated) {
       voice,
       window: win,
       workspace,
+      wiki,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)

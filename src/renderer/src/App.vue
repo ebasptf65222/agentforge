@@ -7,6 +7,7 @@
           <div class="app__content">
             <ChatView v-if="uiStore.currentView === 'chat'" />
             <KbView v-else-if="uiStore.currentView === 'kb'" />
+            <WikiView v-else-if="uiStore.currentView === 'wiki'" />
             <SettingsView v-else />
           </div>
         </NDialogProvider>
@@ -20,6 +21,7 @@ import { NConfigProvider, NMessageProvider, NDialogProvider } from 'naive-ui'
 import { useUiStore } from '@/stores/ui'
 import { useTheme } from '@/composables/use-theme'
 import TitleBar from '@/components/common/TitleBar.vue'
+import WikiView from '@/components/Wiki/WikiView.vue'
 import ChatView from '@/views/ChatView.vue'
 import KbView from '@/views/KbView.vue'
 import SettingsView from '@/views/SettingsView.vue'

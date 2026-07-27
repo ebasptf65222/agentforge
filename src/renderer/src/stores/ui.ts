@@ -3,7 +3,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-type ViewName = 'chat' | 'settings' | 'kb'
+type ViewName = 'chat' | 'settings' | 'kb' | 'wiki'
 
 export const useUiStore = defineStore('ui', () => {
   const currentView = ref<ViewName>('chat')

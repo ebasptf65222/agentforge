@@ -1,0 +1,97 @@
+// AgentForge LLM Wiki IPC Handlers
+// 连接渲染进程 WikiView 与主进程 wiki-manager
+// 通道命名: wiki:status, wiki:init
+
+import { ipcMain, type IpcMainInvokeHandler } from 'electron'
+import type { WikiStatus } from '@shared/types'
+import {
+  initWikiWorkspace,
+  isWikiInitialized,
+  getWikiStats,
+  listWikiPages,
+  listRawSources,
+  readRecentLogs,
+} from '../wiki/wiki-manager'
+
+// ─── Handler 函数 ───────────────────────────────────────────────
+
+/**
+ * 获取 Wiki 当前状态（用于 UI 展示）。
+ */
+async function handleWikiStatus(): Promise<WikiStatus> {
+  const initialized = await isWikiInitialized()
+
+  if (!initialized) {
+    return {
+      initialized: false,
+      rawCount: 0,
+      pageCount: 0,
+      lastIngest: null,
+      lastLint: null,
+      pages: [],
+      rawFiles: [],
+      recentLogs: '',
+    }
+  }
+
+  const [stats, pages, rawFiles, recentLogs] = await Promise.all([
+    getWikiStats(),
+    listWikiPages(),
+    listRawSources(),
+    readRecentLogs(10),
+  ])
+
+  return {
+    initialized: true,
+    rawCount: stats.rawCount,
+    pageCount: stats.wikiPageCount,
+    lastIngest: stats.lastIngest,
+    lastLint: stats.lastLint,
+    pages: pages.map((p) => ({
+      title: p.title,
+      path: p.path,
+      summary: p.summary,
+    })),
+    rawFiles,
+    recentLogs,
+  }
+}
+
+/**
+ * 初始化 Wiki 工作区结构。
+ * 在工作区下创建 .llm-wiki/ 目录结构。
+ */
+async function handleWikiInit(): Promise<{ success: boolean }> {
+  await initWikiWorkspace()
+  return { success: true }
+}
+
+// ─── IPC 通道注册 ───────────────────────────────────────────────
+
+interface ChannelRegistration {
+  channel: string
+  handler: IpcMainInvokeHandler
+}
+
+const registrations: ChannelRegistration[] = [
+  {
+    channel: 'wiki:status',
+    handler: () => handleWikiStatus(),
+  },
+  {
+    channel: 'wiki:init',
+    handler: () => handleWikiInit(),
+  },
+]
+
+/**
+ * 注册所有 Wiki IPC handlers。
+ * 幂等：多次调用安全。
+ */
+export function registerWikiHandlers(): void {
+  for (const { channel, handler } of registrations) {
+    // 移除旧 handler 后重新注册，保证幂等
+    ipcMain.removeHandler(channel)
+    ipcMain.handle(channel, handler)
+  }
+}

@@ -11,6 +11,7 @@ import {
   CloseOutlined,
   ChatBubbleOutlined,
   BookOutlined,
+  AutoStoriesOutlined,
   SettingsOutlined,
   InfoOutlined,
   DeveloperModeOutlined,
@@ -58,6 +59,10 @@ async function handleNewChat(): Promise<void> {
 
 function handleOpenKb(): void {
   uiStore.setCurrentView('kb')
+}
+
+function handleOpenWiki(): void {
+  uiStore.setCurrentView('wiki')
 }
 
 function handleOpenSettings(): void {
@@ -114,6 +119,11 @@ const menuOptions: DropdownOption[] = [
     icon: renderIcon(BookOutlined),
   },
   {
+    label: 'LLM Wiki',
+    key: 'wiki',
+    icon: renderIcon(AutoStoriesOutlined),
+  },
+  {
     label: '设置',
     key: 'settings',
     icon: renderIcon(SettingsOutlined),
@@ -144,6 +154,9 @@ function handleMenuSelect(key: string): void {
       break
     case 'kb':
       handleOpenKb()
+      break
+    case 'wiki':
+      handleOpenWiki()
       break
     case 'settings':
       handleOpenSettings()

@@ -31,6 +31,8 @@ import type {
   SttOptions,
   FileTreeNode,
   WorkspaceDirectoryEntry,
+  WikiStatus,
+  WikiPageSummary,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -347,6 +349,14 @@ interface VoiceAPI {
   saveConfig(config: VoiceConfig): Promise<void>
 }
 
+/** Wiki 命名空间 (LLM Wiki / Karpathy 模式) */
+interface WikiAPI {
+  /** 获取 Wiki 当前状态（初始化状态、统计、页面列表） */
+  status(): Promise<WikiStatus>
+  /** 初始化 Wiki 工作区结构 */
+  init(): Promise<{ success: boolean }>
+}
+
 /** window.electron 完整类型 */
 interface ElectronAPI {
   chat: ChatAPI
@@ -361,6 +371,7 @@ interface ElectronAPI {
   voice: VoiceAPI
   window: WindowAPI
   workspace: WorkspaceAPI
+  wiki: WikiAPI
 }
 
 export type {

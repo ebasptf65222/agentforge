@@ -11,6 +11,9 @@ import { kbSearchTool } from './kb-search'
 import { kgExtractTool } from './kg-extract'
 import { kgQueryTool } from './kg-query'
 import { allWsTools } from './ws-tools'
+import { wikiIngestTool } from './wiki-ingest'
+import { wikiQueryTool } from './wiki-query'
+import { wikiLintTool } from './wiki-lint'
 
 /**
  * 初始化并注册所有内置工具到全局 ToolRegistry。
@@ -26,6 +29,11 @@ export function initBuiltinTools(): void {
   registry.registerBuiltin(kbSearchTool)
   registry.registerBuiltin(kgExtractTool)
   registry.registerBuiltin(kgQueryTool)
+
+  // 注册 LLM Wiki 工具（Karpathy 模式）
+  registry.registerBuiltin(wikiIngestTool)
+  registry.registerBuiltin(wikiQueryTool)
+  registry.registerBuiltin(wikiLintTool)
 
   // 注册所有 ws_* 工作区工具
   for (const tool of allWsTools) {

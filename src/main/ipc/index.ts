@@ -14,6 +14,7 @@ import { registerKbHandlers } from './knowledge-base'
 import { registerVoiceHandlers } from './voice'
 import { registerWindowHandlers } from './window'
 import { registerWorkspaceHandlers } from './workspace'
+import { registerWikiHandlers } from './wiki'
 
 /**
  * 注册所有 IPC handlers。
@@ -56,4 +57,7 @@ export function registerIpcHandlers(): void {
 
   // ─── Workspace 域 (本地文件工作区) ───────────────────────────
   registerWorkspaceHandlers()
+
+  // ─── LLM Wiki 域 (Karpathy 模式) ─────────────────────────────
+  registerWikiHandlers()
 }

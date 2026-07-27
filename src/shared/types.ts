@@ -507,7 +507,28 @@ interface WorkspaceDirectoryEntry {
   modifiedAt: number
 }
 
-// ─── 5.8 错误类型 ────────────────────────────────────────────────
+// ─── 5.8 LLM Wiki (Karpathy 模式) ────────────────────────────────
+
+/** Wiki 页面摘要信息 */
+interface WikiPageSummary {
+  title: string
+  path: string
+  summary: string
+}
+
+/** Wiki 状态信息（用于渲染进程展示） */
+interface WikiStatus {
+  initialized: boolean
+  rawCount: number
+  pageCount: number
+  lastIngest: string | null
+  lastLint: string | null
+  pages: WikiPageSummary[]
+  rawFiles: string[]
+  recentLogs: string
+}
+
+// ─── 5.9 错误类型 ────────────────────────────────────────────────
 
 /** 应用统一错误 */
 class AppError extends Error {
@@ -586,6 +607,8 @@ export type {
   ChunkingOptions,
   ImportResult,
   KbStats,
+  WikiPageSummary,
+  WikiStatus,
 }
 
 export { AppError }
