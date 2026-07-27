@@ -24,7 +24,6 @@ const emit = defineEmits<{
 /** Currently renaming conversation ID (null = not renaming) */
 const renamingId = ref<string | null>(null)
 const renameValue = ref('')
-const renameInputRef = ref<HTMLInputElement | null>(null)
 
 /** Start inline rename */
 function startRename(conv: Conversation, event: Event): void {
@@ -32,8 +31,9 @@ function startRename(conv: Conversation, event: Event): void {
   renamingId.value = conv.id
   renameValue.value = conv.title
   void nextTick(() => {
-    renameInputRef.value?.focus()
-    renameInputRef.value?.select()
+    const input = document.querySelector<HTMLInputElement>('.conversation-item__rename-input')
+    input?.focus()
+    input?.select()
   })
 }
 
@@ -124,7 +124,6 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
           <!-- Inline rename input -->
           <input
             v-else
-            ref="renameInputRef"
             v-model="renameValue"
             class="conversation-item__rename-input"
             maxlength="100"

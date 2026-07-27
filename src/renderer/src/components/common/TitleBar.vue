@@ -20,7 +20,7 @@ import {
 import { useUiStore } from '@/stores/ui'
 import { useChatStore } from '@/stores/chat'
 import { useModelStore } from '@/stores/model'
-import { useToast } from '@/utils/toast'
+import { showToast } from '@/utils/toast'
 
 const uiStore = useUiStore()
 const chatStore = useChatStore()
@@ -50,7 +50,7 @@ async function handleNewChat(): Promise<void> {
   uiStore.setCurrentView('chat')
   const modelId = modelStore.models[0]?.id
   if (!modelId) {
-    useToast().showToast('请先在设置中配置至少一个模型', 'warning')
+    showToast('请先在设置中配置至少一个模型', 'warning')
     return
   }
   await chatStore.newConversation(modelId)

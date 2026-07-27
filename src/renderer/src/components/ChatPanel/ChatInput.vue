@@ -11,7 +11,7 @@ import { useSkillStore } from '@/stores/skill'
 import { useChatStore } from '@/stores/chat'
 import { useVoiceStore } from '@/stores/voice'
 import type { Skill } from '@shared/types'
-import { NTooltip, NSwitch } from 'naive-ui'
+import { NSwitch } from 'naive-ui'
 import { BookOutlined } from '@vicons/material'
 
 const props = defineProps<{
@@ -119,18 +119,13 @@ function handleInput(): void {
           placeholder="普通对话"
           style="width: 160px"
         />
-        <NTooltip trigger="hover">
-          <template #trigger>
-            <div class="kb-toggle">
-              <BookOutlined class="kb-toggle__icon" />
-              <NSwitch
-                v-model:value="chatStore.kbEnabled"
-                size="small"
-              />
-            </div>
-          </template>
-          关联知识库：开启后 AI 会参考知识库内容回答
-        </NTooltip>
+        <div class="kb-toggle" title="关联知识库：开启后 AI 会参考知识库内容回答">
+          <BookOutlined class="kb-toggle__icon" />
+          <NSwitch
+            v-model:value="chatStore.kbEnabled"
+            size="small"
+          />
+        </div>
       </div>
       <div class="chat-input__toolbar-right">
         <VoiceModeToggle />

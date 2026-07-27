@@ -4,14 +4,13 @@
 // 支持：播放/暂停、停止、音量调节、语速调节
 
 import { computed, ref } from 'vue'
-import { NIcon, NTooltip, NSlider, NButton } from 'naive-ui'
+import { NIcon, NTooltip, NSlider } from 'naive-ui'
 import {
   PlayArrowOutlined,
   PauseOutlined,
   StopOutlined,
   VolumeUpOutlined,
   VolumeOffOutlined,
-  CloseOutlined,
 } from '@vicons/material'
 import { useVoiceStore } from '@/stores/voice'
 
@@ -104,7 +103,7 @@ const displayText = computed(() => {
         class="voice-control-panel__progress" @click="handleProgressClick">
         <div
           class="voice-control-panel__progress-bar"
-          :style="{ width: `${progressPercent}%` }
+          :style="{ width: `${progressPercent}%` }"
         />
         <div class="voice-control-panel__progress-time">
           {{ formatTime(voiceStore.currentTime) }} / {{ formatTime(voiceStore.duration) }}
@@ -114,20 +113,26 @@ const displayText = computed(() => {
       <!-- 控制按钮 -->
       <div class="voice-control-panel__controls">
         <!-- 播放/暂停 -->
-        <NTooltip :content="voiceStore.ttsState === 'playing' ? '暂停' : '播放" placement="top">
+        <NTooltip placement="top">
+          <template #trigger>
           <button class="voice-control-panel__btn" @click="togglePlay">
             <NIcon :size="20">
               <PauseOutlined v-if="voiceStore.ttsState === 'playing'" />
               <PlayArrowOutlined v-else />
             </NIcon>
           </button>
+          </template>
+          {{ voiceStore.ttsState === 'playing' ? '暂停' : '播放' }}
         </NTooltip>
 
         <!-- 停止 -->
-        <NTooltip content="停止" placement="top">
+        <NTooltip placement="top">
+          <template #trigger>
           <button class="voice-control-panel__btn" @click="stopPlay">
             <NIcon :size="18"><StopOutlined /></NIcon>
           </button>
+          </template>
+          停止
         </NTooltip>
 
         <!-- 分隔线 -->
@@ -139,13 +144,16 @@ const displayText = computed(() => {
           @mouseenter="showVolumeSlider = true"
           @mouseleave="showVolumeSlider = false"
         >
-          <NTooltip :content="isMuted ? '取消静音' : '静音'" placement="top">
+          <NTooltip placement="top">
+            <template #trigger>
             <button class="voice-control-panel__btn" @click="toggleMute">
               <NIcon :size="18">
                 <VolumeOffOutlined v-if="isMuted" />
                 <VolumeUpOutlined v-else />
               </NIcon>
             </button>
+            </template>
+            {{ isMuted ? '取消静音' : '静音' }}
           </NTooltip>
           <Transition name="fade">
             <div v-show="showVolumeSlider" class="voice-control-panel__slider">
@@ -160,10 +168,13 @@ const displayText = computed(() => {
           @mouseenter="showSpeedSlider = true"
           @mouseleave="showSpeedSlider = false"
         >
-          <NTooltip content="播放速度" placement="top">
+          <NTooltip placement="top">
+            <template #trigger>
             <button class="voice-control-panel__speed-btn">
               {{ playbackRate.toFixed(1) }}x
             </button>
+            </template>
+            播放速度
           </NTooltip>
           <Transition name="fade">
             <div v-show="showSpeedSlider" class="voice-control-panel__slider">

@@ -60,7 +60,8 @@ function handleClick(): void {
 </script>
 
 <template>
-  <NTooltip :content="tooltipText" placement="top">
+  <NTooltip placement="top">
+    <template #trigger>
     <button
       class="voice-mode-toggle"
       :class="{
@@ -80,6 +81,8 @@ function handleClick(): void {
       <span v-if="isOn" class="voice-mode-toggle__label">{{ statusText }}</span>
       <span v-else class="voice-mode-toggle__label">语音模式</span>
     </button>
+    </template>
+    {{ tooltipText }}
   </NTooltip>
 </template>
 

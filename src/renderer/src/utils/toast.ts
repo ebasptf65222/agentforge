@@ -9,17 +9,24 @@ export const MAX_TOASTS = 3
 export const DEFAULT_DURATION = 3000
 export const TOAST_Z_INDEX = 2000
 
-const { message } = createDiscreteApi(['message'], {
-  messageProviderProps: {
-    max: MAX_TOASTS,
-    duration: DEFAULT_DURATION,
-    containerStyle: {
-      zIndex: TOAST_Z_INDEX,
-    },
-  },
-})
+// 懒初始化，避免模块顶层调用 createDiscreteApi 导致 Electron 环境下白屏
+let messageApi: MessageApiInjection | null = null
 
-const messageApi: MessageApiInjection = message
+function getMessageApi(): MessageApiInjection {
+  if (!messageApi) {
+    const { message } = createDiscreteApi(['message'], {
+      messageProviderProps: {
+        max: MAX_TOASTS,
+        duration: DEFAULT_DURATION,
+        containerStyle: {
+          zIndex: TOAST_Z_INDEX,
+        },
+      },
+    })
+    messageApi = message
+  }
+  return messageApi
+}
 
 /**
  * Show a toast notification.
@@ -33,5 +40,5 @@ export function showToast(
   type: ToastType = 'info',
   duration: number = DEFAULT_DURATION,
 ): void {
-  messageApi[type](message, { duration })
+  getMessageApi()[type](message, { duration })
 }

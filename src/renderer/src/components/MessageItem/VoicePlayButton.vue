@@ -61,7 +61,8 @@ async function handleClick(): Promise<void> {
 </script>
 
 <template>
-  <NTooltip :content="tooltipText" placement="top">
+  <NTooltip placement="top">
+    <template #trigger>
     <button
       class="voice-play-button"
       :class="{
@@ -76,6 +77,8 @@ async function handleClick(): Promise<void> {
         <component :is="iconComponent" />
       </NIcon>
     </button>
+    </template>
+    {{ tooltipText }}
   </NTooltip>
 </template>
 

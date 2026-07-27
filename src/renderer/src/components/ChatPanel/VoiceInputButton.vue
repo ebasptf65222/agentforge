@@ -64,7 +64,8 @@ async function handleClick(): Promise<void> {
 </script>
 
 <template>
-  <NTooltip :content="tooltipText" placement="top">
+  <NTooltip placement="top">
+    <template #trigger>
     <button
       class="voice-input-button"
       :class="{
@@ -89,6 +90,8 @@ async function handleClick(): Promise<void> {
         {{ formatDuration(voiceStore.recordDuration) }}
       </span>
     </button>
+    </template>
+    {{ tooltipText }}
   </NTooltip>
 </template>
 
