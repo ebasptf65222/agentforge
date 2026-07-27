@@ -2,46 +2,7 @@
 // 解析 LLM 的文本输出为结构化的 Thought + Action
 
 import type { ParsedLLMResponse } from './types'
-
-/**
- * 从 LLM 输出中提取 JSON。
- * 支持以下格式：
- * - 直接 JSON: {"type": "tool", ...}
- * - 包含在代码块中: ```json\n{...}\n```
- * - Action: 行后跟 JSON
- */
-function extractJson(text: string): Record<string, unknown> | null {
-  // 尝试直接解析
-  const trimmed = text.trim()
-  try {
-    return JSON.parse(trimmed)
-  } catch {
-    // continue
-  }
-
-  // 尝试从代码块中提取
-  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (codeBlockMatch?.[1]) {
-    try {
-      return JSON.parse(codeBlockMatch[1].trim())
-    } catch {
-      // continue
-    }
-  }
-
-  // 尝试找到第一个 { 和最后一个 } 之间的内容
-  const firstBrace = trimmed.indexOf('{')
-  const lastBrace = trimmed.lastIndexOf('}')
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    try {
-      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1))
-    } catch {
-      // continue
-    }
-  }
-
-  return null
-}
+import { extractJson } from '../utils/json-extract'
 
 /**
  * 解析 LLM 的完整输出，提取 Thought 和 Action。

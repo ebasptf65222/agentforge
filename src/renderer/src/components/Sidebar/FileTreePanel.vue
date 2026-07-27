@@ -4,13 +4,14 @@
 // Clicking a file opens it in the FilePreview component.
 
 import { onMounted, watch, ref, h } from 'vue'
-import { NIcon, NButton, NSpin, NEmpty, NDropdown } from 'naive-ui'
+import { NIcon, NButton, NSpin, NEmpty, NDropdown, NInput } from 'naive-ui'
 import {
   RefreshOutlined,
   ArrowBackOutlined,
   OpenInNewOutlined,
   ContentCopyOutlined,
   DeleteOutlined,
+  SearchOutlined,
 } from '@vicons/material'
 import type { FileTreeNode } from '@shared/types'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -121,6 +122,20 @@ function handleGoToSettings(): void {
       </div>
     </div>
 
+    <!-- Search -->
+    <div class="file-tree-panel__search">
+      <NInput
+        v-model:value="workspaceStore.searchQuery"
+        placeholder="搜索文件..."
+        size="small"
+        clearable
+      >
+        <template #prefix>
+          <NIcon :size="14"><SearchOutlined /></NIcon>
+        </template>
+      </NInput>
+    </div>
+
     <!-- Content -->
     <div class="file-tree-panel__content">
       <!-- Loading -->
@@ -140,15 +155,15 @@ function handleGoToSettings(): void {
       </div>
 
       <!-- Empty tree -->
-      <div v-else-if="!workspaceStore.rootNode" class="file-tree-panel__empty">
+      <div v-else-if="!workspaceStore.filteredRootNode" class="file-tree-panel__empty">
         <NEmpty description="工作区为空" size="small" />
       </div>
 
       <!-- File tree -->
       <div v-else class="file-tree-panel__tree">
-        <template v-if="workspaceStore.rootNode.children">
+        <template v-if="workspaceStore.filteredRootNode.children">
           <FileTreeNodeItem
-            v-for="child in workspaceStore.rootNode.children"
+            v-for="child in workspaceStore.filteredRootNode.children"
             :key="child.id"
             :node="child"
             :depth="0"
@@ -228,6 +243,12 @@ function handleGoToSettings(): void {
 .file-tree-panel__btn:hover {
   background-color: var(--af-bg-hover, rgba(255, 255, 255, 0.08));
   color: var(--af-text-primary, #e5e7eb);
+}
+
+.file-tree-panel__search {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--af-border, #374151);
+  flex-shrink: 0;
 }
 
 .file-tree-panel__content {

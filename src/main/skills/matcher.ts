@@ -13,6 +13,7 @@ import type { Skill, SkillMatchResult } from '@shared/types'
 import type { AdapterMessage } from '../models/adapter'
 import type { ModelAdapter } from '../models/adapter'
 import { listAutoTriggerSkills } from '../db/repos/skill'
+import { extractJson } from '../utils/json-extract'
 
 /** 置信度阈值：低于此值不视为匹配 */
 export const CONFIDENCE_THRESHOLD = 0.6
@@ -39,44 +40,6 @@ ${skillList}
 
 请判断用户意图匹配哪个 Skill。返回 JSON:
 {"matched": true/false, "skillName": "skill名或null", "confidence": 0-1, "reason": "判断理由"}`
-}
-
-/**
- * 从 LLM 输出中提取 JSON。
- * 支持：直接 JSON、代码块包裹的 JSON、花括号提取。
- */
-function extractJson(text: string): Record<string, unknown> | null {
-  const trimmed = text.trim()
-
-  // 尝试直接解析
-  try {
-    return JSON.parse(trimmed) as Record<string, unknown>
-  } catch {
-    // continue
-  }
-
-  // 尝试从代码块中提取
-  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (codeBlockMatch?.[1]) {
-    try {
-      return JSON.parse(codeBlockMatch[1].trim()) as Record<string, unknown>
-    } catch {
-      // continue
-    }
-  }
-
-  // 尝试找到第一个 { 和最后一个 } 之间的内容
-  const firstBrace = trimmed.indexOf('{')
-  const lastBrace = trimmed.lastIndexOf('}')
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    try {
-      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>
-    } catch {
-      // continue
-    }
-  }
-
-  return null
 }
 
 /**

@@ -120,6 +120,15 @@ async function handleRenameConversation(id: string, newTitle: string): Promise<v
   await chatStore.renameConversation(id, newTitle)
 }
 
+async function handleClearConversation(id: string): Promise<void> {
+  await chatStore.clearConversation(id)
+}
+
+async function handleSearchConversations(keyword: string): Promise<void> {
+  chatStore.searchQuery = keyword
+  await chatStore.searchConversations(keyword)
+}
+
 async function handleSend(content: string, skillName?: string): Promise<void> {
   const conv = chatStore.currentConversation
   if (!conv) return
@@ -250,13 +259,16 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
         @open-files="handleOpenFiles"
       />
       <ConversationList
-        :conversations="chatStore.conversations"
+        :conversations="chatStore.filteredConversations"
         :current-id="chatStore.currentConversationId"
         :loading="chatStore.loading"
+        :search-query="chatStore.searchQuery"
         @select="handleSelectConversation"
         @new-chat="handleNewChat"
         @delete="handleDeleteConversation"
         @rename="handleRenameConversation"
+        @clear="handleClearConversation"
+        @update:search-query="handleSearchConversations"
       />
     </aside>
 

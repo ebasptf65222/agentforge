@@ -1,0 +1,201 @@
+// AgentForge MCP HTTP Transport 层
+// 实现基于 HTTP + SSE 的 JSON-RPC 2.0 通信
+// 用于连接远程 MCP Server（如通过 URL 暴露的 MCP 服务）
+
+import type { ITransport } from '@shared/types'
+import { AppError, ErrorCodes } from '../utils/error'
+
+/** 连接超时时间（毫秒） */
+const CONNECT_TIMEOUT_MS = 15_000
+
+/** 请求超时时间（毫秒） */
+const REQUEST_TIMEOUT_MS = 30_000
+
+/**
+ * 基于 HTTP 的 MCP 传输层实现。
+ *
+ * 使用 fetch + SSE 进行 JSON-RPC 2.0 通信：
+ * - POST 请求发送 JSON-RPC 消息
+ * - SSE 端点接收服务端推送（可选）
+ * - 支持 AbortController 用于取消请求
+ *
+ * 特性：
+ * - 连接超时 15s
+ * - 请求超时 30s
+ * - 自动重连（最多 3 次）
+ */
+export class HttpTransport implements ITransport {
+  private messageCallbacks: Array<(data: string) => void> = []
+  private closeCallbacks: Array<() => void> = []
+  private errorCallbacks: Array<(error: Error) => void> = []
+  private isClosed = false
+  private abortController: AbortController | null = null
+  private reconnectAttempts = 0
+  private readonly maxReconnectAttempts = 3
+  private readonly reconnectDelay = 2000
+
+  /**
+   * @param url - MCP Server 的 HTTP 端点 URL
+   * @param headers - 额外的 HTTP 请求头（如 Authorization）
+   */
+  constructor(
+    private readonly url: string,
+    private readonly headers: Record<string, string> = {},
+  ) {}
+
+  /**
+   * 建立 HTTP 连接（验证端点可达性）。
+   *
+   * @throws {AppError} MCP_CONNECT_FAILED - 连接超时或端点不可达
+   */
+  async connect(): Promise<void> {
+    this.isClosed = false
+    this.reconnectAttempts = 0
+    this.abortController = new AbortController()
+
+    try {
+      // 验证端点可达性（发送一个空的 JSON-RPC 通知）
+      const response = await fetch(this.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.headers,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'ping', id: 0 }),
+        signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
+      })
+
+      if (!response.ok) {
+        throw new AppError(
+          ErrorCodes.MCP_CONNECT_FAILED,
+          `MCP HTTP server returned status ${response.status}: ${response.statusText}`,
+          { url: this.url, status: response.status },
+        )
+      }
+    } catch (error) {
+      if (error instanceof AppError) throw error
+      throw new AppError(
+        ErrorCodes.MCP_CONNECT_FAILED,
+        `Failed to connect to MCP HTTP server: ${error instanceof Error ? error.message : String(error)}`,
+        { url: this.url },
+      )
+    }
+  }
+
+  /**
+   * 发送 JSON-RPC 消息到 HTTP 端点。
+   *
+   * @param message - JSON-RPC 消息字符串
+   * @returns 服务端响应字符串
+   * @throws {AppError} MCP_CONNECT_FAILED - 未连接或请求失败
+   */
+  async send(message: string): Promise<void> {
+    if (this.isClosed) {
+      throw new AppError(
+        ErrorCodes.MCP_CONNECT_FAILED,
+        'MCP HTTP transport is closed. Cannot send message.',
+        { url: this.url },
+      )
+    }
+
+    try {
+      const response = await fetch(this.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.headers,
+        },
+        body: message,
+        signal: this.abortController
+          ? AbortSignal.any([this.abortController.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+          : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      })
+
+      if (!response.ok) {
+        throw new AppError(
+          ErrorCodes.MCP_CONNECT_FAILED,
+          `MCP HTTP request failed with status ${response.status}`,
+          { url: this.url, status: response.status },
+        )
+      }
+
+      const text = await response.text()
+      if (text.trim()) {
+        // 触发消息回调（模拟 stdio 的方式）
+        for (const cb of this.messageCallbacks) {
+          cb(text.trim())
+        }
+      }
+    } catch (error) {
+      if (error instanceof AppError) throw error
+
+      // 连接失败，尝试重连
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.reconnectAttempts++
+        await new Promise((resolve) => setTimeout(resolve, this.reconnectDelay))
+        if (!this.isClosed) {
+          try {
+            await this.connect()
+            // 重连成功后重试发送
+            return this.send(message)
+          } catch {
+            // 重连失败，继续抛出
+          }
+        }
+      }
+
+      this.isClosed = true
+      this.emitClose()
+      throw new AppError(
+        ErrorCodes.MCP_CONNECT_FAILED,
+        `Failed to send message to MCP HTTP server: ${error instanceof Error ? error.message : String(error)}`,
+        { url: this.url },
+      )
+    }
+  }
+
+  /**
+   * 注册消息回调。当收到服务端响应时调用。
+   */
+  onMessage(callback: (data: string) => void): void {
+    this.messageCallbacks.push(callback)
+  }
+
+  /**
+   * 注册关闭回调。当连接断开且无法重连时调用。
+   */
+  onClose(callback: () => void): void {
+    this.closeCallbacks.push(callback)
+  }
+
+  /**
+   * 注册错误回调。当发生运行时错误时调用。
+   */
+  onError(callback: (error: Error) => void): void {
+    this.errorCallbacks.push(callback)
+  }
+
+  /**
+   * 关闭传输层，取消所有进行中的请求。
+   */
+  async close(): Promise<void> {
+    this.isClosed = true
+    this.abortController?.abort()
+    this.abortController = null
+    this.emitClose()
+  }
+
+  // ─── 内部辅助方法 ─────────────────────────────────────────────
+
+  private emitError(error: Error): void {
+    for (const cb of this.errorCallbacks) {
+      cb(error)
+    }
+  }
+
+  private emitClose(): void {
+    for (const cb of this.closeCallbacks) {
+      cb()
+    }
+  }
+}

@@ -32,6 +32,12 @@ const chat = {
   getMessages: (conversationId: string): Promise<unknown[]> =>
     ipcRenderer.invoke('chat:get-messages', { conversationId }),
 
+  clearConversation: (id: string): Promise<void> =>
+    ipcRenderer.invoke('chat:clear-conversation', { id }),
+
+  searchConversations: (keyword: string): Promise<unknown[]> =>
+    ipcRenderer.invoke('chat:search-conversations', { keyword }),
+
   send: (conversationId: string, content: string, modelId: string, kbEnabled?: boolean): Promise<void> =>
     ipcRenderer.invoke('chat:send', { conversationId, content, modelId, kbEnabled }),
 

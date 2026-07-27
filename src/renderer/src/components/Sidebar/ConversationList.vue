@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // P1-16: Conversation list in sidebar
-// Supports CRUD: Create (via emit), Read (list), Update (rename), Delete
+// Supports CRUD: Create (via emit), Read (list), Update (rename), Delete, Clear, Search
 
 import { ref, computed, nextTick } from 'vue'
-import { NIcon, NPopconfirm } from 'naive-ui'
-import { CloseOutlined, EditOutlined, CheckOutlined, DeleteOutlined } from '@vicons/material'
+import { NIcon, NPopconfirm, NInput } from 'naive-ui'
+import { EditOutlined, CheckOutlined, DeleteOutlined, ClearAllOutlined, SearchOutlined } from '@vicons/material'
 import type { Conversation } from '@shared/types'
 
 const props = defineProps<{
@@ -12,6 +12,8 @@ const props = defineProps<{
   currentId: string | null
   /** When true, show skeleton placeholders instead of the list (P1-12) */
   loading?: boolean
+  /** Search query for filtering conversations */
+  searchQuery?: string
 }>()
 
 const emit = defineEmits<{
@@ -19,6 +21,8 @@ const emit = defineEmits<{
   'new-chat': []
   delete: [id: string]
   rename: [id: string, newTitle: string]
+  clear: [id: string]
+  'update:searchQuery': [value: string]
 }>()
 
 /** Currently renaming conversation ID (null = not renaming) */
@@ -92,6 +96,21 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
 
 <template>
   <div class="conversation-list">
+    <!-- Search input -->
+    <div class="conversation-list__search">
+      <NInput
+        :value="searchQuery"
+        placeholder="搜索对话..."
+        size="small"
+        clearable
+        @update:value="emit('update:searchQuery', $event)"
+      >
+        <template #prefix>
+          <NIcon :size="14"><SearchOutlined /></NIcon>
+        </template>
+      </NInput>
+    </div>
+
     <!-- Skeleton loading (P1-12) -->
     <ul v-if="loading" class="conversation-list__items">
       <li v-for="i in skeletonRows" :key="`skeleton-${i}`" class="skeleton-item">
@@ -154,6 +173,31 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
           >
             <NIcon :size="14"><CheckOutlined /></NIcon>
           </button>
+          <!-- Clear conversation button -->
+          <NPopconfirm
+            v-if="renamingId !== conv.id && (conv.messageCount ?? 0) > 0"
+            :show-icon="false"
+            placement="right"
+            @positive-click="emit('clear', conv.id)"
+          >
+            <template #trigger>
+              <button
+                class="conversation-item__action conversation-item__clear"
+                title="清空对话"
+                @click.stop
+              >
+                <NIcon :size="14"><ClearAllOutlined /></NIcon>
+              </button>
+            </template>
+            <template #default>
+              <div style="max-width: 200px">
+                <p style="margin: 0 0 8px; font-weight: 500">清空对话</p>
+                <p style="margin: 0; font-size: 13px; color: var(--af-text-muted, #9ca3af)">
+                  确定要清空「{{ conv.title }}」的所有消息吗？对话本身会保留。
+                </p>
+              </div>
+            </template>
+          </NPopconfirm>
           <!-- Delete button with confirmation -->
           <NPopconfirm
             :show-icon="false"
@@ -189,6 +233,13 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
   flex: 1;
   overflow-y: auto;
   padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.conversation-list__search {
+  padding: 0 12px 8px;
+  flex-shrink: 0;
 }
 
 .conversation-list__empty {
@@ -297,6 +348,11 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
 .conversation-item__delete:hover {
   color: var(--af-error, #ef4444);
   background-color: color-mix(in srgb, var(--af-error, #ef4444) 10%, transparent);
+}
+
+.conversation-item__clear:hover {
+  color: var(--af-warning, #f59e0b);
+  background-color: color-mix(in srgb, var(--af-warning, #f59e0b) 10%, transparent);
 }
 
 /* ─── Skeleton placeholders (P1-12) ─────────────────────────── */

@@ -30,12 +30,23 @@ export const useChatStore = defineStore('chat', () => {
   /** Whether knowledge base association is enabled for chat */
   const kbEnabled = ref(false)
 
+  /** Search query for conversation filtering */
+  const searchQuery = ref('')
+
   // ─── Getters ─────────────────────────────────────────────────
 
   /** The currently selected conversation object */
   const currentConversation = computed(() => {
     if (currentConversationId.value === null) return null
     return conversations.value.find((c) => c.id === currentConversationId.value) ?? null
+  })
+
+  /** Conversations filtered by search query (title + message content) */
+  const filteredConversations = computed(() => {
+    if (!searchQuery.value.trim()) return conversations.value
+    return conversations.value.filter((c) =>
+      c.title.toLowerCase().includes(searchQuery.value.toLowerCase()),
+    )
   })
 
   // ─── Actions ─────────────────────────────────────────────────
@@ -147,6 +158,83 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
+   * Clear all messages from a conversation (keep the conversation itself).
+   */
+  async function clearConversation(id: string): Promise<void> {
+    try {
+      await window.electron.chat.clearConversation(id)
+      if (currentConversationId.value === id) {
+        messages.value = []
+      }
+      // Update local conversation stats
+      const idx = conversations.value.findIndex((c) => c.id === id)
+      if (idx !== -1) {
+        conversations.value[idx] = {
+          ...conversations.value[idx],
+          messageCount: 0,
+          lastMessageAt: null,
+        }
+      }
+      showToast('对话已清空', 'success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      showToast(`清空对话失败: ${message}`, 'error')
+      console.error('[ChatStore] clearConversation error:', error)
+    }
+  }
+
+  /**
+   * Search conversations by keyword (title + message content).
+   */
+  async function searchConversations(keyword: string): Promise<void> {
+    if (!keyword.trim()) {
+      await loadConversations({ silent: true })
+      return
+    }
+    try {
+      const result = await window.electron.chat.searchConversations(keyword.trim())
+      conversations.value = result as Conversation[]
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      showToast(`搜索失败: ${message}`, 'error')
+      console.error('[ChatStore] searchConversations error:', error)
+    }
+  }
+
+  /**
+   * Export current conversation messages to Markdown file.
+   */
+  function exportToMarkdown(): void {
+    const conv = currentConversation.value
+    if (!conv || messages.value.length === 0) {
+      showToast('没有可导出的内容', 'warning')
+      return
+    }
+
+    const lines: string[] = [`# ${conv.title}\n`, `> 导出时间: ${new Date().toLocaleString('zh-CN')}\n`]
+
+    for (const msg of messages.value) {
+      const roleLabel = msg.role === 'user' ? '## 用户' : msg.role === 'assistant' ? '## 助手' : `## ${msg.role}`
+      lines.push(`${roleLabel}\n`)
+      lines.push(`${msg.content}\n`)
+      if (msg.metadata?.tokensUsed) {
+        lines.push(`\n> Token: ${msg.metadata.tokensUsed} | 耗时: ${msg.metadata.duration ?? 0}ms\n`)
+      }
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${conv.title.replace(/[^\w\u4e00-\u9fa5]/g, '_')}_${Date.now()}.md`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    showToast('导出成功', 'success')
+  }
+
+  /**
    * Send a message in the current conversation.
    * Sets isGenerating=true. Returns immediately.
    */
@@ -243,9 +331,22 @@ export const useChatStore = defineStore('chat', () => {
    * Handle stream end event.
    * Called by useChat composable.
    */
-  async function handleStreamEnd(_meta: StreamEndMetadata): Promise<void> {
+  async function handleStreamEnd(meta: StreamEndMetadata): Promise<void> {
     isGenerating.value = false
     streamingContent.value = ''
+
+    // Update the last assistant message with metadata (tokens, duration, etc.)
+    const lastMsg = messages.value[messages.value.length - 1]
+    if (lastMsg && lastMsg.role === 'assistant') {
+      lastMsg.metadata = {
+        ...lastMsg.metadata,
+        modelId: meta.modelId,
+        tokensUsed: meta.tokensUsed,
+        duration: meta.duration,
+        stopped: meta.stopped,
+      }
+    }
+
     // V1-04: 结束流式 TTS 播放
     void (async () => {
       const { useVoiceStore } = await import('./voice')
@@ -290,14 +391,19 @@ export const useChatStore = defineStore('chat', () => {
     streamingContent,
     loading,
     kbEnabled,
+    searchQuery,
     // Getters
     currentConversation,
+    filteredConversations,
     // Actions
     loadConversations,
     selectConversation,
     newConversation,
     deleteConversation,
     renameConversation,
+    clearConversation,
+    searchConversations,
+    exportToMarkdown,
     deleteMessage,
     sendMessage,
     stopGeneration,

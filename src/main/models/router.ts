@@ -7,6 +7,7 @@ import { getModelConfigById } from '../db/repos/model-config'
 import type { ModelAdapter } from './adapter'
 import { OpenAIAdapter } from './openai-adapter'
 import { DeepSeekAdapter } from './deepseek-adapter'
+import { AnthropicAdapter } from './anthropic-adapter'
 
 /**
  * 适配器缓存：configId → ModelAdapter 实例。
@@ -39,8 +40,12 @@ function createAdapter(
         maxTokens: config.maxTokens,
       })
     case 'anthropic':
-      throw new AppError(ErrorCodes.MODEL_API_ERROR, `Provider "anthropic" is not yet supported.`, {
-        provider,
+      return new AnthropicAdapter({
+        modelId: config.modelId,
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        temperature: config.temperature,
+        maxTokens: config.maxTokens,
       })
     case 'custom':
       // 自定义提供商假设兼容 OpenAI API

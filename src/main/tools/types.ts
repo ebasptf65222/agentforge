@@ -2,6 +2,7 @@
 // 与 Spec v0.2 §5.5 工具与 MCP 类型一致
 
 import type { ToolDefinition, ToolExecutionResult, ToolRiskLevel } from '@shared/types'
+import type { RegisteredTool as BaseRegisteredTool } from '../agent/types'
 
 export type { ToolDefinition, ToolExecutionResult, ToolRiskLevel }
 
@@ -19,11 +20,10 @@ export interface BuiltinTool {
 }
 
 /**
- * 工具注册条目。
+ * 工具注册条目（扩展基础类型，增加来源标识）。
+ * 继承自 agent/types.ts 的 RegisteredTool，添加 source 和 mcpServerId 字段。
  */
-export interface RegisteredTool {
-  definition: ToolDefinition
-  execute: ToolExecuteFn
+export interface RegisteredTool extends BaseRegisteredTool {
   source: 'builtin' | 'mcp'
   mcpServerId?: string
 }

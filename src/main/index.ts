@@ -11,6 +11,21 @@ import { initDatabase, closeDatabase } from './db/index'
 import { registerIpcHandlers } from './ipc/index'
 import { initBuiltinTools } from './tools/registry-init'
 
+// ─── 全局未捕获错误处理 ───────────────────────────────────────────────
+// 防止应用崩溃后静默退出，至少记录错误日志
+process.on('uncaughtException', (error: Error) => {
+  console.error('[AgentForge] Uncaught Exception:', error)
+  console.error('[AgentForge] Stack:', error.stack)
+})
+
+process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
+  console.error('[AgentForge] Unhandled Rejection at:', promise)
+  console.error('[AgentForge] Reason:', reason)
+  if (reason instanceof Error) {
+    console.error('[AgentForge] Stack:', reason.stack)
+  }
+})
+
 // ─── 资源清理注册表 ───────────────────────────────────────────────
 // P1-03: db.close() 已注册
 // P1-08: AbortController.abort()

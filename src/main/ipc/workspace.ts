@@ -11,8 +11,11 @@ import { getSettings } from '../db/repos/app-settings'
 import { resolveWorkspacePath } from '../tools/path-guard'
 import { AppError, ErrorCodes } from '../utils/error'
 
-/** 文件大小上限：1MB */
+/** 文件大小上限：1MB（读取） */
 const MAX_FILE_SIZE = 1024 * 1024
+
+/** 写入内容大小上限：5MB */
+const MAX_WRITE_SIZE = 5 * 1024 * 1024
 
 /** 文件树最大深度 */
 const MAX_TREE_DEPTH = 5
@@ -128,6 +131,16 @@ export async function handleWsWrite(relativePath: string, content: string): Prom
   }
   if (typeof content !== 'string') {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Content must be a string.')
+  }
+
+  // 检查写入内容大小
+  const contentSize = Buffer.byteLength(content, 'utf-8')
+  if (contentSize > MAX_WRITE_SIZE) {
+    throw new AppError(
+      ErrorCodes.FILE_TOO_LARGE,
+      `Content too large: ${contentSize} bytes (max ${MAX_WRITE_SIZE} bytes)`,
+      { path: relativePath, size: contentSize, max: MAX_WRITE_SIZE },
+    )
   }
 
   const wsPath = getWorkspacePath()

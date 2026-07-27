@@ -122,3 +122,13 @@ export function getMessagesByConversationId(conversationId: string): ChatMessage
 
   return rows.map(rowToMessage)
 }
+
+/**
+ * 根据会话 ID 删除所有消息。
+ *
+ * @param conversationId - 会话 ID
+ */
+export function deleteMessagesByConversationId(conversationId: string): void {
+  const db: Database.Database = getDatabase()
+  db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(conversationId)
+}

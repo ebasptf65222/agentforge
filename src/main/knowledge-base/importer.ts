@@ -3,6 +3,7 @@
 // P4-02: 基础导入流程
 // P5-02: 支持 PDF/DOCX/XLSX 异步解析
 
+import { createHash } from 'node:crypto'
 import type { KbDocument } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import {
@@ -10,8 +11,9 @@ import {
   updateKbDocument,
   deleteKbDocument,
   getKbDocumentById,
+  listKbDocuments,
 } from '../db/repos/kb-document'
-import { batchCreateKbChunks, deleteKbChunksByDocumentId } from '../db/repos/kb-chunk'
+import { batchCreateKbChunks, deleteKbChunksByDocumentId, getChunksByDocumentId } from '../db/repos/kb-chunk'
 import { parseDocument } from './parser'
 import { chunkText } from './chunking'
 import { clearSearchCache } from './search'
@@ -54,14 +56,36 @@ export async function importDocument(
   fileType: KbDocument['fileType'],
   options: ImportOptions = {},
 ): Promise<ImportResult> {
+  // 0. 解析文件内容，用于内容去重检查
+  const parseResult = await parseDocument(filePath, fileType)
+  const contentHash = createHash('sha256').update(parseResult.content).digest('hex')
+
+  // 检查是否有相同内容的文档已存在
+  const existingDocs = listKbDocuments({ status: 'ready' })
+  for (const doc of existingDocs) {
+    try {
+      const chunks = getChunksByDocumentId(doc.id)
+      const existingContent = chunks.map((c) => c.content).join('')
+      const existingHash = createHash('sha256').update(existingContent).digest('hex')
+      if (existingHash === contentHash) {
+        throw new AppError(
+          ErrorCodes.KB_DOCUMENT_DUPLICATE,
+          `Document with identical content already exists: "${doc.fileName}" (id: ${doc.id})`,
+          { filePath, fileName, existingDocId: doc.id },
+        )
+      }
+    } catch (error) {
+      if (error instanceof AppError) throw error
+      // 如果读取已有文档内容失败，跳过该文档的比对
+      continue
+    }
+  }
+
   // 1. 创建文档记录
   const doc = createKbDocument({ filePath, fileName, fileType })
 
   try {
-    // 2. 解析文件（异步）
-    const parseResult = await parseDocument(filePath, fileType)
-
-    // 3. 文本分块
+    // 2. 文本分块（复用步骤 0 中已解析的内容）
     const chunkingOpts: ChunkingOptions = options.chunking ?? {
       strategy: 'fixed',
       chunkSize: 500,

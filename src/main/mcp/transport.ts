@@ -31,7 +31,7 @@ const COMMAND_BLOCKLIST = [
 ] as const
 
 /** 自动重连最大次数 */
-const MAX_RECONNECT_ATTEMPTS = 1
+const MAX_RECONNECT_ATTEMPTS = 3
 
 /** 自动重连等待时间（毫秒） */
 const RECONNECT_DELAY_MS = 2000

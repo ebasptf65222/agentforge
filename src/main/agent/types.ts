@@ -50,7 +50,7 @@ export interface AgentContextMessage {
 /** 工具执行函数类型 */
 export type ToolExecuteFn = (args: Record<string, unknown>) => Promise<ToolExecutionResult>
 
-/** 注册的工具条目 */
+/** 注册的工具条目（基础类型，tools/types.ts 中扩展此类型添加 source 等字段） */
 export interface RegisteredTool {
   definition: ToolDefinition
   execute: ToolExecuteFn

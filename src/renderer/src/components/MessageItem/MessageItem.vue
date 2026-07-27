@@ -102,6 +102,22 @@ function handleDelete(): void {
         </div>
       </template>
 
+      <!-- Token & duration metadata -->
+      <div v-if="!isUser && message.metadata?.tokensUsed" class="message-item__meta">
+        <span class="meta-item">
+          <span class="meta-label">Token</span>
+          <span class="meta-value">{{ message.metadata.tokensUsed.toLocaleString() }}</span>
+        </span>
+        <span v-if="message.metadata?.duration" class="meta-item">
+          <span class="meta-label">耗时</span>
+          <span class="meta-value">{{ message.metadata.duration }}ms</span>
+        </span>
+        <span v-if="message.metadata?.modelId" class="meta-item">
+          <span class="meta-label">模型</span>
+          <span class="meta-value">{{ message.metadata.modelId }}</span>
+        </span>
+      </div>
+
       <!-- Message action toolbar (OPT-UI-02) -->
       <div v-if="showToolbar" class="message-item__toolbar">
         <NTooltip placement="bottom" :delay="500">
@@ -285,5 +301,32 @@ function handleDelete(): void {
 .toolbar-btn__feedback {
   color: var(--af-success, #10b981);
   font-size: 11px;
+}
+
+/* Token & duration metadata */
+.message-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--af-border-subtle, rgba(148, 163, 184, 0.1));
+}
+
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.meta-label {
+  color: var(--af-text-muted, #6b7280);
+}
+
+.meta-value {
+  color: var(--af-text-secondary, #9ca3af);
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 </style>

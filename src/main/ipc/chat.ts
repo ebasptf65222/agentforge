@@ -27,7 +27,7 @@ import {
   incrementMessageCount,
   updateLastMessageAt,
 } from '../db/repos/conversation'
-import { createMessage, getMessagesByConversationId } from '../db/repos/message'
+import { createMessage, getMessagesByConversationId, deleteMessagesByConversationId } from '../db/repos/message'
 import { modelConfigExists } from '../db/repos/model-config'
 import { getModelAdapter } from '../models/router'
 import type { AdapterMessage } from '../models/adapter'
@@ -425,6 +425,79 @@ export function handleGetMessages(params: unknown): ChatMessage[] {
   return getMessagesByConversationId(p['conversationId'] as string)
 }
 
+/**
+ * chat:clear-conversation - 清空会话的所有消息（保留会话本身）。
+ *
+ * @param params - { id }
+ * @throws {AppError} CONVERSATION_NOT_FOUND - 会话不存在
+ */
+export function handleClearConversation(params: unknown): void {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Clear conversation params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['id'], 'id')
+
+  const id = p['id'] as string
+  // 验证会话存在
+  getConversationById(id)
+
+  // 删除所有消息
+  deleteMessagesByConversationId(id)
+
+  // 重置会话统计
+  const db = getDatabase()
+  db.prepare(
+    'UPDATE conversations SET message_count = 0, last_message_at = NULL, updated_at = ? WHERE id = ?',
+  ).run(Date.now(), id)
+}
+
+/**
+ * chat:search-conversations - 搜索会话（按标题和消息内容）。
+ *
+ * @param params - { keyword }
+ * @returns 匹配的 Conversation 数组
+ */
+export function handleSearchConversations(params: unknown): Conversation[] {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Search params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['keyword'], 'keyword')
+
+  const keyword = p['keyword'] as string
+  const db = getDatabase()
+
+  // 搜索标题匹配的会话
+  const titleMatches = db
+    .prepare('SELECT * FROM conversations WHERE title LIKE ? ORDER BY updated_at DESC')
+    .all(`%${keyword}%`) as ConversationRow[]
+
+  // 搜索消息内容匹配的会话 ID
+  const messageMatches = db
+    .prepare(
+      'SELECT DISTINCT conversation_id FROM messages WHERE content LIKE ?',
+    )
+    .all(`%${keyword}%`) as { conversation_id: string }[]
+
+  const matchedIds = new Set<string>(titleMatches.map((r) => r.id))
+  for (const m of messageMatches) {
+    matchedIds.add(m.conversation_id)
+  }
+
+  if (matchedIds.size === 0) return []
+
+  // 获取所有匹配的完整会话数据
+  const placeholders = Array.from(matchedIds).map(() => '?').join(',')
+  const allMatches = db
+    .prepare(`SELECT * FROM conversations WHERE id IN (${placeholders}) ORDER BY updated_at DESC`)
+    .all(...Array.from(matchedIds)) as ConversationRow[]
+
+  return allMatches.map(rowToConversation)
+}
+
 // ─── 通道注册表 ───────────────────────────────────────────────────
 
 interface ChannelRegistration {
@@ -466,6 +539,14 @@ const registrations: ChannelRegistration[] = [
       updateConversationTitle(p['id'] as string, (p['title'] as string).trim())
       return getConversationById(p['id'] as string)
     },
+  },
+  {
+    channel: 'chat:clear-conversation',
+    handler: (_event, params: unknown) => handleClearConversation(params),
+  },
+  {
+    channel: 'chat:search-conversations',
+    handler: (_event, params: unknown) => handleSearchConversations(params),
   },
 ]
 

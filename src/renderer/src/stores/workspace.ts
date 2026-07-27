@@ -2,7 +2,7 @@
 // Wraps the electron.workspace IPC API and exposes reactive state.
 
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import type { FileTreeNode, WorkspaceDirectoryEntry } from '@shared/types'
 import { useSettingsStore } from './settings'
 
@@ -48,10 +48,55 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** Preview error message (null if no error) */
   const previewError = ref<string | null>(null)
 
+  /** Search query for filtering file tree */
+  const searchQuery = ref('')
+
   // ─── Computed ────────────────────────────────────────────────
 
   /** Whether a workspace path is set */
   const isWorkspaceSet = ref<boolean>(false)
+
+  /**
+   * Filter file tree nodes by search query.
+   * Returns nodes whose name contains the query (case-insensitive).
+   * If query is empty, returns the original root node.
+   */
+  const filteredRootNode = computed<FileTreeNode | null>(() => {
+    if (!searchQuery.value.trim() || !rootNode.value) {
+      return rootNode.value
+    }
+    const query = searchQuery.value.toLowerCase().trim()
+    return filterNode(rootNode.value, query)
+  })
+
+  /**
+   * Recursively filter a node and its children by name query.
+   * A node is kept if its name matches or any of its descendants match.
+   */
+  function filterNode(node: FileTreeNode, query: string): FileTreeNode | null {
+    const nameMatch = node.name.toLowerCase().includes(query)
+
+    if (!node.isDirectory || !node.children) {
+      return nameMatch ? node : null
+    }
+
+    const filteredChildren: FileTreeNode[] = []
+    for (const child of node.children) {
+      const filtered = filterNode(child, query)
+      if (filtered) {
+        filteredChildren.push(filtered)
+      }
+    }
+
+    if (nameMatch || filteredChildren.length > 0) {
+      return {
+        ...node,
+        children: filteredChildren,
+      }
+    }
+
+    return null
+  }
 
   // ─── Actions ─────────────────────────────────────────────────
 
@@ -214,6 +259,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     previewLoading,
     previewError,
     isWorkspaceSet,
+    searchQuery,
+    // Computed
+    filteredRootNode,
     // Actions
     checkWorkspace,
     loadTree,

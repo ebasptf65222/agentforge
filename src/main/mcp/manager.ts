@@ -5,6 +5,7 @@
 import type { MCPServerConfig, MCPServerStatus, ToolDefinition } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { StdioTransport } from './transport'
+import { HttpTransport } from './http-transport'
 import { MCPClient } from './client'
 import {
   createMcpServer,
@@ -317,8 +318,27 @@ export class MCPServerManager {
     try {
       const config = server.config
 
-      // 目前仅支持 stdio 传输
-      if (config.transport !== 'stdio') {
+      let transport: StdioTransport | HttpTransport
+
+      if (config.transport === 'http') {
+        if (!config.url) {
+          throw new AppError(
+            ErrorCodes.MCP_CONNECT_FAILED,
+            'MCP Server URL is required for HTTP transport.',
+            { id },
+          )
+        }
+        transport = new HttpTransport(config.url, config.headers ?? {})
+      } else if (config.transport === 'stdio') {
+        if (!config.command) {
+          throw new AppError(
+            ErrorCodes.MCP_CONNECT_FAILED,
+            'MCP Server command is required for stdio transport.',
+            { id },
+          )
+        }
+        transport = new StdioTransport(config.command, config.args ?? [], config.env ?? {})
+      } else {
         throw new AppError(
           ErrorCodes.MCP_CONNECT_FAILED,
           `Transport type "${config.transport}" is not yet supported.`,
@@ -326,16 +346,6 @@ export class MCPServerManager {
         )
       }
 
-      if (!config.command) {
-        throw new AppError(
-          ErrorCodes.MCP_CONNECT_FAILED,
-          'MCP Server command is required for stdio transport.',
-          { id },
-        )
-      }
-
-      // 1. 创建 transport
-      const transport = new StdioTransport(config.command, config.args ?? [], config.env ?? {})
       await transport.connect()
 
       // 2. 创建 client
