@@ -11,6 +11,17 @@ const props = defineProps<{
   isGenerating: boolean
 }>()
 
+const emit = defineEmits<{
+  copy: [content: string]
+  retry: [message: ChatMessage]
+  edit: [message: ChatMessage]
+  'delete-message': [messageId: string]
+  'new-chat': []
+  'open-settings': []
+  'open-kb': []
+  'send-prompt': [prompt: string]
+}>()
+
 const scrollContainer = ref<HTMLElement | null>(null)
 
 /**
@@ -51,6 +62,14 @@ const streamingMessage = computed<ChatMessage | null>(() => {
 
 /** Whether to show the "back to bottom" floating button */
 const showScrollToBottom = computed(() => !isAtBottom.value && props.messages.length > 0)
+
+/** Example prompt cards shown in the welcome screen (OPT-UI-01) */
+const examplePrompts = [
+  '解释 React 的 useEffect 钩子，并给出最佳实践',
+  '帮我写一个 Python 脚本，批量重命名文件夹中的图片',
+  '分析这段代码的潜在性能瓶颈，并给出优化建议',
+  '设计一个 RESTful API，用于用户认证和授权',
+]
 
 /**
  * Check if the scroll container is near the bottom.
@@ -126,15 +145,76 @@ onUnmounted(() => {
 <template>
   <div class="message-list__container">
     <div ref="scrollContainer" class="message-list">
-      <!-- Empty state -->
-      <div v-if="messages.length === 0" class="message-list__empty">
-        <div class="message-list__empty-icon">💬</div>
-        <p class="message-list__empty-text">开始一段新对话</p>
+      <!-- Empty state with welcome screen (OPT-UI-01) -->
+      <div v-if="messages.length === 0" class="message-list__welcome">
+        <div class="welcome__header">
+          <div class="welcome__logo">AgentForge</div>
+          <p class="welcome__subtitle">你的 AI 助手，随时待命</p>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="welcome__actions">
+          <button class="welcome__action-btn" @click="emit('new-chat')">
+            <span class="welcome__action-icon">+</span>
+            <span>新建对话</span>
+          </button>
+          <button class="welcome__action-btn" @click="emit('open-settings')">
+            <span class="welcome__action-icon">⚙</span>
+            <span>配置模型</span>
+          </button>
+          <button class="welcome__action-btn" @click="emit('open-kb')">
+            <span class="welcome__action-icon">📚</span>
+            <span>导入知识库</span>
+          </button>
+        </div>
+
+        <!-- Shortcut hints -->
+        <div class="welcome__shortcuts">
+          <div class="shortcut-item">
+            <kbd class="shortcut-key">Ctrl/Cmd + B</kbd>
+            <span class="shortcut-desc">切换侧边栏</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd class="shortcut-key">Ctrl/Cmd + N</kbd>
+            <span class="shortcut-desc">新建对话</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd class="shortcut-key">Shift + Enter</kbd>
+            <span class="shortcut-desc">换行</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd class="shortcut-key">Escape</kbd>
+            <span class="shortcut-desc">停止生成</span>
+          </div>
+        </div>
+
+        <!-- Example prompts -->
+        <div class="welcome__prompts">
+          <p class="welcome__prompts-title">试试这些示例</p>
+          <div class="welcome__prompts-grid">
+            <button
+              v-for="prompt in examplePrompts"
+              :key="prompt"
+              class="prompt-card"
+              @click="emit('send-prompt', prompt)"
+            >
+              {{ prompt }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Rendered messages -->
       <template v-else>
-        <MessageItem v-for="msg in displayMessages" :key="msg.id" :message="msg" />
+        <MessageItem
+          v-for="msg in displayMessages"
+          :key="msg.id"
+          :message="msg"
+          @copy="emit('copy', $event)"
+          @retry="emit('retry', $event)"
+          @edit="emit('edit', $event)"
+          @delete="emit('delete-message', $event)"
+        />
         <!-- Streaming message (shown separately for reactivity) -->
         <MessageItem
           v-if="streamingMessage"
@@ -192,6 +272,147 @@ onUnmounted(() => {
 .message-list__empty-text {
   font-size: 15px;
   margin: 0;
+}
+
+/* ─── Welcome screen (OPT-UI-01) ────────────────────────────── */
+.message-list__welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 32px 24px;
+  gap: 24px;
+  color: var(--af-text-primary, #e5e7eb);
+  overflow-y: auto;
+}
+
+.welcome__header {
+  text-align: center;
+}
+
+.welcome__logo {
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--af-brand, #4f46e5), var(--af-info, #0ea5e9));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 8px;
+}
+
+.welcome__subtitle {
+  font-size: 14px;
+  color: var(--af-text-muted, #9ca3af);
+  margin: 0;
+}
+
+/* Quick actions */
+.welcome__actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.welcome__action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background-color: var(--af-bg-surface, #1e293b);
+  border: 1px solid var(--af-border, #374151);
+  border-radius: 10px;
+  color: var(--af-text-primary, #e5e7eb);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.welcome__action-btn:hover {
+  background-color: var(--af-bg-hover, #374151);
+  border-color: var(--af-brand, #4f46e5);
+  transform: translateY(-1px);
+}
+
+.welcome__action-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* Shortcut hints */
+.welcome__shortcuts {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.shortcut-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--af-text-muted, #9ca3af);
+}
+
+.shortcut-key {
+  display: inline-block;
+  padding: 2px 6px;
+  background-color: var(--af-bg-hover, #374151);
+  border: 1px solid var(--af-border, #4b5563);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--af-text-secondary, #d1d5db);
+}
+
+.shortcut-desc {
+  font-size: 12px;
+}
+
+/* Example prompts */
+.welcome__prompts {
+  width: 100%;
+  max-width: 560px;
+}
+
+.welcome__prompts-title {
+  text-align: center;
+  font-size: 13px;
+  color: var(--af-text-muted, #9ca3af);
+  margin: 0 0 12px;
+}
+
+.welcome__prompts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.prompt-card {
+  padding: 12px 16px;
+  background-color: var(--af-bg-surface, #1e293b);
+  border: 1px solid var(--af-border, #374151);
+  border-radius: 10px;
+  color: var(--af-text-primary, #e5e7eb);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.prompt-card:hover {
+  background-color: var(--af-bg-hover, #374151);
+  border-color: var(--af-brand, #4f46e5);
+  transform: translateY(-1px);
 }
 
 /* "回到底部" floating button (P1-13) */

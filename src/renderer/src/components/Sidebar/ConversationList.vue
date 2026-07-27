@@ -3,8 +3,8 @@
 // Supports CRUD: Create (via emit), Read (list), Update (rename), Delete
 
 import { ref, computed, nextTick } from 'vue'
-import { NIcon } from 'naive-ui'
-import { CloseOutlined, EditOutlined, CheckOutlined } from '@vicons/material'
+import { NIcon, NPopconfirm } from 'naive-ui'
+import { CloseOutlined, EditOutlined, CheckOutlined, DeleteOutlined } from '@vicons/material'
 import type { Conversation } from '@shared/types'
 
 const props = defineProps<{
@@ -154,14 +154,30 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
           >
             <NIcon :size="14"><CheckOutlined /></NIcon>
           </button>
-          <!-- Delete button -->
-          <button
-            class="conversation-item__delete"
-            title="删除对话"
-            @click.stop="emit('delete', conv.id)"
+          <!-- Delete button with confirmation -->
+          <NPopconfirm
+            :show-icon="false"
+            placement="right"
+            @positive-click="emit('delete', conv.id)"
           >
-            <NIcon :size="16"><CloseOutlined /></NIcon>
-          </button>
+            <template #trigger>
+              <button
+                class="conversation-item__delete"
+                title="删除对话"
+                @click.stop
+              >
+                <NIcon :size="16"><DeleteOutlined /></NIcon>
+              </button>
+            </template>
+            <template #default>
+              <div style="max-width: 200px">
+                <p style="margin: 0 0 8px; font-weight: 500">删除对话</p>
+                <p style="margin: 0; font-size: 13px; color: var(--af-text-muted, #9ca3af)">
+                  确定要删除「{{ conv.title }}」吗？此操作不可恢复。
+                </p>
+              </div>
+            </template>
+          </NPopconfirm>
         </div>
       </li>
     </ul>

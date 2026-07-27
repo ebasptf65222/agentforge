@@ -115,6 +115,19 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
+   * Delete a single message from the current conversation.
+   */
+  async function deleteMessage(messageId: string): Promise<void> {
+    try {
+      await window.electron.chat.deleteMessage?.(messageId)
+      messages.value = messages.value.filter((m) => m.id !== messageId)
+    } catch {
+      // Fallback: just remove from local state if API not available
+      messages.value = messages.value.filter((m) => m.id !== messageId)
+    }
+  }
+
+  /**
    * Delete a conversation and remove from list.
    * If the deleted conversation is current, clear selection.
    */
@@ -285,6 +298,7 @@ export const useChatStore = defineStore('chat', () => {
     newConversation,
     deleteConversation,
     renameConversation,
+    deleteMessage,
     sendMessage,
     stopGeneration,
     handleStreamChunk,

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // ChatView - main chat experience with Sidebar + ChatPanel + Agent ExecutionPanel
 
-import { onMounted, onUnmounted, computed } from 'vue'
-import { NIcon } from 'naive-ui'
+import { onMounted, onUnmounted, computed, ref } from 'vue'
+import { NIcon, NModal, NInput, NButton } from 'naive-ui'
 import { MenuOutlined } from '@vicons/material'
+import type { ChatMessage } from '@shared/types'
 import { useChatStore } from '@/stores/chat'
 import { useAgentStore } from '@/stores/agent'
 import { useUiStore } from '@/stores/ui'
@@ -38,14 +39,50 @@ onUnmounted(() => {
 })
 
 /**
- * Global keyboard shortcuts.
- * Cmd/Ctrl+B toggles the sidebar (P1-12).
+ * Global keyboard shortcuts (OPT-UI-12).
  */
 function handleKeydown(event: KeyboardEvent): void {
+  const isMod = event.metaKey || event.ctrlKey
+  const target = event.target as HTMLElement | null
+  const isInput =
+    target &&
+    (target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable)
+
   // Cmd/Ctrl + B -> toggle sidebar
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b') {
+  if (isMod && event.key.toLowerCase() === 'b') {
     event.preventDefault()
     uiStore.toggleSidebar()
+    return
+  }
+
+  // Cmd/Ctrl + N -> new conversation (not when typing in input)
+  if (isMod && event.key.toLowerCase() === 'n' && !isInput) {
+    event.preventDefault()
+    void handleNewChat()
+    return
+  }
+
+  // Cmd/Ctrl + Shift + K -> open knowledge base
+  if (isMod && event.shiftKey && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    handleOpenKb()
+    return
+  }
+
+  // Cmd/Ctrl + , -> open settings
+  if (isMod && event.key === ',') {
+    event.preventDefault()
+    handleOpenSettings()
+    return
+  }
+
+  // Escape -> stop generation (if generating)
+  if (event.key === 'Escape' && isGenerating.value) {
+    event.preventDefault()
+    void handleStop()
+    return
   }
 }
 
@@ -107,7 +144,79 @@ async function handleStop(): Promise<void> {
   await chatStore.stopGeneration()
 }
 
+/** Send an example prompt from the welcome screen (OPT-UI-01) */
+async function handleSendPrompt(prompt: string): Promise<void> {
+  // Ensure we have a conversation first
+  if (!chatStore.currentConversation) {
+    const firstModel = modelStore.models[0]
+    if (!firstModel) {
+      uiStore.setCurrentView('settings')
+      return
+    }
+    await chatStore.newConversation(firstModel.id)
+  }
+  await chatStore.sendMessage(prompt)
+}
+
 const hasConversation = computed(() => chatStore.currentConversationId !== null)
+
+// ─── Message action handlers (OPT-UI-02) ───────────────────────
+
+/** Edit message modal state */
+const editingMessage = ref<ChatMessage | null>(null)
+const editContent = ref('')
+const showEditModal = ref(false)
+
+function handleCopyMessage(_content: string): void {
+  // Copy is handled inside MessageItem; this hook is for future extensions (e.g. toast)
+}
+
+/** Retry an assistant message: re-send the previous user message */
+async function handleRetryMessage(message: ChatMessage): Promise<void> {
+  const idx = chatStore.messages.findIndex((m) => m.id === message.id)
+  if (idx <= 0) return
+  const prevUserMessage = chatStore.messages[idx - 1]
+  if (prevUserMessage.role !== 'user') return
+
+  // Remove the assistant message being retried and any messages after it
+  chatStore.messages = chatStore.messages.slice(0, idx)
+
+  // Re-send the user message content
+  await chatStore.sendMessage(prevUserMessage.content)
+}
+
+/** Open edit modal for a user message */
+function handleEditMessage(message: ChatMessage): void {
+  editingMessage.value = message
+  editContent.value = message.content
+  showEditModal.value = true
+}
+
+/** Confirm edit: delete subsequent messages and re-send */
+async function handleConfirmEdit(): Promise<void> {
+  if (!editingMessage.value) return
+  const newContent = editContent.value.trim()
+  if (!newContent) return
+
+  const idx = chatStore.messages.findIndex((m) => m.id === editingMessage.value!.id)
+  if (idx !== -1) {
+    // Remove this message and everything after it
+    chatStore.messages = chatStore.messages.slice(0, idx)
+  }
+  showEditModal.value = false
+  editingMessage.value = null
+  await chatStore.sendMessage(newContent)
+}
+
+function handleCancelEdit(): void {
+  showEditModal.value = false
+  editingMessage.value = null
+  editContent.value = ''
+}
+
+async function handleDeleteMessage(messageId: string): Promise<void> {
+  await chatStore.deleteMessage(messageId)
+}
 
 // OPT2-11: Agent 模式下流式内容在 agentStore 中累积，
 // 但 MessageList 接收的是 chatStore.streamingContent，导致 Agent 流式文本不显示。
@@ -178,6 +287,14 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
         :messages="chatStore.messages"
         :streaming-content="activeStreamingContent"
         :is-generating="isGenerating"
+        @copy="handleCopyMessage"
+        @retry="handleRetryMessage"
+        @edit="handleEditMessage"
+        @delete-message="handleDeleteMessage"
+        @new-chat="handleNewChat"
+        @open-settings="handleOpenSettings"
+        @open-kb="handleOpenKb"
+        @send-prompt="handleSendPrompt"
       />
       <ExecutionPanel />
       <ChatInput
@@ -189,6 +306,26 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
       <!-- Voice control panel (V1-08) - fixed position global player -->
       <VoiceControlPanel />
     </main>
+
+    <!-- Edit message modal (OPT-UI-02) -->
+    <NModal
+      v-model:show="showEditModal"
+      preset="dialog"
+      title="编辑消息"
+      positive-text="发送"
+      negative-text="取消"
+      @positive-click="handleConfirmEdit"
+      @negative-click="handleCancelEdit"
+      @close="handleCancelEdit"
+    >
+      <NInput
+        v-model:value="editContent"
+        type="textarea"
+        :rows="4"
+        placeholder="编辑消息内容..."
+        @keydown.enter.prevent="handleConfirmEdit"
+      />
+    </NModal>
   </div>
 </template>
 
