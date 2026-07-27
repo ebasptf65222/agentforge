@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // P1-17: MessageList - renders all messages with smart auto-scroll
 
-import { ref, watch, nextTick, computed } from 'vue'
+import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue'
 import type { ChatMessage } from '@shared/types'
 import MessageItem from '@/components/MessageItem/MessageItem.vue'
 
@@ -113,11 +113,19 @@ watch(
   },
   { flush: 'post' },
 )
+
+// 使用 passive 滚动监听，消除 Violation 警告
+onMounted(() => {
+  scrollContainer.value?.addEventListener('scroll', handleScroll, { passive: true })
+})
+onUnmounted(() => {
+  scrollContainer.value?.removeEventListener('scroll', handleScroll)
+})
 </script>
 
 <template>
   <div class="message-list__container">
-    <div ref="scrollContainer" class="message-list" @scroll="handleScroll">
+    <div ref="scrollContainer" class="message-list">
       <!-- Empty state -->
       <div v-if="messages.length === 0" class="message-list__empty">
         <div class="message-list__empty-icon">💬</div>

@@ -19,10 +19,10 @@ const voiceStore = useVoiceStore()
 const showVolumeSlider = ref(false)
 const showSpeedSlider = ref(false)
 
-/** 是否显示控制面板（播放中、暂停中或已结束但未关闭 */
+/** 是否显示控制面板（播放中或暂停中，loading 时不显示） */
 const visible = computed(() => {
   const state = voiceStore.ttsState
-  return state === 'playing' || state === 'paused' || state === 'loading'
+  return state === 'playing' || state === 'paused'
 })
 
 /** 进度百分比 */
@@ -193,28 +193,28 @@ const displayText = computed(() => {
   bottom: 80px;
   left: 50%;
   transform: translateX(-50%);
-  width: 560px;
+  width: 420px;
   max-width: calc(100% - 32px);
   background: var(--af-bg-surface, #1e293b);
   border: 1px solid var(--af-border, #374151);
-  border-radius: 12px;
-  padding: 12px 16px;
+  border-radius: 10px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  gap: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   z-index: 1000;
 }
 
 .voice-control-panel__text {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--af-text-primary, #e5e7eb);
-  line-height: 1.4;
-  max-height: 36px;
+  line-height: 1.3;
+  max-height: 28px;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
 }
 
@@ -251,7 +251,7 @@ const displayText = computed(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 12px;
+  margin-top: 6px;
 }
 
 .voice-control-panel__btn {

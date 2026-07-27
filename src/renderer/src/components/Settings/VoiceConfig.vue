@@ -169,7 +169,7 @@ async function updateTtsProvider(value: VoiceProvider): Promise<void> {
     patch.model = 'mimo-v2.5-tts'
     patch.voice = 'mimo_default'
     patch.format = 'wav'
-    patch.baseUrl = 'https://api.xiaomimimo.com/v1'
+    patch.baseUrl = 'https://token-plan-cn.xiaomimimo.com/v1'
   } else if (value === 'openai') {
     patch.model = 'tts-1'
     patch.voice = 'alloy'

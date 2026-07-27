@@ -47,6 +47,10 @@ export const useVoiceStore = defineStore('voice', () => {
   let player: TtsPlayer | null = null
   let recorder: SttRecorder | null = null
 
+  // ─── TTS Audio Cache ───
+  /** 消息音频缓存：messageId → ArrayBuffer，避免重复请求 API */
+  const audioCache = new Map<string, ArrayBuffer>()
+
   // ─── Getters ─────────────────────────────────────────────────
 
   const ttsEnabled = computed(() => {
@@ -112,14 +116,17 @@ export const useVoiceStore = defineStore('voice', () => {
 
   /**
    * 播放指定消息的语音。
-   * 调用 TTS API 合成音频，然后播放。
+   * 优先使用缓存，缓存未命中时调用 TTS API。
    */
   async function playMessage(messageId: string, text: string): Promise<void> {
     if (!text.trim()) return
 
     const settingsStore = useSettingsStore()
     const ttsConfig = settingsStore.settings?.voice.tts
-    if (!ttsConfig?.enabled) return
+    if (!ttsConfig?.enabled) {
+      showToast('TTS 未启用，请在设置中开启语音播报', 'warning')
+      return
+    }
 
     // 如果正在播放同一条消息，切换暂停/继续
     if (currentMessageId.value === messageId && (ttsState.value === 'playing' || ttsState.value === 'paused')) {
@@ -135,22 +142,36 @@ export const useVoiceStore = defineStore('voice', () => {
     ttsError.value = null
 
     try {
-      ttsState.value = 'loading'
-      const audioBuffer = await window.electron.voice.synthesize(text, {
-        model: ttsConfig.model,
-        voice: ttsConfig.voice,
-        speed: ttsConfig.speed,
-        format: ttsConfig.format,
-      })
+      // 检查缓存
+      let audioBuffer = audioCache.get(messageId)
+
+      if (!audioBuffer) {
+        // 缓存未命中，调用 API
+        ttsState.value = 'loading'
+        audioBuffer = await window.electron.voice.synthesize(text, {
+          model: ttsConfig.model,
+          voice: ttsConfig.voice,
+          speed: ttsConfig.speed,
+          format: ttsConfig.format,
+        })
+        // 存入缓存（限制缓存大小，最多 20 条）
+        if (audioCache.size >= 20) {
+          const firstKey = audioCache.keys().next().value
+          if (firstKey) audioCache.delete(firstKey)
+        }
+        audioCache.set(messageId, audioBuffer)
+      }
 
       const player = getPlayer()
       player.setVolume(volume.value)
       player.setPlaybackRate(playbackRate.value)
-      await player.play(audioBuffer, `audio/${ttsConfig.format}`)
+      await player.play(audioBuffer, ttsConfig.format)
     } catch (error) {
+      console.error('[Voice] playMessage error:', error)
       ttsState.value = 'error'
       ttsError.value = error instanceof Error ? error.message : String(error)
       currentMessageId.value = null
+      showToast(`语音播放失败: ${ttsError.value}`, 'error')
     }
   }
 
@@ -324,7 +345,7 @@ export const useVoiceStore = defineStore('voice', () => {
       const p = getPlayer()
       p.setVolume(volume.value)
       p.setPlaybackRate(playbackRate.value)
-      p.enqueue(audioBuffer, text, `audio/${ttsConfig.format}`)
+      p.enqueue(audioBuffer, text, ttsConfig.format)
     } catch (error) {
       console.error('[Voice] Stream TTS synthesis error:', error)
       // 单句失败不中断整个流式播放

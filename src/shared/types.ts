@@ -295,7 +295,7 @@ type TtsVoice = string
 type TtsFormat = 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm' | 'pcm16'
 
 /** TTS 播放状态 */
-type TtsPlayState = 'idle' | 'playing' | 'paused' | 'finished' | 'error'
+type TtsPlayState = 'idle' | 'loading' | 'playing' | 'paused' | 'finished' | 'error'
 
 /** STT 录音状态 */
 type SttRecordState = 'idle' | 'recording' | 'transcribing' | 'error'

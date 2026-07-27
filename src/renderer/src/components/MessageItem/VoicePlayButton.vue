@@ -6,6 +6,7 @@ import { computed } from 'vue'
 import { NIcon, NTooltip } from 'naive-ui'
 import { PlayArrowOutlined, PauseOutlined, ReplayOutlined, ErrorOutlined } from '@vicons/material'
 import { useVoiceStore } from '@/stores/voice'
+import { showToast } from '@/utils/toast'
 import type { ChatMessage } from '@shared/types'
 
 const props = defineProps<{
@@ -56,7 +57,12 @@ const iconComponent = computed(() => {
 
 async function handleClick(): Promise<void> {
   if (props.message.role !== 'assistant') return
-  await voiceStore.playMessage(props.message.id, props.message.content)
+  try {
+    await voiceStore.playMessage(props.message.id, props.message.content)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`语音播放失败: ${message}`, 'error')
+  }
 }
 </script>
 

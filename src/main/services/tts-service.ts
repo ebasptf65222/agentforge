@@ -1,6 +1,6 @@
 // AgentForge V1-02: TTS 语音合成服务
-// 封装 OpenAI 兼容 TTS API（POST /audio/speech）
-// 支持 openai / azure / custom 提供商
+// 封装 OpenAI 兼容 TTS API（POST /audio/speech）+ MiMo Chat Completions TTS
+// 支持 openai / azure / mimo / custom 提供商
 // 返回 ArrayBuffer 格式的音频数据
 
 import OpenAI from 'openai'
@@ -12,6 +12,7 @@ import { getSettings } from '../db/repos/app-settings'
 /**
  * TTS 服务。
  * 调用 OpenAI 兼容的语音合成 API，返回音频 ArrayBuffer。
+ * MiMo 提供商使用 chat.completions.create + audio 参数。
  */
 export class TtsService {
   private client: OpenAI | null = null
@@ -53,12 +54,95 @@ export class TtsService {
       return baseUrl || 'https://api.openai.com/v1'
     }
     if (provider === 'azure') {
-      // Azure OpenAI 格式：https://{resource}.openai.azure.com/
-      // SDK 会自动处理部署路径
       return baseUrl
     }
-    // custom: 直接使用用户提供的 URL
+    if (provider === 'mimo') {
+      // 自动修正旧的 MiMo URL（api.xiaomimimo.com 已不可用）
+      if (!baseUrl || baseUrl.includes('api.xiaomimimo.com')) {
+        return 'https://token-plan-cn.xiaomimimo.com/v1'
+      }
+      return baseUrl
+    }
     return baseUrl
+  }
+
+  /**
+   * MiMo TTS 合成：通过 chat.completions.create + audio 参数。
+   * MiMo 不支持 /audio/speech 端点，必须用 chat completions 方式调用。
+   */
+  private async synthesizeMiMo(
+    client: OpenAI,
+    text: string,
+    voice: string,
+    format: TtsFormat,
+  ): Promise<ArrayBuffer> {
+    const response = await client.chat.completions.create({
+      model: 'mimo-v2.5-tts',
+      messages: [
+        { role: 'user', content: '' },
+        { role: 'assistant', content: text },
+      ],
+      audio: { format: format === 'pcm16' ? 'wav' : format, voice },
+    } as any)
+
+    const message = response.choices?.[0]?.message as any
+    const audioData = message?.audio?.data
+    if (!audioData) {
+      throw new AppError(
+        ErrorCodes.VOICE_TTS_ERROR,
+        'MiMo TTS 返回数据中没有音频内容',
+      )
+    }
+
+    // MiMo 返回 base64 编码的音频数据
+    const buffer = Buffer.from(audioData, 'base64')
+    return buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    ) as ArrayBuffer
+  }
+
+  /**
+   * OpenAI / Azure / 自定义 TTS 合成：通过 /audio/speech 端点。
+   */
+  private async synthesizeOpenAI(
+    client: OpenAI,
+    text: string,
+    model: string,
+    voice: string,
+    speed: number,
+    format: TtsFormat,
+  ): Promise<ArrayBuffer> {
+    const response = await client.audio.speech.create({
+      model,
+      input: text,
+      voice,
+      speed,
+      response_format: format,
+    })
+    const buffer = Buffer.from(await response.arrayBuffer())
+    return buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    ) as ArrayBuffer
+  }
+
+  /**
+   * 根据提供商选择合成方式并调用。
+   */
+  private async doSynthesize(
+    client: OpenAI,
+    config: VoiceConfig['tts'],
+    text: string,
+    model: string,
+    voice: string,
+    speed: number,
+    format: TtsFormat,
+  ): Promise<ArrayBuffer> {
+    if (config.provider === 'mimo') {
+      return this.synthesizeMiMo(client, text, voice, format)
+    }
+    return this.synthesizeOpenAI(client, text, model, voice, speed, format)
   }
 
   /**
@@ -98,45 +182,30 @@ export class TtsService {
     const responseFormat = (options?.format ?? config.format) as TtsFormat
 
     try {
-      const response = await client.audio.speech.create({
-        model,
-        input: text,
-        voice,
-        speed,
-        response_format: responseFormat,
-      })
-
-      const buffer = Buffer.from(await response.arrayBuffer())
-      return buffer.buffer.slice(
-        buffer.byteOffset,
-        buffer.byteOffset + buffer.byteLength,
-      ) as ArrayBuffer
+      return await this.doSynthesize(client, config, text, model, voice, speed, responseFormat)
     } catch (error) {
       if (error instanceof AuthenticationError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           'TTS API Key 无效，请检查配置',
-          { cause: error },
         )
       }
       if (error instanceof APIConnectionTimeoutError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           'TTS 请求超时，请检查网络连接',
-          { cause: error },
         )
       }
       if (error instanceof APIError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           `TTS API 错误: ${error.message}`,
-          { status: error.status, cause: error },
+          { status: error.status },
         )
       }
       throw new AppError(
         ErrorCodes.VOICE_TTS_ERROR,
         `语音合成失败: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
       )
     }
   }
@@ -165,44 +234,33 @@ export class TtsService {
     })
 
     try {
-      const response = await client.audio.speech.create({
-        model: config.model,
-        input: testText,
-        voice: config.voice,
-        speed: config.speed,
-        response_format: config.format as TtsFormat,
-      })
-      const buffer = Buffer.from(await response.arrayBuffer())
-      return buffer.buffer.slice(
-        buffer.byteOffset,
-        buffer.byteOffset + buffer.byteLength,
-      ) as ArrayBuffer
+      return await this.doSynthesize(
+        client, config, testText,
+        config.model, config.voice, config.speed, config.format as TtsFormat,
+      )
     } catch (error) {
       if (error instanceof AuthenticationError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           'TTS API Key 无效',
-          { cause: error },
         )
       }
       if (error instanceof APIConnectionTimeoutError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           'TTS 请求超时，请检查网络或 API 地址',
-          { cause: error },
         )
       }
       if (error instanceof APIError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           `TTS API 错误 (${error.status}): ${error.message}`,
-          { status: error.status, cause: error },
+          { status: error.status },
         )
       }
       throw new AppError(
         ErrorCodes.VOICE_TTS_ERROR,
         `TTS 测试失败: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
       )
     }
   }

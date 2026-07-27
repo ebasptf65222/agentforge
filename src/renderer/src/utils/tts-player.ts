@@ -5,6 +5,78 @@
 
 export type PlayerState = 'idle' | 'loading' | 'playing' | 'paused' | 'finished' | 'error'
 
+/**
+ * 将 TTS 格式名转换为正确的浏览器 MIME 类型。
+ * 避免 `audio/mp3` 等无效 MIME 导致 Audio 元素无法解码。
+ */
+function formatToMimeType(format: string): string {
+  const map: Record<string, string> = {
+    mp3: 'audio/mpeg',
+    opus: 'audio/ogg; codecs=opus',
+    aac: 'audio/aac',
+    flac: 'audio/flac',
+    wav: 'audio/wav',
+    pcm: 'audio/wav',   // PCM 需要 WAV 容器才能播放
+    pcm16: 'audio/wav', // 同上
+  }
+  return map[format] ?? `audio/${format}`
+}
+
+/**
+ * 判断是否为原始 PCM 格式（需要 WAV 封装才能播放）。
+ */
+function isPcmFormat(format: string): boolean {
+  return format === 'pcm' || format === 'pcm16'
+}
+
+/**
+ * 将原始 16-bit PCM 数据封装为 WAV 文件。
+ * @param pcmData - 原始 PCM ArrayBuffer（16-bit little-endian, mono）
+ * @param sampleRate - 采样率，默认 24000（TTS 常用）
+ */
+function pcmToWav(pcmData: ArrayBuffer, sampleRate = 24000): ArrayBuffer {
+  const numChannels = 1
+  const bitsPerSample = 16
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8)
+  const blockAlign = numChannels * (bitsPerSample / 8)
+  const dataSize = pcmData.byteLength
+  const headerSize = 44
+  const totalSize = headerSize + dataSize
+
+  const buffer = new ArrayBuffer(totalSize)
+  const view = new DataView(buffer)
+
+  // RIFF header
+  writeString(view, 0, 'RIFF')
+  view.setUint32(4, totalSize - 8, true)
+  writeString(view, 8, 'WAVE')
+
+  // fmt sub-chunk
+  writeString(view, 12, 'fmt ')
+  view.setUint32(16, 16, true)         // sub-chunk size
+  view.setUint16(20, 1, true)          // PCM format
+  view.setUint16(22, numChannels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, byteRate, true)
+  view.setUint16(32, blockAlign, true)
+  view.setUint16(34, bitsPerSample, true)
+
+  // data sub-chunk
+  writeString(view, 36, 'data')
+  view.setUint32(40, dataSize, true)
+
+  // PCM samples
+  new Uint8Array(buffer, headerSize).set(new Uint8Array(pcmData))
+
+  return buffer
+}
+
+function writeString(view: DataView, offset: number, str: string): void {
+  for (let i = 0; i < str.length; i++) {
+    view.setUint8(offset + i, str.charCodeAt(i))
+  }
+}
+
 export interface PlayerOptions {
   /** 初始音量 0 ~ 1，默认 0.8 */
   volume?: number
@@ -48,14 +120,26 @@ export class TtsPlayer {
    * 停止当前播放并开始播放新音频。
    *
    * @param buffer - 音频 ArrayBuffer
-   * @param mimeType - MIME 类型，默认 audio/mpeg
+   * @param mimeTypeOrFormat - MIME 类型或格式名（如 'mp3'、'audio/mpeg'）
    */
-  async play(buffer: ArrayBuffer, mimeType = 'audio/mpeg'): Promise<void> {
+  async play(buffer: ArrayBuffer, mimeTypeOrFormat = 'audio/mpeg'): Promise<void> {
     this.stop()
     this.queue = []
     this.isPlayingQueue = false
 
-    await this.playBuffer(buffer, mimeType)
+    // PCM 格式需要封装为 WAV 才能播放
+    let actualBuffer = buffer
+    let mimeType: string
+    if (!mimeTypeOrFormat.includes('/') && isPcmFormat(mimeTypeOrFormat)) {
+      actualBuffer = pcmToWav(buffer)
+      mimeType = 'audio/wav'
+    } else if (mimeTypeOrFormat.includes('/')) {
+      mimeType = mimeTypeOrFormat
+    } else {
+      mimeType = formatToMimeType(mimeTypeOrFormat)
+    }
+
+    await this.playBuffer(actualBuffer, mimeType)
   }
 
   /**
@@ -63,8 +147,20 @@ export class TtsPlayer {
    * 如果当前没有在播放，立即开始播放。
    * （V1-04 流式播放使用）
    */
-  enqueue(buffer: ArrayBuffer, text: string, mimeType = 'audio/mpeg'): void {
-    this.queue.push({ buffer, text })
+  enqueue(buffer: ArrayBuffer, text: string, mimeTypeOrFormat = 'audio/mpeg'): void {
+    // PCM 格式需要封装为 WAV 才能播放
+    let actualBuffer = buffer
+    let mimeType: string
+    if (!mimeTypeOrFormat.includes('/') && isPcmFormat(mimeTypeOrFormat)) {
+      actualBuffer = pcmToWav(buffer)
+      mimeType = 'audio/wav'
+    } else if (mimeTypeOrFormat.includes('/')) {
+      mimeType = mimeTypeOrFormat
+    } else {
+      mimeType = formatToMimeType(mimeTypeOrFormat)
+    }
+
+    this.queue.push({ buffer: actualBuffer, text })
     if (!this.isPlayingQueue && (this._state === 'idle' || this._state === 'finished')) {
       void this.playNextFromQueue(mimeType)
     }
@@ -177,55 +273,81 @@ export class TtsPlayer {
   private async playBuffer(buffer: ArrayBuffer, mimeType: string): Promise<void> {
     this.setState('loading')
 
+    let audio: HTMLAudioElement | null = null
+    let url: string | null = null
+
     try {
       const blob = new Blob([buffer], { type: mimeType })
-      const url = URL.createObjectURL(blob)
+      url = URL.createObjectURL(blob)
 
-      const audio = new Audio()
+      audio = new Audio()
+      audio.preload = 'auto'
       audio.src = url
       audio.volume = this._volume
       audio.playbackRate = this._playbackRate
 
-      audio.onloadedmetadata = () => {
-        this._duration = audio.duration
-      }
+      // 用 Promise 包装音频事件，确保 error 能正确 reject
+      await new Promise<void>((resolve, reject) => {
+        let settled = false
 
-      audio.ontimeupdate = () => {
-        this._currentTime = audio.currentTime
-        this.options.onProgress?.(audio.currentTime, this._duration)
-      }
-
-      audio.onended = () => {
-        URL.revokeObjectURL(url)
-        this._currentTime = this._duration
-        this.options.onProgress?.(this._duration, this._duration)
-
-        if (this.isPlayingQueue && this.queue.length > 0) {
-          // 播放队列下一句
-          void this.playNextFromQueue(mimeType)
-        } else {
-          this.isPlayingQueue = false
-          this.setState('finished')
-          this.options.onEnded?.()
+        audio!.onloadedmetadata = () => {
+          this._duration = audio!.duration
         }
-      }
 
-      audio.onerror = () => {
-        URL.revokeObjectURL(url)
-        this.setState('error')
-        this.options.onError?.(new Error('音频播放失败'))
-      }
+        audio!.ontimeupdate = () => {
+          this._currentTime = audio!.currentTime
+          this.options.onProgress?.(audio!.currentTime, this._duration)
+        }
+
+        audio!.onended = () => {
+          if (url) URL.revokeObjectURL(url)
+          this._currentTime = this._duration
+          this.options.onProgress?.(this._duration, this._duration)
+
+          if (this.isPlayingQueue && this.queue.length > 0) {
+            void this.playNextFromQueue(mimeType)
+          } else {
+            this.isPlayingQueue = false
+            this.setState('finished')
+            this.options.onEnded?.()
+          }
+        }
+
+        audio!.onerror = () => {
+          if (settled) return
+          settled = true
+          const mediaError = audio!.error
+          const errMsg = mediaError
+            ? `音频播放失败 (code ${mediaError.code}): ${mediaError.message}`
+            : '音频播放失败'
+          console.error('[TtsPlayer]', errMsg)
+          if (url) URL.revokeObjectURL(url)
+          this.setState('error')
+          reject(new Error(errMsg))
+        }
+
+        // play() 返回 Promise，成功或失败都标记 settled
+        audio!.play().then(() => {
+          if (settled) return
+          settled = true
+          resolve()
+        }).catch((err) => {
+          if (settled) return
+          settled = true
+          reject(err)
+        })
+      })
 
       this.audio = audio
-      await audio.play()
       this.setState('playing')
     } catch (error) {
-      // OPT2-23: play() 失败时清理 Object URL，避免内存泄漏
-      if (audio) {
-        URL.revokeObjectURL(audio.src)
+      if (url) {
+        URL.revokeObjectURL(url)
       }
       this.setState('error')
-      this.options.onError?.(error instanceof Error ? error : new Error(String(error)))
+      const err = error instanceof Error ? error : new Error(String(error))
+      this.options.onError?.(err)
+      throw err
     }
   }
 

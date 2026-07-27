@@ -109,27 +109,24 @@ export class SttService {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           'STT API Key 无效，请检查配置',
-          { cause: error },
         )
       }
       if (error instanceof APIConnectionTimeoutError) {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           'STT 请求超时，请检查网络连接',
-          { cause: error },
         )
       }
       if (error instanceof APIError) {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           `STT API 错误: ${error.message}`,
-          { status: error.status, cause: error },
+          { status: error.status },
         )
       }
       throw new AppError(
         ErrorCodes.VOICE_STT_ERROR,
         `语音识别失败: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
       )
     }
   }
@@ -175,27 +172,24 @@ export class SttService {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           'STT API Key 无效',
-          { cause: error },
         )
       }
       if (error instanceof APIConnectionTimeoutError) {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           'STT 请求超时，请检查网络或 API 地址',
-          { cause: error },
         )
       }
       if (error instanceof APIError) {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           `STT API 错误 (${error.status}): ${error.message}`,
-          { status: error.status, cause: error },
+          { status: error.status },
         )
       }
       throw new AppError(
         ErrorCodes.VOICE_STT_ERROR,
         `STT 测试失败: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
       )
     }
   }
