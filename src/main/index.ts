@@ -9,6 +9,7 @@ import {
 } from './utils/window-state'
 import { initDatabase, closeDatabase } from './db/index'
 import { registerIpcHandlers } from './ipc/index'
+import { initBuiltinTools } from './tools/registry-init'
 
 // ─── 资源清理注册表 ───────────────────────────────────────────────
 // P1-03: db.close() 已注册
@@ -190,11 +191,6 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
-  // 开发环境打开 DevTools
-  if (!app.isPackaged) {
-    mainWindow.webContents.openDevTools()
-  }
-
   // 窗口内容就绪后显示，避免白屏闪烁
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
@@ -234,6 +230,9 @@ if (!gotTheLock) {
 
     // 注册所有 IPC handlers（P1-06 起）
     registerIpcHandlers()
+
+    // 注册所有内置工具到全局 ToolRegistry（Agent 依赖此注册表获取工具）
+    initBuiltinTools()
 
     // 设置原生菜单（隐藏菜单栏 / macOS 最小化菜单）
     setupMenu()
