@@ -2,8 +2,8 @@
 // WS-05: FilePreview - previews text file content from the workspace.
 // Shows content for text files, error for unsupported types or large files.
 
-import { computed } from 'vue'
-import { NIcon, NSpin } from 'naive-ui'
+import { computed, ref, watch } from 'vue'
+import { NIcon, NSpin, NTag } from 'naive-ui'
 import { CloseOutlined, WarningAmberOutlined } from '@vicons/material'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -12,15 +12,83 @@ const workspaceStore = useWorkspaceStore()
 const hasPreview = computed(() => workspaceStore.previewPath !== null)
 const isError = computed(() => workspaceStore.previewError !== null)
 const isLoading = computed(() => workspaceStore.previewLoading)
+
+/** Detect language from file path for highlighting */
+const previewLanguage = computed(() => {
+  const path = workspaceStore.previewPath ?? ''
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  const langMap: Record<string, string> = {
+    js: 'javascript', ts: 'typescript', jsx: 'jsx', tsx: 'tsx',
+    vue: 'vue', html: 'html', css: 'css', scss: 'scss', sass: 'sass',
+    py: 'python', java: 'java', go: 'go', rs: 'rust', c: 'c', cpp: 'cpp',
+    h: 'c', hpp: 'cpp', cs: 'csharp', rb: 'ruby', php: 'php', swift: 'swift',
+    kt: 'kotlin', scala: 'scala', r: 'r', m: 'objective-c', mm: 'objective-c',
+    sh: 'bash', bash: 'bash', zsh: 'bash', fish: 'fish', ps1: 'powershell',
+    json: 'json', yaml: 'yaml', yml: 'yaml', xml: 'xml', toml: 'toml',
+    md: 'markdown', sql: 'sql', dockerfile: 'dockerfile', env: 'ini',
+    ini: 'ini', cfg: 'ini', conf: 'ini', log: 'log',
+  }
+  return langMap[ext] || ext || 'text'
+})
+
+/** Simple regex-based syntax highlighting */
+const highlightedContent = computed(() => {
+  const raw = workspaceStore.previewContent ?? ''
+  const lang = previewLanguage.value
+
+  // Skip highlighting for large files (>50KB) or non-code files
+  if (raw.length > 50000 || ['text', 'log', 'markdown', 'txt'].includes(lang)) {
+    return escapeHtml(raw)
+  }
+
+  return simpleHighlight(raw, lang)
+})
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+function simpleHighlight(code: string, _lang: string): string {
+  let html = escapeHtml(code)
+
+  // Comments (single line)
+  html = html.replace(/(\/\/.*$|#.*$|--.*$)/gm, '<span class="token-comment">$1</span>')
+  // Multi-line comments (basic)
+  html = html.replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="token-comment">$1</span>')
+  // Strings (single/double quotes, basic)
+  html = html.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '<span class="token-string">$1</span>')
+  // Numbers
+  html = html.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="token-number">$1</span>')
+  // Common keywords
+  const keywords = [
+    'const', 'let', 'var', 'function', 'return', 'if', 'else', 'for', 'while',
+    'import', 'export', 'from', 'class', 'extends', 'new', 'try', 'catch',
+    'async', 'await', 'typeof', 'instanceof', 'true', 'false', 'null', 'undefined',
+    'def', 'class', 'if', 'elif', 'else', 'for', 'while', 'return', 'import', 'from',
+    'public', 'private', 'static', 'void', 'int', 'float', 'double', 'boolean',
+  ]
+  const kwPattern = new RegExp(`\\b(${keywords.join('|')})\\b`, 'g')
+  html = html.replace(kwPattern, '<span class="token-keyword">$1</span>')
+
+  return html
+}
 </script>
 
 <template>
   <div v-if="hasPreview" class="file-preview">
     <!-- Header -->
     <div class="file-preview__header">
-      <span class="file-preview__filename" :title="workspaceStore.previewPath ?? ''">
-        {{ workspaceStore.previewPath }}
-      </span>
+      <div class="file-preview__meta">
+        <NTag size="tiny" type="info" class="file-preview__lang">
+          {{ previewLanguage }}
+        </NTag>
+        <span class="file-preview__filename" :title="workspaceStore.previewPath ?? ''">
+          {{ workspaceStore.previewPath }}
+        </span>
+      </div>
       <button
         class="file-preview__close"
         type="button"
@@ -49,7 +117,12 @@ const isLoading = computed(() => workspaceStore.previewLoading)
       </div>
 
       <!-- Content -->
-      <pre v-else class="file-preview__content">{{ workspaceStore.previewContent }}</pre>
+      <pre
+        v-else
+        class="file-preview__content"
+        :data-language="previewLanguage"
+        v-html="highlightedContent"
+      />
     </div>
   </div>
 </template>
@@ -73,6 +146,19 @@ const isLoading = computed(() => workspaceStore.previewLoading)
   background-color: var(--af-bg-surface, #111827);
   border-bottom: 1px solid var(--af-border, #374151);
   flex-shrink: 0;
+}
+
+.file-preview__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-preview__lang {
+  flex-shrink: 0;
+  text-transform: lowercase;
 }
 
 .file-preview__filename {
@@ -155,5 +241,24 @@ const isLoading = computed(() => workspaceStore.previewLoading)
   background-color: transparent;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* Simple syntax highlighting tokens */
+:deep(.token-comment) {
+  color: #6b7280;
+  font-style: italic;
+}
+
+:deep(.token-string) {
+  color: #a5d6ff;
+}
+
+:deep(.token-number) {
+  color: #fca5a5;
+}
+
+:deep(.token-keyword) {
+  color: #c4b5fd;
+  font-weight: 600;
 }
 </style>

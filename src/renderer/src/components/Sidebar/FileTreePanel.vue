@@ -3,11 +3,14 @@
 // Displays a collapsible file tree with lazy-loaded subdirectories.
 // Clicking a file opens it in the FilePreview component.
 
-import { onMounted, watch } from 'vue'
-import { NIcon, NButton, NSpin, NEmpty } from 'naive-ui'
+import { onMounted, watch, ref, h } from 'vue'
+import { NIcon, NButton, NSpin, NEmpty, NDropdown } from 'naive-ui'
 import {
   RefreshOutlined,
   ArrowBackOutlined,
+  OpenInNewOutlined,
+  ContentCopyOutlined,
+  DeleteOutlined,
 } from '@vicons/material'
 import type { FileTreeNode } from '@shared/types'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -16,6 +19,46 @@ import FileTreeNodeItem from './FileTreeNodeItem.vue'
 
 const workspaceStore = useWorkspaceStore()
 const uiStore = useUiStore()
+
+// Context menu state
+const showContextMenu = ref(false)
+const contextMenuX = ref(0)
+const contextMenuY = ref(0)
+const contextMenuNode = ref<FileTreeNode | null>(null)
+
+const contextMenuOptions = [
+  { key: 'open', label: '打开文件', icon: () => h(NIcon, null, () => h(OpenInNewOutlined)) },
+  { key: 'copy', label: '复制路径', icon: () => h(NIcon, null, () => h(ContentCopyOutlined)) },
+  { key: 'delete', label: '删除', icon: () => h(NIcon, null, () => h(DeleteOutlined)) },
+]
+
+function handleContextMenu(node: FileTreeNode, event: MouseEvent): void {
+  contextMenuNode.value = node
+  contextMenuX.value = event.clientX
+  contextMenuY.value = event.clientY
+  showContextMenu.value = true
+}
+
+function handleContextMenuSelect(key: string): void {
+  const node = contextMenuNode.value
+  if (!node) return
+
+  switch (key) {
+    case 'open':
+      if (!node.isDirectory) {
+        void workspaceStore.previewFile(node)
+      }
+      break
+    case 'copy':
+      void navigator.clipboard.writeText(node.relativePath)
+      break
+    case 'delete':
+      // TODO: implement delete via workspaceStore
+      break
+  }
+  showContextMenu.value = false
+  contextMenuNode.value = null
+}
 
 onMounted(async () => {
   await workspaceStore.loadTree()
@@ -111,6 +154,7 @@ function handleGoToSettings(): void {
             :depth="0"
             :is-expanded="(path: string) => workspaceStore.isExpanded(path)"
             :on-toggle="handleNodeClick"
+            :on-context-menu="handleContextMenu"
           />
         </template>
         <div v-else class="file-tree-panel__empty">
@@ -118,6 +162,18 @@ function handleGoToSettings(): void {
         </div>
       </div>
     </div>
+
+    <!-- Context menu -->
+    <NDropdown
+      :show="showContextMenu"
+      :options="contextMenuOptions"
+      :x="contextMenuX"
+      :y="contextMenuY"
+      placement="bottom-start"
+      trigger="manual"
+      @select="handleContextMenuSelect"
+      @clickoutside="showContextMenu = false"
+    />
   </div>
 </template>
 

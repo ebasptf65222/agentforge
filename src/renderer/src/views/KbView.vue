@@ -18,6 +18,7 @@ import {
   NCollapse,
   NCollapseItem,
   NTooltip,
+  NPopconfirm,
   type DataTableColumns,
 } from 'naive-ui'
 import {
@@ -42,6 +43,38 @@ const uiStore = useUiStore()
 const showImportDialog = ref(false)
 const showSearchPanel = ref(false)
 const searchQuery = ref('')
+
+// ─── Batch operations (OPT-UI-06) ────────────────────────────
+
+const checkedRowKeys = ref<string[]>([])
+
+const hasSelection = computed(() => checkedRowKeys.value.length > 0)
+const selectionCount = computed(() => checkedRowKeys.value.length)
+
+function handleSelectAll(): void {
+  checkedRowKeys.value = kbStore.documents.map((d) => d.id)
+}
+
+function handleClearSelection(): void {
+  checkedRowKeys.value = []
+}
+
+async function handleBatchDelete(): Promise<void> {
+  for (const id of checkedRowKeys.value) {
+    await kbStore.deleteDocument(id)
+  }
+  checkedRowKeys.value = []
+}
+
+async function handleBatchIndex(): Promise<void> {
+  for (const id of checkedRowKeys.value) {
+    const doc = kbStore.documents.find((d) => d.id === id)
+    if (doc && doc.status === 'ready' && !kbStore.isIndexing(id)) {
+      await kbStore.indexDocument(id)
+    }
+  }
+  checkedRowKeys.value = []
+}
 
 // ─── Import Dialog State ─────────────────────────────────────
 
@@ -348,6 +381,23 @@ const columns = computed<DataTableColumns<KbDocument>>(() => [
       </NButton>
     </div>
 
+    <!-- Batch operation bar (OPT-UI-06) -->
+    <div v-if="hasSelection" class="kb-batch-bar">
+      <span class="kb-batch-bar__text">已选择 {{ selectionCount }} 项</span>
+      <NSpace :size="8">
+        <NButton size="small" @click="handleClearSelection">取消选择</NButton>
+        <NButton size="small" type="primary" :disabled="kbStore.importing" @click="handleBatchIndex">
+          批量索引
+        </NButton>
+        <NPopconfirm :show-icon="false" @positive-click="handleBatchDelete">
+          <template #trigger>
+            <NButton size="small" type="error">批量删除</NButton>
+          </template>
+          <span>确定要删除选中的 {{ selectionCount }} 个文档吗？</span>
+        </NPopconfirm>
+      </NSpace>
+    </div>
+
     <!-- Search Panel -->
     <div v-if="showSearchPanel" class="kb-search">
       <div class="kb-search__input-row">
@@ -396,6 +446,13 @@ const columns = computed<DataTableColumns<KbDocument>>(() => [
         :pagination="false"
         :bordered="false"
         :row-key="(row: KbDocument) => row.id"
+        :row-selection="{
+          type: 'checkbox',
+          checkedRowKeys: checkedRowKeys,
+          onUpdateCheckedRowKeys: (keys: string[]) => {
+            checkedRowKeys.value = keys
+          },
+        }"
       />
     </div>
 
@@ -640,6 +697,22 @@ const columns = computed<DataTableColumns<KbDocument>>(() => [
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ─── Batch operation bar (OPT-UI-06) ─────────── */
+.kb-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 20px;
+  background-color: var(--af-bg-surface, #1e293b);
+  border-bottom: 1px solid var(--af-border-light, #1f2937);
+  flex-shrink: 0;
+}
+
+.kb-batch-bar__text {
+  font-size: 13px;
+  color: var(--af-text-secondary, #cbd5e1);
 }
 
 /* ─── Form Layout ─────────────────────────────── */

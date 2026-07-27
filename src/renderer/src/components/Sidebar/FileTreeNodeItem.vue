@@ -27,6 +27,10 @@ const FileTreeNodeItem = defineComponent({
       type: Function as PropType<(node: FileTreeNode) => void>,
       required: true,
     },
+    onContextMenu: {
+      type: Function as PropType<(node: FileTreeNode, event: MouseEvent) => void>,
+      required: false,
+    },
   },
   setup(props) {
     return () => {
@@ -49,6 +53,12 @@ const FileTreeNodeItem = defineComponent({
           class: ['tree-node', { 'tree-node--dir': props.node.isDirectory }],
           style: { paddingLeft: `${indent}px` },
           onClick: () => props.onToggle(props.node),
+          onContextmenu: (e: MouseEvent) => {
+            if (props.onContextMenu) {
+              e.preventDefault()
+              props.onContextMenu(props.node, e)
+            }
+          },
         },
         [icon, label],
       )
@@ -64,6 +74,7 @@ const FileTreeNodeItem = defineComponent({
               depth: props.depth + 1,
               isExpanded: props.isExpanded,
               onToggle: props.onToggle,
+              onContextMenu: props.onContextMenu,
             }),
           )
         }
