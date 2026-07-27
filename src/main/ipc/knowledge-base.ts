@@ -3,11 +3,8 @@
 // 实现 P5-01: 知识库 IPC 层，连接 KB 后端与渲染进程
 
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
-import { resolve } from 'node:path'
 import type { KbDocument, SearchResult, KbStats } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
-import { getSettings } from '../db/repos/app-settings'
-import { isPathInWorkspace } from '../tools/path-guard'
 import { listKbDocuments, getKbDocumentById, countKbDocuments } from '../db/repos/kb-document'
 import { countAllKbChunks, getKbChunksWithEmbeddings } from '../db/repos/kb-chunk'
 import { importDocument, reimportDocument, removeDocument } from '../knowledge-base/importer'
@@ -84,18 +81,7 @@ async function handleImport(
   const filePath = params['filePath']
   const fileName = params['fileName']
 
-  // OPT2-01: 限制文件路径必须在工作区内，防止任意文件读取
-  const settings = getSettings()
-  if (settings.workspacePath) {
-    const resolvedPath = resolve(filePath)
-    if (!isPathInWorkspace(settings.workspacePath, resolvedPath)) {
-      throw new AppError(
-        ErrorCodes.WORKSPACE_PATH_ESCAPE,
-        `File path "${filePath}" is outside the workspace boundary.`,
-        { filePath, workspacePath: settings.workspacePath },
-      )
-    }
-  }
+  // 知识库导入不限制工作区路径——用户可通过系统文件对话框自由选择文档导入
   const fileType = params['fileType'] as KbDocument['fileType']
 
   const options: ImportOptions = {}

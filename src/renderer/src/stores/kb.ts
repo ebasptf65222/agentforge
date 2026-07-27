@@ -52,8 +52,8 @@ export const useKbStore = defineStore('kb', () => {
   async function loadStats(): Promise<void> {
     try {
       stats.value = await window.electron.kb.stats()
-    } catch {
-      // Silent fail for stats
+    } catch (error) {
+      console.error('[KbStore] Failed to load stats:', error)
     }
   }
 
@@ -108,7 +108,11 @@ export const useKbStore = defineStore('kb', () => {
       const params: KbIndexParams = { id }
       if (batchSize !== undefined) params.batchSize = batchSize
       const count = await window.electron.kb.index(params)
-      showToast(`索引完成，已生成 ${count} 个嵌入`, 'success')
+      if (count === 0) {
+        showToast('所有分块已有嵌入，无需重新索引', 'info')
+      } else {
+        showToast(`索引完成，已生成 ${count} 个嵌入`, 'success')
+      }
       await loadStats()
     } catch (error) {
       const message = getErrorMessage(error)

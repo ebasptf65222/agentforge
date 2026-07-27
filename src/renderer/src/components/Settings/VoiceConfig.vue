@@ -53,16 +53,29 @@ const showSttTestModal = ref(false)
 const PROVIDER_OPTIONS: ReadonlyArray<{ value: VoiceProvider; label: string }> = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'azure', label: 'Azure' },
+  { value: 'mimo', label: '小米 MiMo' },
   { value: 'custom', label: '自定义' },
 ]
 
-const VOICE_OPTIONS: ReadonlyArray<{ value: TtsVoice; label: string }> = [
+const OPENAI_VOICE_OPTIONS: ReadonlyArray<{ value: TtsVoice; label: string }> = [
   { value: 'alloy', label: 'alloy' },
   { value: 'echo', label: 'echo' },
   { value: 'fable', label: 'fable' },
   { value: 'onyx', label: 'onyx' },
   { value: 'nova', label: 'nova' },
   { value: 'shimmer', label: 'shimmer' },
+]
+
+const MIMO_VOICE_OPTIONS: ReadonlyArray<{ value: TtsVoice; label: string }> = [
+  { value: 'mimo_default', label: 'MiMo 默认' },
+  { value: '冰糖', label: '冰糖（中文女声）' },
+  { value: '茉莉', label: '茉莉（中文女声）' },
+  { value: '苏打', label: '苏打（中文男声）' },
+  { value: '白桦', label: '白桦（中文男声）' },
+  { value: 'Mia', label: 'Mia（英文女声）' },
+  { value: 'Chloe', label: 'Chloe（英文女声）' },
+  { value: 'Milo', label: 'Milo（英文男声）' },
+  { value: 'Dean', label: 'Dean（英文男声）' },
 ]
 
 const FORMAT_OPTIONS: ReadonlyArray<{ value: TtsFormat; label: string }> = [
@@ -72,15 +85,21 @@ const FORMAT_OPTIONS: ReadonlyArray<{ value: TtsFormat; label: string }> = [
   { value: 'flac', label: 'flac' },
   { value: 'wav', label: 'wav' },
   { value: 'pcm', label: 'pcm' },
+  { value: 'pcm16', label: 'pcm16（MiMo 流式）' },
 ]
 
 const providerOptions = computed<SelectOption[]>(() =>
   PROVIDER_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
 )
 
-const voiceOptions = computed<SelectOption[]>(() =>
-  VOICE_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
-)
+/** 根据提供商动态切换音色列表 */
+const voiceOptions = computed<SelectOption[]>(() => {
+  const provider = tts.value.provider
+  if (provider === 'mimo') {
+    return MIMO_VOICE_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value }))
+  }
+  return OPENAI_VOICE_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value }))
+})
 
 const formatOptions = computed<SelectOption[]>(() =>
   FORMAT_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
@@ -141,8 +160,23 @@ async function updateTtsEnabled(value: boolean): Promise<void> {
   await updateVoice({ tts: { enabled: value } })
 }
 
+/**
+ * 切换 TTS 提供商时，自动填充推荐的默认值。
+ */
 async function updateTtsProvider(value: VoiceProvider): Promise<void> {
-  await updateVoice({ tts: { provider: value } })
+  const patch: Partial<TtsConfig> = { provider: value }
+  if (value === 'mimo') {
+    patch.model = 'mimo-v2.5-tts'
+    patch.voice = 'mimo_default'
+    patch.format = 'wav'
+    patch.baseUrl = 'https://api.xiaomimimo.com/v1'
+  } else if (value === 'openai') {
+    patch.model = 'tts-1'
+    patch.voice = 'alloy'
+    patch.format = 'mp3'
+    patch.baseUrl = ''
+  }
+  await updateVoice({ tts: patch })
 }
 
 async function updateTtsBaseUrl(value: string): Promise<void> {
@@ -326,7 +360,7 @@ function handleSttTestConfirm(): void {
             <NSelect
               :value="tts.voice"
               :options="voiceOptions"
-              @update:value="(v) => updateTtsVoice(v as TtsVoice)"
+              @update:value="(v) => updateTtsVoice(v)"
             />
           </NFormItem>
 
@@ -525,10 +559,13 @@ function handleSttTestConfirm(): void {
 }
 
 .voice-config__sections {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding-bottom: 24px;
+  overflow-y: auto;
 }
 
 .voice-card {

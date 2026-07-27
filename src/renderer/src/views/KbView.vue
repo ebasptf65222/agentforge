@@ -370,7 +370,7 @@ const columns = computed<DataTableColumns<KbDocument>>(() => [
           <p class="kb-search__result-content">{{ result.content }}</p>
         </div>
       </div>
-      <div v-else-if="!kbStore.searching && searchQuery" class="kb-search__empty">无搜索结果</div>
+      <div v-else-if="!kbStore.searching && searchQuery" class="kb-search__empty">无搜索结果。请确认文档已完成索引（嵌入生成）。</div>
     </div>
 
     <!-- Document List -->

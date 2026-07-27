@@ -298,10 +298,13 @@ async function handleExcludePatternsChange(patterns: string[]): Promise<void> {
 }
 
 .workspace-config__sections {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding-bottom: 24px;
+  overflow-y: auto;
 }
 
 .workspace-card {

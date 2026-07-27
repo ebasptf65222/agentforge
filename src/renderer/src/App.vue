@@ -1,18 +1,18 @@
 <template>
-  <NConfigProvider :theme="naiveTheme" :theme-overrides="naiveThemeOverrides">
-    <NMessageProvider>
-      <NDialogProvider>
-        <div class="app">
+  <div class="app">
+    <NConfigProvider :theme="naiveTheme" :theme-overrides="naiveThemeOverrides">
+      <NMessageProvider>
+        <NDialogProvider>
           <TitleBar />
           <div class="app__content">
             <ChatView v-if="uiStore.currentView === 'chat'" />
             <KbView v-else-if="uiStore.currentView === 'kb'" />
             <SettingsView v-else />
           </div>
-        </div>
-      </NDialogProvider>
-    </NMessageProvider>
-  </NConfigProvider>
+        </NDialogProvider>
+      </NMessageProvider>
+    </NConfigProvider>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -59,6 +59,28 @@ body {
 .app {
   width: 100%;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Naive-ui provider wrappers must fill the flex parent height */
+.app > .n-config-provider {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app > .n-config-provider > .n-message-provider {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app > .n-config-provider > .n-message-provider > .n-dialog-provider {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }

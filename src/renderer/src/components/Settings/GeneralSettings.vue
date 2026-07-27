@@ -299,8 +299,11 @@ const approvalTimeoutValue = computed<number | null>({
 }
 
 .general-settings__form {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
 }
 
 /* ─── Setting row ─────────────────────────────────────────── */

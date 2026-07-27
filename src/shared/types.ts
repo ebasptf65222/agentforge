@@ -286,13 +286,13 @@ interface SkillMatchResult {
 // ─── 5.6 语音类型 ────────────────────────────────────────────────
 
 /** 语音提供商 */
-type VoiceProvider = 'openai' | 'azure' | 'custom'
+type VoiceProvider = 'openai' | 'azure' | 'mimo' | 'custom'
 
-/** TTS 语音音色 */
-type TtsVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer'
+/** TTS 语音音色（字符串类型，适配不同提供商的音色名） */
+type TtsVoice = string
 
-/** TTS 音频格式 */
-type TtsFormat = 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm'
+/** TTS 音频格式（pcm16 用于 MiMo 流式，wav 用于 MiMo 非流式） */
+type TtsFormat = 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm' | 'pcm16'
 
 /** TTS 播放状态 */
 type TtsPlayState = 'idle' | 'playing' | 'paused' | 'finished' | 'error'
