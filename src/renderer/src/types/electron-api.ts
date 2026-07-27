@@ -355,6 +355,8 @@ interface WikiAPI {
   status(): Promise<WikiStatus>
   /** 初始化 Wiki 工作区结构 */
   init(): Promise<{ success: boolean }>
+  /** 将文件添加到 raw/ 目录 */
+  ingest(sourcePath: string): Promise<{ rawRelPath: string; fileName: string }>
 }
 
 /** window.electron 完整类型 */

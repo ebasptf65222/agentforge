@@ -242,6 +242,8 @@ const workspace = {
 const wiki = {
   status: (): Promise<unknown> => ipcRenderer.invoke('wiki:status'),
   init: (): Promise<unknown> => ipcRenderer.invoke('wiki:init'),
+  ingest: (sourcePath: string): Promise<unknown> =>
+    ipcRenderer.invoke('wiki:ingest', { sourcePath }),
 }
 
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────

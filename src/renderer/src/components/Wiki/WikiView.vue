@@ -3,23 +3,25 @@
 // 展示 .llm-wiki/ 目录状态、页面列表和活动日志
 
 import { onMounted, ref, computed } from 'vue'
-import { NButton, NIcon, NTag, NCard, NSpin, NEmpty, NCollapse, NCollapseItem, NDataTable, type DataTableColumns } from 'naive-ui'
+import { NButton, NIcon, NTag, NCard, NSpin, NEmpty, NCollapse, NCollapseItem, NDataTable, useMessage, type DataTableColumns } from 'naive-ui'
 import {
   ArrowLeftOutlined,
   RefreshOutlined,
-  ScienceOutlined,
+  UploadOutlined,
   FolderOutlined,
   ArticleOutlined,
-  FactCheckOutlined,
   DescriptionOutlined,
+  ChatBubbleOutlined,
 } from '@vicons/material'
 import { useUiStore } from '@/stores/ui'
 
 const uiStore = useUiStore()
+const message = useMessage()
 
 // ─── State ─────────────────────────────────────────────────────
 
 const loading = ref(false)
+const uploading = ref(false)
 const wikiInitialized = ref(false)
 const rawCount = ref(0)
 const pageCount = ref(0)
@@ -29,6 +31,7 @@ const pages = ref<Array<{ title: string; path: string; summary: string }>>([])
 const rawFiles = ref<string[]>([])
 const recentLogs = ref('')
 const error = ref<string | null>(null)
+const isDragOver = ref(false)
 
 // ─── Computed ──────────────────────────────────────────────────
 
@@ -74,15 +77,80 @@ function handleRefresh(): void {
   void loadWikiStatus()
 }
 
-function handleInitWiki(): void {
-  void window.electron.wiki.init().then(() => {
+async function handleInitWiki(): Promise<void> {
+  try {
+    await window.electron.wiki.init()
     void loadWikiStatus()
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : '初始化失败')
+  }
+}
+
+/** 通过系统文件选择器上传到 raw/ */
+async function handleUploadClick(): Promise<void> {
+  const filePath = await window.electron.file.selectFile({
+    title: '选择原始资料',
+    filters: [
+      { name: '知识库文件', extensions: ['md', 'txt', 'pdf', 'docx', 'xlsx', 'csv', 'json', 'html', 'xml'] },
+      { name: '所有文件', extensions: ['*'] },
+    ],
   })
+  if (filePath) {
+    await handleFileSelect(filePath)
+  }
+}
+
+/** 选中文件后上传到 raw/ */
+async function handleFileSelect(filePath: string): Promise<void> {
+  if (!filePath) return
+  uploading.value = true
+  try {
+    await window.electron.wiki.ingest(filePath)
+    message.success('资料已添加到 raw/ 目录')
+    void loadWikiStatus()
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : '上传失败')
+  } finally {
+    uploading.value = false
+  }
+}
+
+/** 拖拽事件 */
+function handleDragOver(e: DragEvent): void {
+  e.preventDefault()
+  isDragOver.value = true
+}
+
+function handleDragLeave(): void {
+  isDragOver.value = false
+}
+
+async function handleDrop(e: DragEvent): Promise<void> {
+  e.preventDefault()
+  isDragOver.value = false
+  const files = e.dataTransfer?.files
+  if (!files || files.length === 0) return
+  for (let i = 0; i < files.length; i++) {
+    const filePath = (files[i] as unknown as { path: string }).path
+    if (filePath) {
+      await handleFileSelect(filePath)
+    }
+  }
+}
+
+/** 跳转到对话视图并带提示 */
+function handleGoCompile(): void {
+  uiStore.setCurrentView('chat')
 }
 </script>
 
 <template>
-  <div class="wiki-view">
+  <div
+    class="wiki-view"
+    @dragover="handleDragOver"
+    @dragleave="handleDragLeave"
+    @drop="handleDrop"
+  >
     <!-- Header -->
     <div class="wiki-view__header">
       <div class="wiki-view__header-left">
@@ -93,6 +161,18 @@ function handleInitWiki(): void {
         <NTag size="small" type="info">Karpathy 模式</NTag>
       </div>
       <div class="wiki-view__header-actions">
+        <NButton
+          v-if="wikiInitialized"
+          size="tiny"
+          type="primary"
+          :loading="uploading"
+          @click="handleUploadClick"
+        >
+          <template #icon>
+            <NIcon><UploadOutlined /></NIcon>
+          </template>
+          上传资料
+        </NButton>
         <NButton size="tiny" quaternary @click="handleRefresh">
           <template #icon>
             <NIcon><RefreshOutlined /></NIcon>
@@ -109,7 +189,7 @@ function handleInitWiki(): void {
 
     <!-- Error -->
     <div v-else-if="error" class="wiki-view__error">
-      <NEmpty description="加载失败" :size="'small'">
+      <NEmpty description="加载失败" :size="small">
         <template #extra>
           <span class="wiki-view__error-msg">{{ error }}</span>
           <NButton size="small" @click="handleRefresh">重试</NButton>
@@ -175,6 +255,27 @@ function handleInitWiki(): void {
             </div>
             <div class="wiki-view__stat-label">最后编译</div>
           </NCard>
+        </div>
+
+        <!-- Drag & Drop zone -->
+        <div
+          class="wiki-view__drop-zone"
+          :class="{ 'wiki-view__drop-zone--active': isDragOver }"
+        >
+          <NIcon :size="28" :color="isDragOver ? 'var(--af-brand)' : 'var(--af-text-muted)'">
+            <UploadOutlined />
+          </NIcon>
+          <span class="wiki-view__drop-text">{{ isDragOver ? '释放文件以上传' : '拖拽文件到此处，或点击上方按钮上传' }}</span>
+          <span class="wiki-view__drop-hint">支持 .md .txt .pdf .docx .xlsx .csv .json</span>
+        </div>
+
+        <!-- Go compile prompt -->
+        <div v-if="rawCount > 0 && pageCount === 0" class="wiki-view__compile-prompt">
+          <NIcon :size="16" color="var(--af-brand)"><ChatBubbleOutlined /></NIcon>
+          <span>已有 {{ rawCount }} 份原始资料，回到对话中告诉 AI "编译 wiki" 即可生成知识页面</span>
+          <NButton size="tiny" type="primary" quaternary @click="handleGoCompile">
+            去编译
+          </NButton>
         </div>
 
         <!-- Pages Table -->
@@ -251,6 +352,7 @@ function handleInitWiki(): void {
 
 .wiki-view__header-actions {
   display: flex;
+  align-items: center;
   gap: 4px;
 }
 
@@ -355,6 +457,57 @@ function handleInitWiki(): void {
   font-size: 12px;
   color: var(--af-text-tertiary, #94a3b8);
 }
+
+/* ─── Drop zone ──────────────────────────────────────────── */
+
+.wiki-view__drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 16px;
+  border: 2px dashed var(--af-border, #334155);
+  border-radius: var(--af-radius, 8px);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.wiki-view__drop-zone:hover,
+.wiki-view__drop-zone--active {
+  border-color: var(--af-brand, #818cf8);
+  background-color: var(--af-bg-hover, #334155);
+}
+
+.wiki-view__drop-text {
+  font-size: 13px;
+  color: var(--af-text-secondary, #cbd5e1);
+}
+
+.wiki-view__drop-hint {
+  font-size: 11px;
+  color: var(--af-text-muted, #64748b);
+}
+
+/* ─── Compile prompt ──────────────────────────────────────── */
+
+.wiki-view__compile-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--af-bg-input, #1f2937);
+  border-radius: var(--af-radius-sm, 6px);
+  border-left: 3px solid var(--af-brand, #818cf8);
+  font-size: 13px;
+  color: var(--af-text-secondary, #cbd5e1);
+}
+
+.wiki-view__compile-prompt span {
+  flex: 1;
+}
+
+/* ─── Sections ───────────────────────────────────────────── */
 
 .wiki-view__section {
   flex-shrink: 0;

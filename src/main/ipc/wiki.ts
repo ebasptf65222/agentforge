@@ -11,6 +11,8 @@ import {
   listWikiPages,
   listRawSources,
   readRecentLogs,
+  addRawSource,
+  appendLog,
 } from '../wiki/wiki-manager'
 
 // ─── Handler 函数 ───────────────────────────────────────────────
@@ -66,6 +68,21 @@ async function handleWikiInit(): Promise<{ success: boolean }> {
   return { success: true }
 }
 
+/**
+ * 将文件添加到 raw/ 目录（从 UI 上传的便捷入口）。
+ * @param sourcePath - 源文件绝对路径
+ * @returns raw/ 中的相对路径
+ */
+async function handleWikiIngest(sourcePath: string): Promise<{ rawRelPath: string; fileName: string }> {
+  if (!(await isWikiInitialized())) {
+    await initWikiWorkspace()
+  }
+  const rawRelPath = await addRawSource(sourcePath)
+  const fileName = rawRelPath.replace(/^raw\//, '')
+  await appendLog('ingest', `通过 UI 上传原始资料: ${fileName}`)
+  return { rawRelPath, fileName }
+}
+
 // ─── IPC 通道注册 ───────────────────────────────────────────────
 
 interface ChannelRegistration {
@@ -81,6 +98,10 @@ const registrations: ChannelRegistration[] = [
   {
     channel: 'wiki:init',
     handler: () => handleWikiInit(),
+  },
+  {
+    channel: 'wiki:ingest',
+    handler: (_event, params: { sourcePath: string }) => handleWikiIngest(params.sourcePath),
   },
 ]
 
