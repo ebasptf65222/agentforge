@@ -114,8 +114,7 @@ export interface ProviderMeta {
 }
 
 /**
- * Providers offered in the P1 UI. Anthropic is intentionally omitted
- * (spec: only OpenAI / DeepSeek / Custom in P1).
+ * Providers offered in the UI. Anthropic is now included for Copilot SDK mode.
  */
 export const PROVIDER_OPTIONS: ProviderMeta[] = [
   {
@@ -129,6 +128,12 @@ export const PROVIDER_OPTIONS: ProviderMeta[] = [
     label: 'DeepSeek',
     defaultBaseUrl: 'https://api.deepseek.com/v1',
     color: '#4f46e5',
+  },
+  {
+    value: 'anthropic',
+    label: 'Anthropic (Claude)',
+    defaultBaseUrl: 'https://api.anthropic.com',
+    color: '#d97706',
   },
   { value: 'custom', label: 'Custom', defaultBaseUrl: '', color: '#6b7280' },
 ]

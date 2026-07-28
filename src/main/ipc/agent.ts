@@ -147,8 +147,9 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
 
     updateLastMessageAt(request.conversationId)
   } catch (error) {
-    // 保存错误信息到消息
-    const errorMessage = error instanceof AppError ? error.message : 'Execution failed'
+    // 保存错误信息到消息（透传真实错误信息，而非吞掉为 "Execution failed"）
+    console.error('[Agent SDK] Execution error:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Execution failed'
     createMessage({
       conversationId: request.conversationId,
       role: 'assistant',
@@ -276,8 +277,9 @@ export async function handleExecute(
 
     updateLastMessageAt(request.conversationId)
   } catch (error) {
-    // 保存错误信息到消息
-    const errorMessage = error instanceof AppError ? error.message : 'Execution failed'
+    // 保存错误信息到消息（透传真实错误信息，而非吞掉为 "Execution failed"）
+    console.error('[Agent Builtin] Execution error:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Execution failed'
     createMessage({
       conversationId: request.conversationId,
       role: 'assistant',
