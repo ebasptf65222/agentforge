@@ -13,7 +13,7 @@ import {
   getKbDocumentById,
   listKbDocuments,
 } from '../db/repos/kb-document'
-import { batchCreateKbChunks, deleteKbChunksByDocumentId, getChunksByDocumentId } from '../db/repos/kb-chunk'
+import { batchCreateKbChunks, deleteKbChunksByDocumentId, getKbChunksByDocumentId } from '../db/repos/kb-chunk'
 import { parseDocument } from './parser'
 import { chunkText } from './chunking'
 import { clearSearchCache } from './search'
@@ -64,7 +64,7 @@ export async function importDocument(
   const existingDocs = listKbDocuments({ status: 'ready' })
   for (const doc of existingDocs) {
     try {
-      const chunks = getChunksByDocumentId(doc.id)
+      const chunks = getKbChunksByDocumentId(doc.id)
       const existingContent = chunks.map((c) => c.content).join('')
       const existingHash = createHash('sha256').update(existingContent).digest('hex')
       if (existingHash === contentHash) {
