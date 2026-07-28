@@ -9,6 +9,7 @@ export interface SdkProviderConfig {
   baseUrl: string
   apiKey?: string
   wireApi?: 'completions' | 'responses'
+  maxOutputTokens?: number
   azure?: { apiVersion: string }
 }
 

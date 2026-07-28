@@ -22,6 +22,11 @@ export function buildProviderConfig(model: ModelConfig): SdkProviderConfig {
     config.baseUrl = 'https://api.deepseek.com/v1'
   }
 
+  // Pass maxTokens to SDK's maxOutputTokens
+  if (model.maxTokens) {
+    config.maxOutputTokens = model.maxTokens
+  }
+
   return config
 }
 

@@ -2,13 +2,14 @@
 // ChatView - main chat experience with Sidebar + ChatPanel + Agent ExecutionPanel
 
 import { onMounted, onUnmounted, computed, ref } from 'vue'
-import { NIcon, NModal, NInput, NButton } from 'naive-ui'
+import { NIcon, NModal, NInput } from 'naive-ui'
 import { MenuOutlined } from '@vicons/material'
 import type { ChatMessage } from '@shared/types'
 import { useChatStore } from '@/stores/chat'
 import { useAgentStore } from '@/stores/agent'
 import { useUiStore } from '@/stores/ui'
 import { useModelStore } from '@/stores/model'
+import { useSettingsStore } from '@/stores/settings'
 import { useChat } from '@/composables/use-chat'
 import { useAgent } from '@/composables/use-agent'
 import SidebarHeader from '@/components/Sidebar/SidebarHeader.vue'
@@ -25,6 +26,7 @@ const chatStore = useChatStore()
 const agentStore = useAgentStore()
 const uiStore = useUiStore()
 const modelStore = useModelStore()
+const settingsStore = useSettingsStore()
 
 // Set up stream event listeners
 useChat()
@@ -88,13 +90,19 @@ function handleKeydown(event: KeyboardEvent): void {
 }
 
 async function handleNewChat(): Promise<void> {
-  const firstModel = modelStore.models[0]
-  if (!firstModel) {
+  // 优先使用设置的默认模型，回退到列表第一个
+  const defaultId = settingsStore.settings?.defaultModelId
+  const defaultModel = defaultId
+    ? modelStore.models.find((m) => m.id === defaultId)
+    : null
+  const selectedModel = defaultModel ?? modelStore.models[0]
+
+  if (!selectedModel) {
     // No models configured — open settings so user can add one
     uiStore.setCurrentView('settings')
     return
   }
-  await chatStore.newConversation(firstModel.id)
+  await chatStore.newConversation(selectedModel.id)
 }
 
 function handleOpenSettings(): void {
@@ -181,12 +189,8 @@ async function handleStop(): Promise<void> {
 async function handleSendPrompt(prompt: string): Promise<void> {
   // Ensure we have a conversation first
   if (!chatStore.currentConversation) {
-    const firstModel = modelStore.models[0]
-    if (!firstModel) {
-      uiStore.setCurrentView('settings')
-      return
-    }
-    await chatStore.newConversation(firstModel.id)
+    await handleNewChat()
+    if (!chatStore.currentConversation) return
   }
   await handleSend(prompt)
 }

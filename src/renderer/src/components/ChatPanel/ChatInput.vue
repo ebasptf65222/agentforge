@@ -3,7 +3,7 @@
 // V1-06: + 语音输入按钮
 
 import { ref, computed, nextTick, onMounted } from 'vue'
-import { NSelect, NSwitch, NIcon, NTooltip } from 'naive-ui'
+import { NSelect, NSwitch, NIcon } from 'naive-ui'
 import { BookOutlined, CloseOutlined } from '@vicons/material'
 import AppButton from '@/components/common/AppButton.vue'
 import VoiceInputButton from './VoiceInputButton.vue'
@@ -11,6 +11,8 @@ import VoiceModeToggle from './VoiceModeToggle.vue'
 import { useSkillStore } from '@/stores/skill'
 import { useChatStore } from '@/stores/chat'
 import { useVoiceStore } from '@/stores/voice'
+import { useSettingsStore } from '@/stores/settings'
+import { useModelStore } from '@/stores/model'
 import type { Skill } from '@shared/types'
 
 const props = defineProps<{
@@ -26,6 +28,8 @@ const emit = defineEmits<{
 const skillStore = useSkillStore()
 const chatStore = useChatStore()
 const voiceStore = useVoiceStore()
+const settingsStore = useSettingsStore()
+const modelStore = useModelStore()
 
 onMounted(() => {
   void skillStore.loadSkills()
@@ -50,6 +54,20 @@ const selectedSkillInfo = computed(() => {
 
 /** Whether to show the skill mode banner */
 const showSkillBanner = computed(() => selectedSkillInfo.value !== null)
+
+/** Current engine label for the status indicator */
+const engineLabel = computed(() => {
+  const engineType = settingsStore.settings?.engineType ?? 'builtin'
+  return engineType === 'copilot-sdk' ? 'Copilot SDK' : '内置引擎'
+})
+
+/** Current model name for the status indicator */
+const currentModelName = computed(() => {
+  const conv = chatStore.currentConversation
+  if (!conv?.modelId) return null
+  const model = modelStore.models.find((m) => m.id === conv.modelId)
+  return model?.name ?? null
+})
 
 function clearSkill(): void {
   selectedSkill.value = null
@@ -140,6 +158,11 @@ function handleInput(): void {
         </div>
       </div>
       <div class="chat-input__toolbar-right">
+        <div class="engine-indicator" :title="`执行引擎: ${engineLabel}`">
+          <span class="engine-indicator__dot" />
+          <span class="engine-indicator__text">{{ engineLabel }}</span>
+          <span v-if="currentModelName" class="engine-indicator__model">{{ currentModelName }}</span>
+        </div>
         <VoiceModeToggle />
       </div>
     </div>
@@ -235,6 +258,40 @@ function handleInput(): void {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Engine status indicator */
+.engine-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background-color: var(--af-bg-input, #1f2937);
+  border: 1px solid var(--af-border, #374151);
+  border-radius: var(--af-radius-sm, 6px);
+  font-size: 11px;
+  color: var(--af-text-muted, #9ca3af);
+}
+
+.engine-indicator__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--af-brand, #4f46e5);
+  flex-shrink: 0;
+}
+
+.engine-indicator__text {
+  white-space: nowrap;
+}
+
+.engine-indicator__model {
+  white-space: nowrap;
+  color: var(--af-text-secondary, #d1d5db);
+  font-weight: 500;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chat-input__wrapper {

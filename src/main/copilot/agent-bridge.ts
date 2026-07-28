@@ -143,6 +143,8 @@ export class CopilotAgentBridge {
           tokensUsed: this.totalTokens,
         }
       }
+      // Diagnostic log: output full error for debugging
+      console.error('[CopilotAgentBridge] Execution error:', error)
       throw error
     } finally {
       await this.cleanup()
