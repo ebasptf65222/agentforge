@@ -1,11 +1,14 @@
 // Copilot SDK <-> AgentForge IPC bridge
 // Manages CopilotClient lifecycle, session creation, and event streaming
-// Step 2: Basic integration - BYOK streaming text only (no tools yet)
+// Step 3: Tool bridging + approval mechanism integration
 
+import { randomUUID } from 'node:crypto'
 import { CopilotClient } from '@github/copilot-sdk'
 import type { AgentExecutionRequest, ExecutionResult, TAOTrajectory } from '@shared/types'
 import type { AgentEventCallbacks } from '../agent/types'
+import { ApprovalManager } from '../agent/approval'
 import { buildProviderConfigById } from './provider-config'
+import { bridgeAllTools, type ToolBridgeContext } from './tool-bridge'
 import {
   convertMessageDelta,
   convertReasoningDelta,
@@ -18,16 +21,24 @@ import {
  * Lifecycle:
  * 1. execute() creates a CopilotClient + session with BYOK provider config
  * 2. SDK streaming events are converted to AgentForge StreamChunk / TAOTrajectory
- * 3. On completion (session.idle), ExecutionResult is returned
- * 4. cancel() aborts the session and returns a cancelled result
+ * 3. Tool calls are bridged via defineTool with embedded approval checks
+ * 4. On completion (session.idle), ExecutionResult is returned
+ * 5. cancel() aborts the session and returns a cancelled result
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SdkSession = any
+
+export interface CopilotBridgeOptions {
+  callbacks: AgentEventCallbacks
+  approvalTimeoutMs: number
+}
 
 export class CopilotAgentBridge {
   private client: CopilotClient | null = null
   private session: SdkSession = null
   private readonly callbacks: AgentEventCallbacks
+  private readonly approvalTimeoutMs: number
+  private approvalManager: ApprovalManager | null = null
   private cancelled = false
   private startTime = 0
   private accumulatedContent = ''
@@ -36,12 +47,13 @@ export class CopilotAgentBridge {
   private stepCounter = 0
   private idleResolve: (() => void) | null = null
 
-  constructor(callbacks: AgentEventCallbacks) {
-    this.callbacks = callbacks
+  constructor(options: CopilotBridgeOptions) {
+    this.callbacks = options.callbacks
+    this.approvalTimeoutMs = options.approvalTimeoutMs
   }
 
   /**
-   * Execute an agent request using Copilot SDK with BYOK streaming.
+   * Execute an agent request using Copilot SDK with BYOK streaming and tools.
    */
   async execute(request: AgentExecutionRequest): Promise<ExecutionResult> {
     this.startTime = Date.now()
@@ -51,37 +63,54 @@ export class CopilotAgentBridge {
     this.trajectories = []
     this.totalTokens = 0
 
+    // Generate unique execution ID for approval tracking
+    const executionId = randomUUID()
+
+    // Create approval manager for this execution
+    this.approvalManager = new ApprovalManager()
+
     try {
       // 1. Build BYOK provider config from AgentForge model config
       const { model, provider } = buildProviderConfigById(request.modelId)
 
-      // 2. Create and start CopilotClient (spawns CLI subprocess)
+      // 2. Bridge all registered tools with embedded approval checks
+      const toolCtx: ToolBridgeContext = {
+        executionId,
+        approvalMode: request.approvalMode,
+        approvalTimeoutMs: this.approvalTimeoutMs,
+        approvalManager: this.approvalManager,
+        callbacks: this.callbacks,
+      }
+      const tools = bridgeAllTools(toolCtx)
+
+      // 3. Create and start CopilotClient (spawns CLI subprocess)
       this.client = new CopilotClient()
       await this.client.start()
 
-      // 3. Create session with BYOK config and streaming enabled
+      // 4. Create session with BYOK config, streaming, and bridged tools
       const session: SdkSession = await this.client.createSession({
         model,
         provider,
         streaming: true,
+        tools,
       } as Record<string, unknown>)
       this.session = session
 
-      // 4. Subscribe to SDK streaming events
+      // 5. Subscribe to SDK streaming events
       this.subscribeToEvents(session)
 
-      // 5. Set up completion promise (resolves on session.idle)
+      // 6. Set up completion promise (resolves on session.idle)
       const idlePromise = new Promise<void>((resolve) => {
         this.idleResolve = resolve
       })
 
-      // 6. Send user message (non-blocking, events stream via callbacks)
+      // 7. Send user message (non-blocking, events stream via callbacks)
       await session.send({ prompt: request.userInput })
 
-      // 7. Wait for session to become idle (completion signal)
+      // 8. Wait for session to become idle (completion signal)
       await idlePromise
 
-      // 8. Build and return execution result
+      // 9. Build and return execution result
       const status = this.cancelled ? 'cancelled' : 'completed'
       const summary = this.accumulatedContent || 'No response generated.'
 
@@ -168,6 +197,12 @@ export class CopilotAgentBridge {
    */
   async cancel(): Promise<void> {
     this.cancelled = true
+
+    // Cancel any pending approval
+    if (this.approvalManager) {
+      this.approvalManager.cancel()
+    }
+
     if (this.session) {
       try {
         await this.session.abort()
@@ -182,17 +217,25 @@ export class CopilotAgentBridge {
   }
 
   /**
-   * Respond to an approval request.
-   * Placeholder - will be implemented in Step 3 (tool-bridge).
+   * Respond to an approval request from the user.
+   * Forwards the response to the ApprovalManager which unblocks the tool handler.
    */
-  respondApproval(_approved: boolean, _reason?: string): void {
-    // Step 3 will implement tool approval via onPermissionRequest / hooks
+  respondApproval(approved: boolean, reason?: string): void {
+    if (this.approvalManager) {
+      this.approvalManager.respond(approved, reason)
+    }
   }
 
   /**
-   * Clean up SDK resources (session + client).
+   * Clean up SDK resources (session + client + approval manager).
    */
   private async cleanup(): Promise<void> {
+    // Clean up any pending approval
+    if (this.approvalManager) {
+      this.approvalManager.cancel()
+      this.approvalManager = null
+    }
+
     if (this.session) {
       try {
         await this.session.disconnect()

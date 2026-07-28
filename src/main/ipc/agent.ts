@@ -116,7 +116,10 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
     onStreamChunk: (chunk) => sendStreamChunk(chunk),
   }
 
-  const bridge = new CopilotAgentBridge(callbacks)
+  const bridge = new CopilotAgentBridge({
+    callbacks,
+    approvalTimeoutMs: getSettings().approvalTimeoutMs,
+  })
   currentBridge = bridge
 
   let result: ExecutionResult
