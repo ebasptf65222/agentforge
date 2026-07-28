@@ -61,7 +61,16 @@ export class OpenAIAdapter extends ModelAdapter {
       const stream = await this.client.chat.completions.create(
         {
           model: this.modelId,
-          messages: messages.map((m) => ({ role: m.role, content: m.content })),
+          messages: messages.map((m) => {
+            // OpenAI API 要求 role: 'tool' 消息必须携带 tool_call_id 并跟在
+            // 带 tool_calls 的 assistant 消息之后。当前 ReAct 架构使用文本格式
+            // 解析而非原生 function calling，因此将 tool 消息映射为 user 角色，
+            // 避免触发 API 400 错误。这是 SDK 迁移前的临时修复。
+            if (m.role === 'tool') {
+              return { role: 'user' as const, content: `[Tool Observation]\n${m.content}` }
+            }
+            return { role: m.role, content: m.content }
+          }),
           temperature: this.temperature,
           max_tokens: this.maxTokens,
           stream: true,
