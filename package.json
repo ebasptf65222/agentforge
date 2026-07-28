@@ -29,7 +29,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
     "@github/copilot": "^1.0.75",
-    "@github/copilot-linux-x64": "^1.0.75",
     "@github/copilot-sdk": "^1.0.8",
     "@vicons/ionicons5": "^0.13.0",
     "@vicons/material": "^0.13.0",
@@ -66,6 +65,16 @@
     "vue-eslint-parser": "^10.4.1",
     "vue-tsc": "^3.3.8"
   },
+  "optionalDependencies": {
+    "@github/copilot-linux-x64": "^1.0.75",
+    "@github/copilot-linux-arm64": "^1.0.75",
+    "@github/copilot-linuxmusl-x64": "^1.0.75",
+    "@github/copilot-linuxmusl-arm64": "^1.0.75",
+    "@github/copilot-darwin-x64": "^1.0.75",
+    "@github/copilot-darwin-arm64": "^1.0.75",
+    "@github/copilot-win32-x64": "^1.0.75",
+    "@github/copilot-win32-arm64": "^1.0.75"
+  },
   "build": {
     "appId": "com.agentforge.app",
     "productName": "AgentForge",
@@ -90,7 +99,8 @@
       }
     ],
     "asarUnpack": [
-      "**/*.{node,dll}"
+      "**/*.{node,dll}",
+      "**/node_modules/@github/copilot-*/**"
     ],
     "linux": {
       "target": [

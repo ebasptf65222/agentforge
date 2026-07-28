@@ -3,7 +3,11 @@
 // Step 3: Tool bridging + approval mechanism integration
 
 import { randomUUID } from 'node:crypto'
-import { CopilotClient } from '@github/copilot-sdk'
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { CopilotClient, RuntimeConnection } from '@github/copilot-sdk'
 import type { AgentExecutionRequest, ExecutionResult, TAOTrajectory } from '@shared/types'
 import type { AgentEventCallbacks } from '../agent/types'
 import { ApprovalManager } from '../agent/approval'
@@ -28,6 +32,86 @@ import {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SdkSession = any
+
+/**
+ * Resolve the Copilot CLI entry point path for the current platform.
+ *
+ * The SDK's getBundledCliPath() uses import.meta.resolve which may fail in
+ * Electron's bundled context, and it tries to resolve `./sdk` which is
+ * blocked by the platform package's `exports` map under pnpm.
+ *
+ * This function uses bare package resolution (the `.` export → native binary)
+ * and derives the package directory from that path, avoiding the `exports`
+ * restriction on `./package.json` and `./sdk` subpaths.
+ *
+ * The CLI entry point is `index.js` inside the platform package, e.g.
+ * `node_modules/@github/copilot-win32-x64/index.js`.
+ *
+ * @returns CLI entry point path, or undefined to let SDK use its default
+ */
+function resolveCopilotCliPath(): string | undefined {
+  const arch = process.arch
+  const variants =
+    process.platform === 'linux' ? ['linux', 'linuxmusl'] : [process.platform]
+  const packageNames = variants.map((v) => `@github/copilot-${v}-${arch}`)
+
+  // Strategy 1: createRequire — resolve bare package name (bypasses exports map)
+  // The `.` export resolves to the native binary (e.g. ./copilot); we derive
+  // the package directory from its parent and look for index.js alongside it.
+  try {
+    const req = createRequire(import.meta.url)
+    for (const packageName of packageNames) {
+      try {
+        const resolved = req.resolve(packageName)
+        const pkgDir = dirname(resolved)
+        const cliPath = join(pkgDir, 'index.js')
+        if (existsSync(cliPath)) {
+          return cliPath
+        }
+      } catch {
+        // Package not found, try next
+      }
+    }
+  } catch {
+    // createRequire not available
+  }
+
+  // Strategy 2: import.meta.resolve — same approach via ESM
+  if (typeof import.meta.resolve === 'function') {
+    for (const packageName of packageNames) {
+      try {
+        const resolvedUrl = import.meta.resolve(packageName)
+        const resolvedPath = fileURLToPath(resolvedUrl)
+        const pkgDir = dirname(resolvedPath)
+        const cliPath = join(pkgDir, 'index.js')
+        if (existsSync(cliPath)) {
+          return cliPath
+        }
+      } catch {
+        // Package not found, try next
+      }
+    }
+  }
+
+  // Strategy 3: manual path probing via search paths (SDK's fallback approach)
+  try {
+    const req = createRequire(import.meta.url)
+    const searchPaths = req.resolve.paths('@github/copilot') ?? []
+    for (const base of searchPaths) {
+      for (const packageName of packageNames) {
+        const cliPath = join(base, ...packageName.split('/'), 'index.js')
+        if (existsSync(cliPath)) {
+          return cliPath
+        }
+      }
+    }
+  } catch {
+    // Search paths not available
+  }
+
+  // Fallback: let the SDK resolve it itself
+  return undefined
+}
 
 export interface CopilotBridgeOptions {
   callbacks: AgentEventCallbacks
@@ -85,7 +169,12 @@ export class CopilotAgentBridge {
       const tools = bridgeAllTools(toolCtx)
 
       // 3. Create and start CopilotClient (spawns CLI subprocess)
-      this.client = new CopilotClient()
+      // Resolve CLI path for cross-platform support (Windows/macOS/Linux)
+      const cliPath = resolveCopilotCliPath()
+      const clientOptions = cliPath
+        ? { connection: RuntimeConnection.forStdio({ path: cliPath }) }
+        : {}
+      this.client = new CopilotClient(clientOptions)
       await this.client.start()
 
       // 4. Build MCP servers config from database (SDK manages connections)
