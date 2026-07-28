@@ -28,6 +28,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
+    "@github/copilot": "^1.0.75",
+    "@github/copilot-linux-x64": "^1.0.75",
+    "@github/copilot-sdk": "^1.0.8",
     "@vicons/ionicons5": "^0.13.0",
     "@vicons/material": "^0.13.0",
     "better-sqlite3": "^13.0.1",

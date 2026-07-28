@@ -19,6 +19,9 @@ type ModelProvider = 'openai' | 'deepseek' | 'anthropic' | 'custom'
 /** MCP 传输类型 */
 type TransportType = 'stdio' | 'http'
 
+/** Agent 执行引擎类型 */
+type EngineType = 'builtin' | 'copilot-sdk'
+
 /** 工具风险等级 */
 type ToolRiskLevel = 'low' | 'medium' | 'high'
 
@@ -109,6 +112,7 @@ interface AppSettings {
   approvalTimeoutMs: number
   voice: VoiceConfig
   workspace: WorkspaceConfig
+  engineType: EngineType
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }
@@ -555,6 +559,7 @@ export type {
   ExecutionStatus,
   ModelProvider,
   TransportType,
+  EngineType,
   ToolRiskLevel,
   SkillTrigger,
   StreamChunkType,

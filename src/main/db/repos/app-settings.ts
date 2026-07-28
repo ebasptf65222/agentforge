@@ -3,7 +3,7 @@
 // 与 Spec v0.2 §6.6 表结构一致
 
 import type Database from 'better-sqlite3'
-import type { AppSettings, ApprovalMode, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
+import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
 import { getDatabase } from '../index'
 import { AppError, ErrorCodes } from '../../utils/error'
 
@@ -24,6 +24,7 @@ interface AppSettingsRow {
   approval_timeout_ms: number
   voice: string
   workspace: string
+  engine_type: string
   window_bounds: string | null
   updated_at: number
 }
@@ -79,6 +80,11 @@ const DEFAULT_WORKSPACE_CONFIG: WorkspaceConfig = {
 }
 
 /**
+ * 默认引擎类型（与 schema.sql 中的 DEFAULT 一致）。
+ */
+const DEFAULT_ENGINE_TYPE: EngineType = 'builtin'
+
+/**
  * 窗口边界类型（与 @shared/types AppSettings.windowBounds 一致）。
  */
 interface WindowBounds {
@@ -102,6 +108,7 @@ export interface UpdateSettingsParams {
   approvalTimeoutMs?: number
   voice?: Partial<VoiceConfig> | VoiceConfig
   workspace?: Partial<WorkspaceConfig> | WorkspaceConfig
+  engineType?: EngineType
   windowBounds?: WindowBounds | null
 }
 
@@ -154,6 +161,7 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     approvalTimeoutMs: row.approval_timeout_ms,
     voice,
     workspace,
+    engineType: (row.engine_type || DEFAULT_ENGINE_TYPE) as EngineType,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -344,6 +352,11 @@ export function updateSettings(params: UpdateSettingsParams): void {
   if (params.windowBounds !== undefined) {
     setClauses.push('window_bounds = ?')
     values.push(params.windowBounds === null ? null : JSON.stringify(params.windowBounds))
+  }
+
+  if (params.engineType !== undefined) {
+    setClauses.push('engine_type = ?')
+    values.push(params.engineType)
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

@@ -113,6 +113,13 @@ function runConditionalMigrations(db: Database.Database): void {
       `ALTER TABLE app_settings ADD COLUMN workspace TEXT NOT NULL DEFAULT '{"path":null,"recentPaths":[],"autoRestore":true,"excludePatterns":["node_modules",".git","dist",".DS_Store"]}'`
     )
   }
+
+  // SDK-02: 确保 app_settings 有 engine_type 列
+  if (!hasColumn(db, 'app_settings', 'engine_type')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN engine_type TEXT NOT NULL DEFAULT 'builtin'`
+    )
+  }
 }
 
 /**

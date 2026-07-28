@@ -3,7 +3,7 @@
 // 通道命名: settings:get, settings:update
 
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
-import type { AppSettings, ApprovalMode, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
+import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getSettings, updateSettings, type UpdateSettingsParams } from '../db/repos/app-settings'
 
@@ -11,6 +11,7 @@ import { getSettings, updateSettings, type UpdateSettingsParams } from '../db/re
 
 const VALID_THEMES: readonly AppSettings['theme'][] = ['dark', 'light', 'system']
 const VALID_APPROVAL_MODES: readonly ApprovalMode[] = ['suggest', 'auto-edit', 'full-auto']
+const VALID_ENGINE_TYPES: readonly EngineType[] = ['builtin', 'copilot-sdk']
 
 function assertOptionalTheme(value: unknown): asserts value is AppSettings['theme'] | undefined {
   if (
@@ -34,6 +35,19 @@ function assertOptionalApprovalMode(value: unknown): asserts value is ApprovalMo
       ErrorCodes.VALIDATION_ERROR,
       `Invalid defaultApprovalMode: ${String(value)}. Must be one of: ${VALID_APPROVAL_MODES.join(', ')}.`,
       { defaultApprovalMode: value },
+    )
+  }
+}
+
+function assertOptionalEngineType(value: unknown): asserts value is EngineType | undefined {
+  if (
+    value !== undefined &&
+    (typeof value !== 'string' || !VALID_ENGINE_TYPES.includes(value as EngineType))
+  ) {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      `Invalid engineType: ${String(value)}. Must be one of: ${VALID_ENGINE_TYPES.join(', ')}.`,
+      { engineType: value },
     )
   }
 }
@@ -258,6 +272,7 @@ export function handleUpdateSettings(params: unknown): void {
   assertOptionalVoice(p['voice'])
   assertOptionalWorkspace(p['workspace'])
   assertOptionalWindowBounds(p['windowBounds'])
+  assertOptionalEngineType(p['engineType'])
 
   // updatedAt 字段不允许外部覆盖
   if (p['updatedAt'] !== undefined) {
@@ -278,6 +293,7 @@ export function handleUpdateSettings(params: unknown): void {
     voice: p['voice'] as UpdateSettingsParams['voice'],
     workspace: p['workspace'] as UpdateSettingsParams['workspace'],
     windowBounds: p['windowBounds'] as UpdateSettingsParams['windowBounds'],
+    engineType: p['engineType'] as UpdateSettingsParams['engineType'],
   }
 
   updateSettings(updateParams)

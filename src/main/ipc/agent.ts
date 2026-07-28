@@ -20,6 +20,7 @@ import { getConversationById, updateLastMessageAt } from '../db/repos/conversati
 import { createMessage } from '../db/repos/message'
 import { getToolRegistry } from '../tools/registry'
 import { AgentExecutor, type AgentExecutorConfig } from '../agent/executor'
+import { CopilotAgentBridge } from '../copilot/agent-bridge'
 import type { AgentEventCallbacks, RegisteredTool } from '../agent/types'
 import { resolveSkill, buildSkillExecutionContext, filterTools } from '../skills/skill-executor'
 
@@ -27,6 +28,8 @@ import { resolveSkill, buildSkillExecutionContext, filterTools } from '../skills
 
 /** 当前正在运行的 AgentExecutor */
 let currentExecutor: AgentExecutor | null = null
+/** 当前正在运行的 CopilotAgentBridge（SDK 引擎） */
+let currentBridge: CopilotAgentBridge | null = null
 
 /**
  * 获取当前 AgentExecutor（仅供测试使用）。
@@ -101,6 +104,64 @@ function getToolsMap(): Map<string, RegisteredTool> {
 // ─── IPC 处理函数 ─────────────────────────────────────────────────
 
 /**
+ * 使用 Copilot SDK 引擎执行 Agent 请求。
+ *
+ * Step 2 基础版：仅支持纯文本对话（BYOK + 流式输出），不含工具调用。
+ * 工具桥接将在 Step 3 中实现。
+ */
+async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<ExecutionResult> {
+  const callbacks: AgentEventCallbacks = {
+    onTrajectory: (trajectory) => sendTrajectory(trajectory),
+    onApprovalRequest: (approvalRequest) => sendApprovalRequest(approvalRequest),
+    onStreamChunk: (chunk) => sendStreamChunk(chunk),
+  }
+
+  const bridge = new CopilotAgentBridge(callbacks)
+  currentBridge = bridge
+
+  let result: ExecutionResult
+  try {
+    // 验证会话存在
+    getConversationById(request.conversationId)
+
+    // 保存用户消息
+    createMessage({
+      conversationId: request.conversationId,
+      role: 'user',
+      content: request.userInput,
+    })
+
+    // 执行 SDK Agent
+    result = await bridge.execute(request)
+
+    // 保存助手回复
+    createMessage({
+      conversationId: request.conversationId,
+      role: 'assistant',
+      content: result.summary,
+      thinking: result.trajectories.map((t) => `Step ${t.step}: ${t.thought}`).join('\n\n'),
+    })
+
+    updateLastMessageAt(request.conversationId)
+  } catch (error) {
+    // 保存错误信息到消息
+    const errorMessage = error instanceof AppError ? error.message : 'Execution failed'
+    createMessage({
+      conversationId: request.conversationId,
+      role: 'assistant',
+      content: errorMessage,
+      thinking: undefined,
+    })
+    updateLastMessageAt(request.conversationId)
+    throw error
+  } finally {
+    currentBridge = null
+  }
+
+  return result
+}
+
+/**
  * agent:execute - 启动 Agent 执行。
  *
  * 流程：
@@ -137,12 +198,19 @@ export async function handleExecute(
   }
 
   // 1. 并发控制 - OPT-02: 在任何 await 之前设置锁，防止竞态条件
-  if (currentExecutor !== null) {
+  if (currentExecutor !== null || currentBridge !== null) {
     throw new AppError(ErrorCodes.CHAT_ALREADY_RUNNING, 'An agent execution is already running.')
   }
 
-  // 2. 构建可变的执行器配置（在锁内创建，任何字段后续可安全更新）
+  // 2. 获取设置，判断引擎类型
   const settings = getSettings()
+
+  // SDK 引擎路径：使用 Copilot SDK
+  if (settings.engineType === 'copilot-sdk') {
+    return executeWithCopilotSdk(request)
+  }
+
+  // 内置引擎路径：使用 AgentExecutor
   const executorConfig: AgentExecutorConfig = {
     adapter: getModelAdapter(request.modelId),
     tools: getToolsMap(),
@@ -229,6 +297,9 @@ export function handleStop(): void {
   if (currentExecutor) {
     currentExecutor.cancel()
   }
+  if (currentBridge) {
+    void currentBridge.cancel()
+  }
 }
 
 /**
@@ -255,6 +326,9 @@ export function handleApprove(params: unknown): void {
 
   if (currentExecutor) {
     currentExecutor.respondApproval(approved, reason)
+  }
+  if (currentBridge) {
+    currentBridge.respondApproval(approved, reason)
   }
 }
 
