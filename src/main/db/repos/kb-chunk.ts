@@ -206,17 +206,19 @@ export function deleteKbChunksByDocumentId(documentId: string): number {
 }
 
 /**
- * 获取所有已生成嵌入的分块。
+ * 获取已生成嵌入的分块（支持分页）。
  * 用于语义搜索时加载向量数据。
  *
- * @param options - 可选过滤参数
+ * @param options - 可选过滤和分页参数
  * @returns DocumentChunk 数组（仅包含有嵌入的）
  */
-export function getKbChunksWithEmbeddings(options?: { documentId?: string }): DocumentChunk[] {
+export function getKbChunksWithEmbeddings(
+  options?: { documentId?: string; limit?: number; offset?: number },
+): DocumentChunk[] {
   const db: Database.Database = getDatabase()
 
   let query = 'SELECT * FROM kb_chunks WHERE embedding IS NOT NULL'
-  const params: string[] = []
+  const params: (string | number)[] = []
 
   if (options?.documentId !== undefined) {
     query += ' AND document_id = ?'
@@ -225,8 +227,35 @@ export function getKbChunksWithEmbeddings(options?: { documentId?: string }): Do
 
   query += ' ORDER BY document_id ASC, chunk_index ASC'
 
+  if (options?.limit !== undefined) {
+    query += ' LIMIT ?'
+    params.push(options.limit)
+    if (options?.offset !== undefined) {
+      query += ' OFFSET ?'
+      params.push(options.offset)
+    }
+  }
+
   const rows = db.prepare(query).all(...params) as KbChunkRow[]
   return rows.map(rowToDocumentChunk)
+}
+
+/**
+ * 统计已生成嵌入的分块总数。
+ *
+ * @param options - 可选过滤参数
+ * @returns 有嵌入的分块数量
+ */
+export function countKbChunksWithEmbeddings(options?: { documentId?: string }): number {
+  const db: Database.Database = getDatabase()
+  let query = 'SELECT COUNT(*) as cnt FROM kb_chunks WHERE embedding IS NOT NULL'
+  const params: string[] = []
+  if (options?.documentId !== undefined) {
+    query += ' AND document_id = ?'
+    params.push(options.documentId)
+  }
+  const row = db.prepare(query).get(...params) as { cnt: number }
+  return row.cnt
 }
 
 /**

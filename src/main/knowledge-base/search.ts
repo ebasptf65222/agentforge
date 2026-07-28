@@ -4,7 +4,7 @@
 import type { DocumentChunk, SearchResult } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { generateEmbedding } from './embedding'
-import { getKbChunksWithEmbeddings } from '../db/repos/kb-chunk'
+import { getKbChunksWithEmbeddings, countKbChunksWithEmbeddings } from '../db/repos/kb-chunk'
 import { getKbDocumentById } from '../db/repos/kb-document'
 import type { EmbeddingConfig } from './embedding'
 
@@ -57,29 +57,46 @@ export async function semanticSearch(
       return []
     }
 
-    // 2. 加载候选分块
-    const candidates = getKbChunksWithEmbeddings(
-      opts.documentId ? { documentId: opts.documentId } : undefined,
-    )
+    // 2. 分页加载候选分块并逐批计算相似度（避免全量加载导致 OOM）
+    const BATCH_SIZE = 500
+    const filterOpts = opts.documentId ? { documentId: opts.documentId } : undefined
+    const totalCount = countKbChunksWithEmbeddings(filterOpts)
 
-    if (candidates.length === 0) {
+    if (totalCount === 0) {
       return []
     }
 
-    // 3. 计算相似度并排序
-    const scored = candidates
-      .filter(
-        (chunk): chunk is DocumentChunk & { embedding: number[] } =>
-          Array.isArray(chunk.embedding) && chunk.embedding.length > 0,
-      )
-      .map((chunk) => ({
-        chunk,
-        score: cosineSimilarity(queryEmbedding, chunk.embedding),
-      }))
-      .filter((item) => item.score >= opts.threshold)
-      .sort((a, b) => b.score - a.score)
+    let scored: Array<{ chunk: DocumentChunk & { embedding: number[] }; score: number }> = []
 
-    // 4. 取 Top-K 并组装结果
+    for (let offset = 0; offset < totalCount; offset += BATCH_SIZE) {
+      const batch = getKbChunksWithEmbeddings({
+        ...filterOpts,
+        limit: BATCH_SIZE,
+        offset,
+      })
+
+      const batchScored = batch
+        .filter(
+          (chunk): chunk is DocumentChunk & { embedding: number[] } =>
+            Array.isArray(chunk.embedding) && chunk.embedding.length > 0,
+        )
+        .map((chunk) => ({
+          chunk,
+          score: cosineSimilarity(queryEmbedding, chunk.embedding),
+        }))
+        .filter((item) => item.score >= opts.threshold)
+
+      scored.push(...batchScored)
+
+      // 保持内存可控：如果已积累的结果远超 topK，进行中间排序截断
+      if (scored.length > opts.topK * 10) {
+        scored.sort((a, b) => b.score - a.score)
+        scored = scored.slice(0, opts.topK * 5)
+      }
+    }
+
+    // 3. 最终排序取 Top-K
+    scored.sort((a, b) => b.score - a.score)
     const topResults = scored.slice(0, opts.topK)
 
     return topResults.map((item) => ({
