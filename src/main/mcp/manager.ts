@@ -2,7 +2,7 @@
 // 实现 P2-08: MCPServerManager - 管理多个 MCP Server 的生命周期
 // 职责：配置持久化、自动连接、工具发现与注册、聚合查询
 
-import type { MCPServerConfig, MCPServerStatus, ToolDefinition } from '@shared/types'
+import type { MCPServerConfig, MCPServerStatus, ToolDefinition, EngineType } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { StdioTransport } from './transport'
 import { HttpTransport } from './http-transport'
@@ -17,6 +17,7 @@ import {
 } from './db-repo'
 import { getToolRegistry } from '../tools/registry'
 import type { ToolExecuteFn } from '../tools/types'
+import { getSettings } from '../db/repos/app-settings'
 
 // ─── 内部类型 ─────────────────────────────────────────────────────
 
@@ -72,8 +73,8 @@ export class MCPServerManager {
       tools: [],
     })
 
-    // 3. 自动连接（如果 enabled）
-    if (config.enabled) {
+    // 3. 自动连接（如果 enabled 且使用内置引擎）
+    if (config.enabled && this.getCurrentEngineType() === 'builtin') {
       try {
         await this.connectServer(config.id)
       } catch (error) {
@@ -137,9 +138,11 @@ export class MCPServerManager {
       })
     }
 
-    // 1. 断开旧连接 + 注销旧工具
-    await this.disconnectServer(id)
-    getToolRegistry().unregisterMcpServer(id)
+    // 1. 断开旧连接 + 注销旧工具（仅内置引擎）
+    if (this.getCurrentEngineType() === 'builtin') {
+      await this.disconnectServer(id)
+      getToolRegistry().unregisterMcpServer(id)
+    }
 
     // 2. 持久化更新（DB 操作本身是原子的）
     const updatedConfig = updateMcpServer(id, updates)
@@ -149,8 +152,8 @@ export class MCPServerManager {
     server.tools = []
     server.status = 'disconnected'
 
-    // 4. 如果 enabled，重新连接
-    if (updatedConfig.enabled) {
+    // 4. 如果 enabled 且使用内置引擎，重新连接
+    if (updatedConfig.enabled && this.getCurrentEngineType() === 'builtin') {
       try {
         await this.connectServer(id)
       } catch (error) {
@@ -206,17 +209,20 @@ export class MCPServerManager {
     // 更新 DB
     server.config = updateMcpServer(id, { enabled: newEnabled })
 
-    if (newEnabled) {
-      // 启用 -> 连接
-      try {
-        await this.connectServer(id)
-      } catch (error) {
-        // OPT-13: 连接失败不阻止启用，但记录日志
-        console.error(`[MCP] Failed to connect server "${id}" on enable:`, error)
+    // 内置引擎下需要管理连接；SDK 引擎下连接由 SDK 管理
+    if (this.getCurrentEngineType() === 'builtin') {
+      if (newEnabled) {
+        // 启用 -> 连接
+        try {
+          await this.connectServer(id)
+        } catch (error) {
+          // OPT-13: 连接失败不阻止启用，但记录日志
+          console.error(`[MCP] Failed to connect server "${id}" on enable:`, error)
+        }
+      } else {
+        // 禁用 -> 断开
+        await this.disconnectServer(id)
       }
-    } else {
-      // 禁用 -> 断开
-      await this.disconnectServer(id)
     }
 
     return newEnabled
@@ -276,10 +282,21 @@ export class MCPServerManager {
 
   /**
    * 初始化管理器：从 DB 加载配置 + 连接所有已启用的 Server。
+   *
+   * 当 engineType === 'copilot-sdk' 时，仅加载配置到内存，
+   * 跳过连接管理（SDK 会自行管理 MCP Server 连接）。
+   *
    * 应在应用启动时调用。
    */
   async initialize(): Promise<void> {
     this.loadFromDatabase()
+
+    const engineType = this.getCurrentEngineType()
+    if (engineType === 'copilot-sdk') {
+      console.warn('[MCP Manager] Copilot SDK engine active, skipping MCP connections')
+      return
+    }
+
     await this.connectAll()
   }
 
@@ -293,6 +310,19 @@ export class MCPServerManager {
   }
 
   // ─── 内部方法 ─────────────────────────────────────────────────
+
+  /**
+   * 获取当前引擎类型。
+   * Copilot SDK 引擎下，MCP 连接由 SDK 管理，本管理器仅负责 DB CRUD。
+   */
+  private getCurrentEngineType(): EngineType {
+    try {
+      return getSettings().engineType ?? 'builtin'
+    } catch {
+      // Settings may not be available during early init; default to builtin
+      return 'builtin'
+    }
+  }
 
   /**
    * 连接指定 Server。

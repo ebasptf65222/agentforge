@@ -9,6 +9,7 @@ import type { AgentEventCallbacks } from '../agent/types'
 import { ApprovalManager } from '../agent/approval'
 import { buildProviderConfigById } from './provider-config'
 import { bridgeAllTools, type ToolBridgeContext } from './tool-bridge'
+import { buildMcpServersConfig } from './mcp-bridge'
 import {
   convertMessageDelta,
   convertReasoningDelta,
@@ -87,30 +88,34 @@ export class CopilotAgentBridge {
       this.client = new CopilotClient()
       await this.client.start()
 
-      // 4. Create session with BYOK config, streaming, and bridged tools
+      // 4. Build MCP servers config from database (SDK manages connections)
+      const mcpServers = buildMcpServersConfig()
+
+      // 5. Create session with BYOK config, streaming, bridged tools, and MCP servers
       const session: SdkSession = await this.client.createSession({
         model,
         provider,
         streaming: true,
         tools,
+        mcpServers,
       } as Record<string, unknown>)
       this.session = session
 
-      // 5. Subscribe to SDK streaming events
+      // 6. Subscribe to SDK streaming events
       this.subscribeToEvents(session)
 
-      // 6. Set up completion promise (resolves on session.idle)
+      // 7. Set up completion promise (resolves on session.idle)
       const idlePromise = new Promise<void>((resolve) => {
         this.idleResolve = resolve
       })
 
-      // 7. Send user message (non-blocking, events stream via callbacks)
+      // 8. Send user message (non-blocking, events stream via callbacks)
       await session.send({ prompt: request.userInput })
 
-      // 8. Wait for session to become idle (completion signal)
+      // 9. Wait for session to become idle (completion signal)
       await idlePromise
 
-      // 9. Build and return execution result
+      // 10. Build and return execution result
       const status = this.cancelled ? 'cancelled' : 'completed'
       const summary = this.accumulatedContent || 'No response generated.'
 
