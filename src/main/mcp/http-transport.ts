@@ -85,8 +85,12 @@ export class HttpTransport implements ITransport {
   /**
    * 发送 JSON-RPC 消息到 HTTP 端点。
    *
+   * 支持 MCP Streamable HTTP transport（2025-03-26 规范）:
+   * - POST 请求带 Accept: application/json, text/event-stream
+   * - 如果响应 Content-Type 为 text/event-stream，逐事件解析 SSE 流
+   * - 否则按普通 JSON 响应处理
+   *
    * @param message - JSON-RPC 消息字符串
-   * @returns 服务端响应字符串
    * @throws {AppError} MCP_CONNECT_FAILED - 未连接或请求失败
    */
   async send(message: string): Promise<void> {
@@ -103,6 +107,7 @@ export class HttpTransport implements ITransport {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
           ...this.headers,
         },
         body: message,
@@ -119,11 +124,18 @@ export class HttpTransport implements ITransport {
         )
       }
 
-      const text = await response.text()
-      if (text.trim()) {
-        // 触发消息回调（模拟 stdio 的方式）
-        for (const cb of this.messageCallbacks) {
-          cb(text.trim())
+      const contentType = response.headers.get('content-type') ?? ''
+
+      // 如果响应是 SSE 流，逐事件解析
+      if (contentType.includes('text/event-stream')) {
+        await this.consumeSseStream(response)
+      } else {
+        // 普通 JSON 响应
+        const text = await response.text()
+        if (text.trim()) {
+          for (const cb of this.messageCallbacks) {
+            cb(text.trim())
+          }
         }
       }
     } catch (error) {
@@ -151,6 +163,71 @@ export class HttpTransport implements ITransport {
         `Failed to send message to MCP HTTP server: ${error instanceof Error ? error.message : String(error)}`,
         { url: this.url },
       )
+    }
+  }
+
+  /**
+   * 消费 SSE 流，逐事件解析并触发消息回调。
+   *
+   * SSE 事件格式：
+   * event: message
+   * data: {"jsonrpc":"2.0",...}
+   *
+   * 事件之间以双换行符（\n\n）分隔。
+   */
+  private async consumeSseStream(response: Response): Promise<void> {
+    const reader = response.body?.getReader()
+    if (!reader) return
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+
+        // SSE 事件以双换行符分隔
+        const events = buffer.split('\n\n')
+        buffer = events.pop() ?? ''
+
+        for (const eventBlock of events) {
+          const dataLines = eventBlock
+            .split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trim())
+
+          if (dataLines.length > 0) {
+            const data = dataLines.join('\n')
+            if (data.trim()) {
+              for (const cb of this.messageCallbacks) {
+                cb(data.trim())
+              }
+            }
+          }
+        }
+      }
+
+      // 处理 buffer 中剩余的数据
+      if (buffer.trim()) {
+        const dataLines = buffer
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim())
+
+        if (dataLines.length > 0) {
+          const data = dataLines.join('\n')
+          if (data.trim()) {
+            for (const cb of this.messageCallbacks) {
+              cb(data.trim())
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock()
     }
   }
 
