@@ -42,6 +42,9 @@ export const useVoiceStore = defineStore('voice', () => {
   let streamBuffer = ''
   /** 流式播放完成回调 */
   let streamEndResolve: (() => void) | null = null
+  /** 合成队列：保证按序合成 */
+  let synthesisQueue: Array<{ text: string; format: string }> = []
+  let synthesisRunning = false
 
   // ─── Internal ───
   let player: TtsPlayer | null = null
@@ -199,6 +202,8 @@ export const useVoiceStore = defineStore('voice', () => {
     duration.value = 0
     ttsState.value = 'idle'
     ttsError.value = null
+    // 停止时清空合成队列，避免残留任务继续执行
+    synthesisQueue = []
   }
 
   /**
@@ -286,7 +291,7 @@ export const useVoiceStore = defineStore('voice', () => {
 
   /**
    * 结束流式播放。
-   * 处理缓冲区中剩余的文本，等待所有句子播放完毕。
+   * 处理缓冲区中剩余的文本，等待合成队列和播放队列完毕。
    */
   async function endStream(): Promise<void> {
     if (!streamPlaying.value) return
@@ -299,6 +304,15 @@ export const useVoiceStore = defineStore('voice', () => {
     streamBuffer = ''
     streamPlaying.value = false
 
+    // 等待合成队列清空
+    while (synthesisRunning && synthesisQueue.length > 0) {
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    // 再等合成运行中的最后一个任务完成
+    while (synthesisRunning) {
+      await new Promise((r) => setTimeout(r, 50))
+    }
+
     // 如果队列已空，直接结束
     const p = getPlayer()
     if (p.queueLength === 0 && (p.state === 'idle' || p.state === 'finished')) {
@@ -306,7 +320,7 @@ export const useVoiceStore = defineStore('voice', () => {
       return
     }
 
-    // 等待队列播放完毕
+    // 等待播放队列完毕
     return new Promise<void>((resolve) => {
       streamEndResolve = resolve
     })
@@ -314,18 +328,20 @@ export const useVoiceStore = defineStore('voice', () => {
 
   /**
    * 取消流式播放。
-   * 清空缓冲区和队列，停止播放。
+   * 清空缓冲区、合成队列和播放队列，停止播放。
    */
   function cancelStream(): void {
     streamBuffer = ''
     streamPlaying.value = false
     streamMessageId.value = null
     streamEndResolve = null
+    synthesisQueue = []
+    synthesisRunning = false
     stopPlayback()
   }
 
   /**
-   * 合成文本并加入播放队列。
+   * 合成文本并加入播放队列（串行队列，保证顺序）。
    */
   async function synthesizeAndEnqueue(text: string): Promise<void> {
     if (!text.trim()) return
@@ -334,22 +350,44 @@ export const useVoiceStore = defineStore('voice', () => {
     const ttsConfig = settingsStore.settings?.voice.tts
     if (!ttsConfig?.enabled) return
 
-    try {
-      const audioBuffer = await window.electron.voice.synthesize(text, {
-        model: ttsConfig.model,
-        voice: ttsConfig.voice,
-        speed: ttsConfig.speed,
-        format: ttsConfig.format,
-      })
+    // 加入合成队列
+    synthesisQueue.push({ text, format: ttsConfig.format })
 
-      const p = getPlayer()
-      p.setVolume(volume.value)
-      p.setPlaybackRate(playbackRate.value)
-      p.enqueue(audioBuffer, text, ttsConfig.format)
-    } catch (error) {
-      console.error('[Voice] Stream TTS synthesis error:', error)
-      // 单句失败不中断整个流式播放
+    // 如果没有正在运行的合成任务，启动队列处理
+    if (!synthesisRunning) {
+      await processSynthesisQueue()
     }
+  }
+
+  /**
+   * 串行处理合成队列，保证句子按序入队。
+   */
+  async function processSynthesisQueue(): Promise<void> {
+    synthesisRunning = true
+    const settingsStore = useSettingsStore()
+    const ttsConfig = settingsStore.settings?.voice.tts
+
+    while (synthesisQueue.length > 0 && streamPlaying.value) {
+      const item = synthesisQueue.shift()!
+      try {
+        if (!ttsConfig?.enabled) break
+        const audioBuffer = await window.electron.voice.synthesize(item.text, {
+          model: ttsConfig.model,
+          voice: ttsConfig.voice,
+          speed: ttsConfig.speed,
+          format: ttsConfig.format,
+        })
+
+        const p = getPlayer()
+        p.setVolume(volume.value)
+        p.setPlaybackRate(playbackRate.value)
+        p.enqueue(audioBuffer, item.text, item.format)
+      } catch (error) {
+        console.error('[Voice] Stream TTS synthesis error:', error)
+        // 单句失败不中断整个流式播放
+      }
+    }
+    synthesisRunning = false
   }
 
   // ─── STT Actions ─────────────────────────────────────────────
@@ -640,14 +678,43 @@ export const useVoiceStore = defineStore('voice', () => {
 
   /**
    * 发送语音消息到聊天。
-   * 这里通过事件方式通知 ChatView，由 ChatView 处理发送。
-   * 或者我们直接调用 chat store。
+   * 通过 Agent 路径发送，使 AI 具备工具调用能力。
    */
   async function sendVoiceMessage(text: string): Promise<void> {
     try {
       const { useChatStore } = await import('./chat')
+      const { useAgentStore } = await import('./agent')
       const chatStore = useChatStore()
-      await chatStore.sendMessage(text)
+      const agentStore = useAgentStore()
+
+      const conv = chatStore.currentConversation
+      if (!conv) return
+
+      // 乐观添加用户消息
+      const userMessage = {
+        id: `temp-user-${Date.now()}`,
+        conversationId: conv.id,
+        role: 'user' as const,
+        content: text,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      chatStore.messages.push(userMessage)
+
+      // 通过 Agent 路径发送（支持工具调用）
+      try {
+        await agentStore.execute({
+          conversationId: conv.id,
+          userInput: text,
+          modelId: conv.modelId,
+          approvalMode: conv.approvalMode,
+          maxSteps: 20,
+        })
+      } finally {
+        await chatStore.selectConversation(conv.id)
+        await chatStore.loadConversations({ silent: true })
+        agentStore.reset()
+      }
 
       // 等待 TTS 播放完毕（流式播放会自动开始）
       // 播放结束后如果 autoAwait 为 true，自动回到等待状态

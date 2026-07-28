@@ -19,6 +19,7 @@ import MessageList from '@/components/ChatPanel/MessageList.vue'
 import ChatInput from '@/components/ChatPanel/ChatInput.vue'
 import ExecutionPanel from '@/components/Agent/ExecutionPanel.vue'
 import VoiceControlPanel from '@/components/VoiceControlPanel.vue'
+import { showToast } from '@/utils/toast'
 
 const chatStore = useChatStore()
 const agentStore = useAgentStore()
@@ -133,24 +134,47 @@ async function handleSend(content: string, skillName?: string): Promise<void> {
   const conv = chatStore.currentConversation
   if (!conv) return
 
-  if (skillName) {
-    // Agent 执行路径（Skill 模式）
+  // 乐观添加用户消息到 UI（Agent IPC 会持久化到 DB）
+  const userMessage: ChatMessage = {
+    id: `temp-user-${Date.now()}`,
+    conversationId: conv.id,
+    role: 'user',
+    content,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+  chatStore.messages.push(userMessage)
+
+  // 始终走 Agent 路径，让 AI 具备工具调用能力
+  // 无论是否选择 Skill，都通过 ReAct 引擎执行
+  try {
     await agentStore.execute({
       conversationId: conv.id,
       userInput: content,
       modelId: conv.modelId,
       approvalMode: conv.approvalMode,
       maxSteps: 20,
-      skillName,
+      skillName: skillName ?? undefined,
     })
-  } else {
-    // 普通对话路径
-    await chatStore.sendMessage(content)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`执行失败: ${message}`, 'error')
+  } finally {
+    // 执行完成后重新加载消息（Agent 会将结果持久化到 DB）
+    await chatStore.selectConversation(conv.id)
+    await chatStore.loadConversations({ silent: true })
+    agentStore.reset()
   }
 }
 
 async function handleStop(): Promise<void> {
-  await chatStore.stopGeneration()
+  // 同时停止 Chat 和 Agent 两种路径
+  if (agentStore.isRunning) {
+    await agentStore.stop()
+  }
+  if (chatStore.isGenerating) {
+    await chatStore.stopGeneration()
+  }
 }
 
 /** Send an example prompt from the welcome screen (OPT-UI-01) */
@@ -164,7 +188,7 @@ async function handleSendPrompt(prompt: string): Promise<void> {
     }
     await chatStore.newConversation(firstModel.id)
   }
-  await chatStore.sendMessage(prompt)
+  await handleSend(prompt)
 }
 
 const hasConversation = computed(() => chatStore.currentConversationId !== null)
@@ -190,8 +214,8 @@ async function handleRetryMessage(message: ChatMessage): Promise<void> {
   // Remove the assistant message being retried and any messages after it
   chatStore.messages = chatStore.messages.slice(0, idx)
 
-  // Re-send the user message content
-  await chatStore.sendMessage(prevUserMessage.content)
+  // Re-send through agent path
+  await handleSend(prevUserMessage.content)
 }
 
 /** Open edit modal for a user message */
@@ -214,7 +238,7 @@ async function handleConfirmEdit(): Promise<void> {
   }
   showEditModal.value = false
   editingMessage.value = null
-  await chatStore.sendMessage(newContent)
+  await handleSend(newContent)
 }
 
 function handleCancelEdit(): void {
