@@ -37,6 +37,25 @@ export const DEFAULT_EMBEDDING_CONFIG: EmbeddingConfig = {
 let activeConfig: EmbeddingConfig = { ...DEFAULT_EMBEDDING_CONFIG }
 
 /**
+ * 校验嵌入向量维度是否与配置一致。
+ *
+ * @param embedding - 生成的嵌入向量
+ * @param config - 嵌入配置（包含期望维度）
+ * @throws {AppError} KB_EMBEDDING_ERROR - 维度不匹配
+ */
+function validateEmbeddingDimension(embedding: number[], config: EmbeddingConfig): void {
+  if (config.dimensions !== undefined && embedding.length !== config.dimensions) {
+    throw new AppError(
+      ErrorCodes.KB_EMBEDDING_ERROR,
+      `Embedding dimension mismatch: expected ${config.dimensions} dimensions ` +
+        `(from config for model "${config.model}"), but got ${embedding.length}. ` +
+        `This may indicate a model change. Please update the embedding config or rebuild the index.`,
+      { expected: config.dimensions, actual: embedding.length, model: config.model },
+    )
+  }
+}
+
+/**
  * 设置全局嵌入配置。
  *
  * @param config - 嵌入配置
@@ -78,11 +97,14 @@ export async function generateEmbedding(text: string, config?: EmbeddingConfig):
   }
 
   try {
+    let embedding: number[]
     switch (cfg.provider) {
       case 'ollama':
-        return await generateOllamaEmbedding(text, cfg)
+        embedding = await generateOllamaEmbedding(text, cfg)
+        break
       case 'openai':
-        return await generateOpenAiEmbedding(text, cfg)
+        embedding = await generateOpenAiEmbedding(text, cfg)
+        break
       default:
         throw new AppError(
           ErrorCodes.KB_EMBEDDING_ERROR,
@@ -90,6 +112,9 @@ export async function generateEmbedding(text: string, config?: EmbeddingConfig):
           { provider: cfg.provider },
         )
     }
+    // Validate dimension if configured
+    validateEmbeddingDimension(embedding, cfg)
+    return embedding
   } catch (error) {
     if (error instanceof AppError) throw error
     const message = error instanceof Error ? error.message : String(error)
@@ -140,6 +165,8 @@ export async function generateEmbeddings(
 
     for (const item of validTexts) {
       const embedding = await generateOllamaEmbedding(item.text, cfg)
+      // Validate dimension on first embedding
+      validateEmbeddingDimension(embedding, cfg)
       results[item.index] = { text: item.text, embedding }
     }
 

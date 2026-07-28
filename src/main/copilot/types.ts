@@ -12,14 +12,6 @@ export interface SdkProviderConfig {
   azure?: { apiVersion: string }
 }
 
-/** Parameters for creating a Copilot SDK session */
-export interface CopilotSessionParams {
-  modelId: string
-  provider: SdkProviderConfig
-  systemMessage?: string
-  workingDirectory?: string
-}
-
 /**
  * Maps AgentForge ModelProvider to SDK provider type.
  * - anthropic -> anthropic

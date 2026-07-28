@@ -5,7 +5,7 @@
 import { computed, onMounted } from 'vue'
 import { NSelect, NInputNumber, NRadioGroup, NRadioButton } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
-import type { AppSettings, ApprovalMode } from '@shared/types'
+import type { AppSettings, ApprovalMode, EngineType } from '@shared/types'
 import { useSettingsStore } from '@/stores/settings'
 import { useModelStore } from '@/stores/model'
 import { showToast } from '@/utils/toast'
@@ -31,16 +31,15 @@ const isLoading = computed(() => settingsStore.loading || settings.value === nul
 // 主题切换统一由 useTheme composable（在 App.vue 中）管理，
 // 此组件仅负责更新 settings store 的值。
 
-const THEME_OPTIONS: ReadonlyArray<{ value: AppSettings['theme']; label: string }> = [
-  { value: 'dark', label: '深色' },
-  { value: 'light', label: '浅色' },
-  { value: 'system', label: '跟随系统' },
-]
-
 const APPROVAL_OPTIONS: ReadonlyArray<{ value: ApprovalMode; label: string }> = [
   { value: 'suggest', label: '建议模式' },
   { value: 'auto-edit', label: '自动编辑' },
   { value: 'full-auto', label: '全自动' },
+]
+
+const ENGINE_OPTIONS: ReadonlyArray<{ value: EngineType; label: string; desc: string }> = [
+  { value: 'builtin', label: '内置引擎', desc: 'AgentForge 原生 ReAct 循环' },
+  { value: 'copilot-sdk', label: 'Copilot SDK', desc: 'GitHub Copilot SDK 驱动' },
 ]
 
 // OPT2-10: 移除独立的 applyTheme 函数和 watch/matchMedia 监听器，
@@ -65,6 +64,17 @@ async function updateApprovalMode(value: ApprovalMode): Promise<void> {
   try {
     await settingsStore.updateSetting('defaultApprovalMode', value)
     showToast('默认审批模式已更新', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateEngineType(value: EngineType): Promise<void> {
+  try {
+    await settingsStore.updateSetting('engineType', value)
+    const label = ENGINE_OPTIONS.find((o) => o.value === value)?.label ?? value
+    showToast(`执行引擎已切换为「${label}」，新对话生效`, 'success')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     showToast(`保存失败: ${message}`, 'error')
@@ -117,11 +127,6 @@ const approvalTimeoutSeconds = computed(() => {
 })
 
 // ─── NSelect option adapters ──────────────────────────────────
-
-/** Theme options reshaped for NSelect ({ label, value }). */
-const themeOptions = computed<SelectOption[]>(() =>
-  THEME_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
-)
 
 /** Approval-mode options reshaped for NSelect. */
 const approvalOptions = computed<SelectOption[]>(() =>
@@ -195,6 +200,28 @@ const approvalTimeoutValue = computed<number | null>({
             <NRadioButton value="system" class="theme-option">
               <div class="theme-preview theme-preview--system" />
               <span>跟随系统</span>
+            </NRadioButton>
+          </NRadioGroup>
+        </div>
+      </div>
+
+      <!-- 执行引擎 -->
+      <div class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">执行引擎</span>
+          <span class="setting-row__desc">选择 Agent 执行引擎，切换后新对话生效</span>
+        </div>
+        <div class="setting-row__control">
+          <NRadioGroup
+            :value="settings?.engineType ?? 'builtin'"
+            @update:value="(v) => updateEngineType(v as EngineType)"
+          >
+            <NRadioButton
+              v-for="opt in ENGINE_OPTIONS"
+              :key="opt.value"
+              :value="opt.value"
+            >
+              {{ opt.label }}
             </NRadioButton>
           </NRadioGroup>
         </div>

@@ -36,11 +36,11 @@ describe('cosineSimilarity', () => {
     expect(cosineSimilarity([1, 2], [])).toBe(0)
   })
 
-  it('should handle vectors with different dimensions', () => {
+  it('should throw on vectors with different dimensions', () => {
     const a = [1, 2, 3, 4]
     const b = [1, 2, 3]
-    // 取最小维度 [1, 2, 3] vs [1, 2, 3] = 1
-    expect(cosineSimilarity(a, b)).toBeCloseTo(1, 6)
+    // 维度不匹配应抛出错误，而不是静默截断
+    expect(() => cosineSimilarity(a, b)).toThrow(/dimension mismatch/i)
   })
 
   it('should handle zero vectors', () => {

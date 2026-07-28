@@ -125,6 +125,7 @@ export async function semanticSearch(
  * @param a - 向量 A
  * @param b - 向量 B
  * @returns 余弦相似度
+ * @throws {AppError} KB_SEARCH_ERROR - 维度不匹配（可能是嵌入模型变更后未重建索引）
  */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length === 0 || b.length === 0) {
@@ -132,10 +133,14 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   }
 
   if (a.length !== b.length) {
-    // 维度不匹配时，取最小公共维度计算
-    const minLen = Math.min(a.length, b.length)
-    a = a.slice(0, minLen)
-    b = b.slice(0, minLen)
+    throw new AppError(
+      ErrorCodes.KB_SEARCH_ERROR,
+      `Embedding dimension mismatch: query vector has ${a.length} dimensions, ` +
+        `but stored chunk has ${b.length} dimensions. ` +
+        `This usually happens after switching embedding models. ` +
+        `Please rebuild the knowledge base index.`,
+      { queryDim: a.length, chunkDim: b.length },
+    )
   }
 
   let dotProduct = 0
