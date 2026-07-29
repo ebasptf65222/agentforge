@@ -66,6 +66,18 @@ describe('app-settings repository', () => {
     if (!cols.some((c) => c.name === 'copilot_enable_config_discovery')) {
       testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_enable_config_discovery INTEGER DEFAULT 0')
     }
+    if (!cols.some((c) => c.name === 'copilot_context_tier')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_context_tier TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_reasoning_summary')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_reasoning_summary TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_excluded_tools')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_excluded_tools TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_enable_host_git_operations')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_enable_host_git_operations INTEGER DEFAULT 1')
+    }
     vi.clearAllMocks()
   })
 

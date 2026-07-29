@@ -135,6 +135,14 @@ interface AppSettings {
   copilotSkillDirectories?: string[]
   /** 是否启用配置自动发现（.mcp.json、skill 目录等） */
   copilotEnableConfigDiscovery?: boolean
+  /** SDK 上下文窗口层级：'long_context' 固定使用长上下文模型 */
+  copilotContextTier?: 'default' | 'long_context'
+  /** SDK 推理摘要模式：'none' 可抑制摘要输出 */
+  copilotReasoningSummary?: 'none' | 'auto' | 'detailed'
+  /** SDK 排除的工具列表（与 availableTools 互补） */
+  copilotExcludedTools?: string[]
+  /** SDK 是否启用主机 Git 操作（分支、状态等上下文） */
+  copilotEnableHostGitOperations?: boolean
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }

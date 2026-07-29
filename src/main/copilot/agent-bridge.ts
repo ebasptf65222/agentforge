@@ -290,6 +290,31 @@ export class CopilotAgentBridge {
         sessionConfig['enableConfigDiscovery'] = extras.enableConfigDiscovery
       }
 
+      // 4o. 客户端名称
+      if (extras?.clientName) {
+        sessionConfig['clientName'] = extras.clientName
+      }
+
+      // 4p. 上下文窗口层级
+      if (extras?.contextTier) {
+        sessionConfig['contextTier'] = extras.contextTier
+      }
+
+      // 4q. 推理摘要模式
+      if (extras?.reasoningSummary) {
+        sessionConfig['reasoningSummary'] = extras.reasoningSummary
+      }
+
+      // 4r. 排除的工具列表
+      if (extras?.excludedTools && extras.excludedTools.length > 0) {
+        sessionConfig['excludedTools'] = extras.excludedTools
+      }
+
+      // 4s. 主机 Git 操作
+      if (extras?.enableHostGitOperations !== undefined) {
+        sessionConfig['enableHostGitOperations'] = extras.enableHostGitOperations
+      }
+
       // 5. 通过 SessionManager 获取或恢复 session
       const conversationId = extras?.conversationId || request.conversationId
       const sessionManager = getSessionManager()

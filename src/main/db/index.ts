@@ -157,6 +157,34 @@ function runConditionalMigrations(db: Database.Database): void {
       `ALTER TABLE conversations ADD COLUMN sdk_session_id TEXT DEFAULT NULL`
     )
   }
+
+  // P1-01: 确保 app_settings 有 copilot_context_tier 列（'default' | 'long_context'）
+  if (!hasColumn(db, 'app_settings', 'copilot_context_tier')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_context_tier TEXT`
+    )
+  }
+
+  // P1-02: 确保 app_settings 有 copilot_reasoning_summary 列（'none' | 'auto' | 'detailed'）
+  if (!hasColumn(db, 'app_settings', 'copilot_reasoning_summary')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_reasoning_summary TEXT`
+    )
+  }
+
+  // P1-03: 确保 app_settings 有 copilot_excluded_tools 列（JSON 数组）
+  if (!hasColumn(db, 'app_settings', 'copilot_excluded_tools')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_excluded_tools TEXT`
+    )
+  }
+
+  // P1-04: 确保 app_settings 有 copilot_enable_host_git_operations 列（boolean 0/1）
+  if (!hasColumn(db, 'app_settings', 'copilot_enable_host_git_operations')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_enable_host_git_operations INTEGER DEFAULT 1`
+    )
+  }
 }
 
 /**

@@ -354,3 +354,31 @@ VALUES (13, strftime('%s','now') * 1000, 'Add copilot_skill_directories column t
 
 INSERT OR IGNORE INTO schema_version (version, applied_at, description)
 VALUES (14, strftime('%s','now') * 1000, 'Add copilot_enable_config_discovery column to app_settings for SDK config auto-discovery');
+
+-- ─── 6.21 copilot_context_tier (P1-01) ────────────────────────
+-- SDK 上下文窗口层级：'default' 或 'long_context'
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (15, strftime('%s','now') * 1000, 'Add copilot_context_tier column to app_settings for SDK context tier');
+
+-- ─── 6.22 copilot_reasoning_summary (P1-02) ───────────────────
+-- SDK 推理摘要模式：'none' | 'auto' | 'detailed'
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (16, strftime('%s','now') * 1000, 'Add copilot_reasoning_summary column to app_settings for SDK reasoning summary');
+
+-- ─── 6.23 copilot_excluded_tools (P1-03) ──────────────────────
+-- SDK 排除的工具列表（JSON 数组）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (17, strftime('%s','now') * 1000, 'Add copilot_excluded_tools column to app_settings for SDK excluded tools');
+
+-- ─── 6.24 copilot_enable_host_git_operations (P1-04) ──────────
+-- SDK 是否启用主机 Git 操作：0 表示禁用，1 表示启用（默认）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (18, strftime('%s','now') * 1000, 'Add copilot_enable_host_git_operations column to app_settings for SDK host git operations');

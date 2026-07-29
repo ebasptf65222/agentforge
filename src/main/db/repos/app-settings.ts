@@ -4,7 +4,7 @@
 
 import type Database from 'better-sqlite3'
 import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
-import type { ReasoningEffort, WireApiMode } from '../../copilot/types'
+import type { ReasoningEffort, WireApiMode, ContextTier, ReasoningSummary } from '../../copilot/types'
 import { getDatabase } from '../index'
 import { AppError, ErrorCodes } from '../../utils/error'
 
@@ -30,6 +30,10 @@ interface AppSettingsRow {
   copilot_wire_api: string | null
   copilot_skill_directories: string | null
   copilot_enable_config_discovery: number
+  copilot_context_tier: string | null
+  copilot_reasoning_summary: string | null
+  copilot_excluded_tools: string | null
+  copilot_enable_host_git_operations: number
   window_bounds: string | null
   updated_at: number
 }
@@ -123,6 +127,10 @@ export interface UpdateSettingsParams {
   copilotWireApi?: WireApiMode | null
   copilotSkillDirectories?: string[] | null
   copilotEnableConfigDiscovery?: boolean
+  copilotContextTier?: ContextTier | null
+  copilotReasoningSummary?: ReasoningSummary | null
+  copilotExcludedTools?: string[] | null
+  copilotEnableHostGitOperations?: boolean
   windowBounds?: WindowBounds | null
 }
 
@@ -182,6 +190,12 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
       ? (JSON.parse(row.copilot_skill_directories) as string[])
       : undefined,
     copilotEnableConfigDiscovery: row.copilot_enable_config_discovery === 1,
+    copilotContextTier: (row.copilot_context_tier ?? undefined) as ContextTier | undefined,
+    copilotReasoningSummary: (row.copilot_reasoning_summary ?? undefined) as ReasoningSummary | undefined,
+    copilotExcludedTools: row.copilot_excluded_tools
+      ? (JSON.parse(row.copilot_excluded_tools) as string[])
+      : undefined,
+    copilotEnableHostGitOperations: row.copilot_enable_host_git_operations === 1,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -404,6 +418,28 @@ export function updateSettings(params: UpdateSettingsParams): void {
   if (params.copilotEnableConfigDiscovery !== undefined) {
     setClauses.push('copilot_enable_config_discovery = ?')
     values.push(params.copilotEnableConfigDiscovery ? 1 : 0)
+  }
+
+  if (params.copilotContextTier !== undefined) {
+    setClauses.push('copilot_context_tier = ?')
+    values.push(params.copilotContextTier === null ? null : params.copilotContextTier)
+  }
+
+  if (params.copilotReasoningSummary !== undefined) {
+    setClauses.push('copilot_reasoning_summary = ?')
+    values.push(params.copilotReasoningSummary === null ? null : params.copilotReasoningSummary)
+  }
+
+  if (params.copilotExcludedTools !== undefined) {
+    setClauses.push('copilot_excluded_tools = ?')
+    values.push(
+      params.copilotExcludedTools === null ? null : JSON.stringify(params.copilotExcludedTools),
+    )
+  }
+
+  if (params.copilotEnableHostGitOperations !== undefined) {
+    setClauses.push('copilot_enable_host_git_operations = ?')
+    values.push(params.copilotEnableHostGitOperations ? 1 : 0)
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

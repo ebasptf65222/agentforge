@@ -16,6 +16,12 @@ export interface SdkProviderConfig {
 /** SDK 推理强度级别 */
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 
+/** SDK 推理摘要模式 */
+export type ReasoningSummary = 'none' | 'auto' | 'detailed'
+
+/** SDK 上下文窗口层级 */
+export type ContextTier = 'default' | 'long_context'
+
 /**
  * SDK wire API 模式。
  * - 'completions'：使用 Chat Completions API（默认）
@@ -100,6 +106,16 @@ export interface SessionExtras {
   disabledSkills?: string[]
   /** 是否启用配置自动发现（.mcp.json、skill 目录等），默认 false */
   enableConfigDiscovery?: boolean
+  /** 客户端名称（SDK clientName，传入 User-Agent） */
+  clientName?: string
+  /** 上下文窗口层级（SDK contextTier） */
+  contextTier?: ContextTier
+  /** 推理摘要模式（SDK reasoningSummary） */
+  reasoningSummary?: ReasoningSummary
+  /** 排除的工具列表（SDK excludedTools） */
+  excludedTools?: string[]
+  /** 是否启用主机 Git 操作（SDK enableHostGitOperations） */
+  enableHostGitOperations?: boolean
 }
 
 /**

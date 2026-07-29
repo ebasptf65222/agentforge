@@ -228,6 +228,29 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
       extras.enableConfigDiscovery = true
     }
 
+    // 8. 上下文层级
+    if (settings.copilotContextTier) {
+      extras.contextTier = settings.copilotContextTier
+    }
+
+    // 9. 推理摘要模式
+    if (settings.copilotReasoningSummary) {
+      extras.reasoningSummary = settings.copilotReasoningSummary
+    }
+
+    // 10. 排除的工具列表
+    if (settings.copilotExcludedTools && settings.copilotExcludedTools.length > 0) {
+      extras.excludedTools = settings.copilotExcludedTools
+    }
+
+    // 11. 主机 Git 操作
+    if (settings.copilotEnableHostGitOperations !== undefined) {
+      extras.enableHostGitOperations = settings.copilotEnableHostGitOperations
+    }
+
+    // 12. 客户端名称
+    extras.clientName = 'AgentForge'
+
     // 执行 SDK Agent（传入 extras 配置）
     result = await bridge.execute(request, extras)
 

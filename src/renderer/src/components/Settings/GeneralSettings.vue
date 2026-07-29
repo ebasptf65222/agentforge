@@ -62,6 +62,24 @@ const WIRE_API_OPTIONS: ReadonlyArray<{
   { value: 'completions', label: 'Completions API' },
 ]
 
+const CONTEXT_TIER_OPTIONS: ReadonlyArray<{
+  value: string
+  label: string
+}> = [
+  { value: 'default', label: '默认' },
+  { value: 'long_context', label: '长上下文' },
+]
+
+const REASONING_SUMMARY_OPTIONS: ReadonlyArray<{
+  value: string
+  label: string
+}> = [
+  { value: '', label: '默认' },
+  { value: 'none', label: '无摘要' },
+  { value: 'auto', label: '自动' },
+  { value: 'detailed', label: '详细' },
+]
+
 // OPT2-10: 移除独立的 applyTheme 函数和 watch/matchMedia 监听器，
 // 避免 'theme-dark'/'theme-light' 类名与 useTheme 的 'dark'/'light' 冲突，
 // 同时修复 matchMedia 监听器在组件卸载后未移除的泄漏问题。
@@ -181,6 +199,48 @@ async function updateConfigDiscovery(value: boolean): Promise<void> {
   }
 }
 
+async function updateContextTier(value: string): Promise<void> {
+  const tier = value === 'default' ? null : value
+  try {
+    await settingsStore.updateSetting('copilotContextTier', tier)
+    showToast('上下文层级已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateReasoningSummary(value: string): Promise<void> {
+  const summary = value === '' ? null : value
+  try {
+    await settingsStore.updateSetting('copilotReasoningSummary', summary)
+    showToast('推理摘要已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateExcludedTools(tools: string[]): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotExcludedTools', tools.length > 0 ? tools : null)
+    showToast('排除工具已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateEnableHostGitOperations(value: boolean): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotEnableHostGitOperations', value)
+    showToast('Git 操作支持已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
 // ─── Helpers for template binding ─────────────────────────────
 
 /** Convert the stored approvalTimeoutMs (ms) to seconds for display. */
@@ -211,6 +271,16 @@ const reasoningEffortOptions = computed<SelectOption[]>(() =>
 /** Wire API mode options for NSelect. */
 const wireApiOptions = computed<SelectOption[]>(() =>
   WIRE_API_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
+)
+
+/** Context tier options for NSelect. */
+const contextTierOptions = computed<SelectOption[]>(() =>
+  CONTEXT_TIER_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
+)
+
+/** Reasoning summary options for NSelect. */
+const reasoningSummaryOptions = computed<SelectOption[]>(() =>
+  REASONING_SUMMARY_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
 )
 
 /** Whether Copilot SDK engine is selected (controls reasoning effort visibility). */
@@ -361,6 +431,67 @@ const approvalTimeoutValue = computed<number | null>({
           <NSwitch
             :value="settings?.copilotEnableConfigDiscovery ?? false"
             @update:value="(v: boolean) => updateConfigDiscovery(v)"
+          />
+        </div>
+      </div>
+
+      <!-- 上下文层级（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">上下文层级</span>
+          <span class="setting-row__desc">长上下文模式可支持更长的对话历史（需模型支持）</span>
+        </div>
+        <div class="setting-row__control">
+          <NSelect
+            :value="settings?.copilotContextTier ?? 'default'"
+            :options="contextTierOptions"
+            @update:value="(v) => updateContextTier(v as string)"
+          />
+        </div>
+      </div>
+
+      <!-- 推理摘要（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">推理摘要</span>
+          <span class="setting-row__desc">控制推理过程的摘要输出模式</span>
+        </div>
+        <div class="setting-row__control">
+          <NSelect
+            :value="settings?.copilotReasoningSummary ?? ''"
+            :options="reasoningSummaryOptions"
+            @update:value="(v) => updateReasoningSummary(v as string)"
+          />
+        </div>
+      </div>
+
+      <!-- 排除工具（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">排除工具</span>
+          <span class="setting-row__desc">禁止 AI 使用这些工具（与允许列表互补）</span>
+        </div>
+        <div class="setting-row__control">
+          <NDynamicTags
+            :value="settings?.copilotExcludedTools ?? []"
+            type="error"
+            :max="50"
+            round
+            @update:value="(v: Array<string | number>) => updateExcludedTools(v.map(String))"
+          />
+        </div>
+      </div>
+
+      <!-- Git 操作支持（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">Git 上下文</span>
+          <span class="setting-row__desc">向 AI 提供分支、文件状态等 Git 信息</span>
+        </div>
+        <div class="setting-row__control">
+          <NSwitch
+            :value="settings?.copilotEnableHostGitOperations ?? true"
+            @update:value="(v: boolean) => updateEnableHostGitOperations(v)"
           />
         </div>
       </div>
