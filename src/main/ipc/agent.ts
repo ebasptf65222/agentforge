@@ -3,7 +3,7 @@
 // agent:execute, agent:stop, agent:approve
 // 事件推送: agent:trajectory, agent:approval-request, agent:stream-chunk
 
-import { ipcMain, type IpcMainInvokeHandler } from 'electron'
+import { ipcMain, app, type IpcMainInvokeHandler } from 'electron'
 import type {
   AgentExecutionRequest,
   ExecutionResult,
@@ -30,6 +30,7 @@ import {
   getModelContextWindow,
   chatMessagesToContext,
 } from '../agent/context-manager'
+import { getSessionManager } from '../copilot/session-manager'
 
 // ─── 并发控制 ─────────────────────────────────────────────────────
 
@@ -146,29 +147,10 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
     // ─── 构建 SessionExtras ────────────────────────────────────
     const extras: SessionExtras = {}
 
-    // 0. 加载历史对话消息并进行上下文窗口管理
-    //    SDK 引擎无状态，需主动注入历史上下文
-    const sdkContextWindow = getModelContextWindow(request.modelId)
-    const sdkRawHistory = getMessagesByConversationId(request.conversationId)
-    // 移除刚保存的当前用户消息（避免与 request.userInput 重复）
-    const sdkHistoryMsgs = sdkRawHistory.filter(
-      (m) => m.content !== request.userInput || m.role !== 'user',
-    )
-    const sdkHistoryContext = chatMessagesToContext(sdkHistoryMsgs)
-    const sdkContextResult = manageContext(sdkHistoryContext, {
-      maxContextTokens: sdkContextWindow,
-    })
-    if (sdkContextResult.messages.length > 0) {
-      extras.conversationHistory = sdkContextResult.messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }))
-    }
-    if (sdkContextResult.truncated) {
-      console.info(
-        `[Agent SDK] Context truncated: ${sdkContextResult.originalCount} -> ${sdkContextResult.retainedCount} messages, ~${sdkContextResult.estimatedTokens} tokens`,
-      )
-    }
+    // SDK 持久化会话模式：不再需要手动加载历史对话
+    // SDK 的 Infinite Sessions 机制自动管理上下文窗口和对话历史
+    // 传入 conversationId 以复用 SDK session
+    extras.conversationId = request.conversationId
 
     // 1. 解析 Skill（用户指定或意图匹配）
     //    SDK 引擎复用现有 skills/ 模块，使用当前会话模型做意图匹配
@@ -464,5 +446,14 @@ export function registerAgentHandlers(): void {
   for (const { channel, handler } of registrations) {
     ipcMain.removeHandler(channel)
     ipcMain.handle(channel, handler)
+  }
+
+  // 应用退出时清理所有 SDK session
+  // 使用 before-quit 事件确保在窗口关闭前清理
+  if (!app._sessionCleanupRegistered) {
+    app.on('before-quit', () => {
+      void getSessionManager().destroyAllSessions()
+    })
+    app._sessionCleanupRegistered = true
   }
 }

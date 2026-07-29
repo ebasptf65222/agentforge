@@ -1,13 +1,8 @@
 // Copilot SDK <-> AgentForge IPC bridge
-// Manages CopilotClient lifecycle, session creation, and event streaming
-// Step 3: Tool bridging + approval mechanism integration
+// Manages Copilot SDK session lifecycle and event streaming
+// 使用持久化会话模式：每个对话复用同一 session，启用 SDK 原生上下文压缩
 
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { CopilotClient, RuntimeConnection } from '@github/copilot-sdk'
 import type { AgentExecutionRequest, ExecutionResult, TAOTrajectory } from '@shared/types'
 import type { AgentEventCallbacks } from '../agent/types'
 import { ApprovalManager } from '../agent/approval'
@@ -20,108 +15,28 @@ import {
   buildFinalTrajectory,
 } from './event-converter'
 import type { SessionExtras } from './types'
+import { getSessionManager } from './session-manager'
 
-/**
- * Bridges Copilot SDK sessions to AgentForge's IPC event system.
- *
- * Lifecycle:
- * 1. execute() creates a CopilotClient + session with BYOK provider config
- * 2. SDK streaming events are converted to AgentForge StreamChunk / TAOTrajectory
- * 3. Tool calls are bridged via defineTool with embedded approval checks
- * 4. On completion (session.idle), ExecutionResult is returned
- * 5. cancel() aborts the session and returns a cancelled result
- */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SdkSession = any
-
-/**
- * Resolve the Copilot CLI entry point path for the current platform.
- *
- * The SDK's getBundledCliPath() uses import.meta.resolve which may fail in
- * Electron's bundled context, and it tries to resolve `./sdk` which is
- * blocked by the platform package's `exports` map under pnpm.
- *
- * This function uses bare package resolution (the `.` export → native binary)
- * and derives the package directory from that path, avoiding the `exports`
- * restriction on `./package.json` and `./sdk` subpaths.
- *
- * The CLI entry point is `index.js` inside the platform package, e.g.
- * `node_modules/@github/copilot-win32-x64/index.js`.
- *
- * @returns CLI entry point path, or undefined to let SDK use its default
- */
-function resolveCopilotCliPath(): string | undefined {
-  const arch = process.arch
-  const variants =
-    process.platform === 'linux' ? ['linux', 'linuxmusl'] : [process.platform]
-  const packageNames = variants.map((v) => `@github/copilot-${v}-${arch}`)
-
-  // Strategy 1: createRequire — resolve bare package name (bypasses exports map)
-  // The `.` export resolves to the native binary (e.g. ./copilot); we derive
-  // the package directory from its parent and look for index.js alongside it.
-  try {
-    const req = createRequire(import.meta.url)
-    for (const packageName of packageNames) {
-      try {
-        const resolved = req.resolve(packageName)
-        const pkgDir = dirname(resolved)
-        const cliPath = join(pkgDir, 'index.js')
-        if (existsSync(cliPath)) {
-          return cliPath
-        }
-      } catch {
-        // Package not found, try next
-      }
-    }
-  } catch {
-    // createRequire not available
-  }
-
-  // Strategy 2: import.meta.resolve — same approach via ESM
-  if (typeof import.meta.resolve === 'function') {
-    for (const packageName of packageNames) {
-      try {
-        const resolvedUrl = import.meta.resolve(packageName)
-        const resolvedPath = fileURLToPath(resolvedUrl)
-        const pkgDir = dirname(resolvedPath)
-        const cliPath = join(pkgDir, 'index.js')
-        if (existsSync(cliPath)) {
-          return cliPath
-        }
-      } catch {
-        // Package not found, try next
-      }
-    }
-  }
-
-  // Strategy 3: manual path probing via search paths (SDK's fallback approach)
-  try {
-    const req = createRequire(import.meta.url)
-    const searchPaths = req.resolve.paths('@github/copilot') ?? []
-    for (const base of searchPaths) {
-      for (const packageName of packageNames) {
-        const cliPath = join(base, ...packageName.split('/'), 'index.js')
-        if (existsSync(cliPath)) {
-          return cliPath
-        }
-      }
-    }
-  } catch {
-    // Search paths not available
-  }
-
-  // Fallback: let the SDK resolve it itself
-  return undefined
-}
 
 export interface CopilotBridgeOptions {
   callbacks: AgentEventCallbacks
   approvalTimeoutMs: number
 }
 
+/**
+ * Bridges Copilot SDK sessions to AgentForge's IPC event system.
+ *
+ * 持久化会话模式：
+ * 1. 通过 SessionManager 获取/复用 session（每个 conversationId 一个）
+ * 2. SDK 自动管理上下文窗口（Infinite Sessions + 后台压缩）
+ * 3. 工具调用通过 defineTool 桥接并嵌入审批检查
+ * 4. session.idle 表示本次消息处理完成（session 保持活跃）
+ * 5. cancel() 中止当前消息处理但不销毁 session
+ */
 export class CopilotAgentBridge {
-  private client: CopilotClient | null = null
-  private session: SdkSession = null
+  private session: SdkSession | null = null
   private readonly callbacks: AgentEventCallbacks
   private readonly approvalTimeoutMs: number
   private approvalManager: ApprovalManager | null = null
@@ -132,6 +47,8 @@ export class CopilotAgentBridge {
   private totalTokens = 0
   private stepCounter = 0
   private idleResolve: (() => void) | null = null
+  /** 标记是否为新建 session（首次对话） */
+  private isNewSession = false
 
   constructor(options: CopilotBridgeOptions) {
     this.callbacks = options.callbacks
@@ -139,7 +56,10 @@ export class CopilotAgentBridge {
   }
 
   /**
-   * Execute an agent request using Copilot SDK with BYOK streaming and tools.
+   * Execute an agent request using Copilot SDK.
+   *
+   * 持久化会话模式：复用已有 session 或创建新 session。
+   * SDK 通过 Infinite Sessions 自动管理上下文窗口。
    *
    * @param request - Agent execution request
    * @param extras - Optional session extras (Skill prompt, tool filter, working dir, reasoning)
@@ -155,14 +75,11 @@ export class CopilotAgentBridge {
     this.trajectories = []
     this.totalTokens = 0
 
-    // Generate unique execution ID for approval tracking
     const executionId = randomUUID()
-
-    // Create approval manager for this execution
     this.approvalManager = new ApprovalManager()
 
     try {
-      // 1. Build BYOK provider config from AgentForge model config
+      // 1. Build BYOK provider config
       const { model, provider } = buildProviderConfigById(request.modelId)
 
       // 2. Bridge all registered tools with embedded approval checks
@@ -175,71 +92,60 @@ export class CopilotAgentBridge {
       }
       const tools = bridgeAllTools(toolCtx)
 
-      // 3. Create and start CopilotClient (spawns CLI subprocess)
-      // Resolve CLI path for cross-platform support (Windows/macOS/Linux)
-      const cliPath = resolveCopilotCliPath()
-      const clientOptions = cliPath
-        ? { connection: RuntimeConnection.forStdio({ path: cliPath }) }
-        : {}
-      this.client = new CopilotClient(clientOptions)
-      await this.client.start()
-
-      // 4. Build MCP servers config from database (SDK manages connections)
+      // 3. Build MCP servers config
       const mcpServers = buildMcpServersConfig()
 
-      // 5. Build session config with BYOK, streaming, tools, MCP, and extras
+      // 4. Build session config (仅创建时使用，复用时不生效)
       const sessionConfig: Record<string, unknown> = {
         model,
         provider,
         streaming: true,
         tools,
         mcpServers,
-        // 启用大输出处理，防止工具输出撑爆上下文
-        largeOutput: { enabled: true },
       }
 
-      // 5a. 注入 Skill 系统提示词
+      // 4a. 注入 Skill 系统提示词（仅新 session 生效）
       if (extras?.systemMessageContent) {
         sessionConfig['systemMessage'] = { content: extras.systemMessageContent }
       }
 
-      // 5b. 工具过滤（Skill allowedTools）
+      // 4b. 工具过滤
       if (extras?.availableTools && extras.availableTools.length > 0) {
         sessionConfig['availableTools'] = extras.availableTools
       }
 
-      // 5c. 工作目录（文件操作上下文）
+      // 4c. 工作目录
       if (extras?.workingDirectory) {
         sessionConfig['workingDirectory'] = extras.workingDirectory
       }
 
-      // 5d. 推理强度
+      // 4d. 推理强度
       if (extras?.reasoningEffort) {
         sessionConfig['reasoningEffort'] = extras.reasoningEffort
       }
 
-      // 6. Create session with full config
-      const session: SdkSession = await this.client.createSession(sessionConfig)
-      this.session = session
+      // 5. 通过 SessionManager 获取或创建 session
+      const conversationId = extras?.conversationId || request.conversationId
+      const sessionManager = getSessionManager()
+      this.isNewSession = !sessionManager.hasSession(conversationId)
+      this.session = await sessionManager.getOrCreateSession(conversationId, sessionConfig)
 
-      // 7. Subscribe to SDK streaming events
-      this.subscribeToEvents(session)
+      // 6. Subscribe to SDK streaming events
+      this.subscribeToEvents(this.session)
 
-      // 8. Set up completion promise (resolves on session.idle)
+      // 7. Set up completion promise
       const idlePromise = new Promise<void>((resolve) => {
         this.idleResolve = resolve
       })
 
-      // 9. Send user message (non-blocking, events stream via callbacks)
-      //    如果有历史对话，将其格式化后作为上下文拼接到用户输入前面
-      //    SDK 引擎无状态，需主动注入历史上下文
-      const prompt = buildPromptWithHistory(request.userInput, extras?.conversationHistory)
-      await session.send({ prompt })
+      // 8. Send user message (直接发送，无需拼接历史)
+      //    SDK 持久化 session 自动维护对话历史和上下文压缩
+      await this.session.send({ prompt: request.userInput })
 
-      // 10. Wait for session to become idle (completion signal)
+      // 9. Wait for session to become idle
       await idlePromise
 
-      // 11. Build and return execution result
+      // 10. Build and return execution result
       const status = this.cancelled ? 'cancelled' : 'completed'
       const summary = this.accumulatedContent || 'No response generated.'
 
@@ -255,7 +161,6 @@ export class CopilotAgentBridge {
 
       return result
     } catch (error) {
-      // If cancelled, return a cancelled result instead of throwing
       if (this.cancelled) {
         return {
           executionId: request.conversationId,
@@ -267,19 +172,25 @@ export class CopilotAgentBridge {
           tokensUsed: this.totalTokens,
         }
       }
-      // Diagnostic log: output full error for debugging
       console.error('[CopilotAgentBridge] Execution error:', error)
       throw error
     } finally {
-      await this.cleanup()
+      // 清理本次执行的状态（不销毁 session）
+      this.cleanupExecutionState()
     }
   }
 
   /**
-   * Subscribe to SDK session events and convert them to AgentForge IPC events.
+   * Subscribe to SDK session events.
+   * 注意：每次 execute 都会重新订阅，需确保不重复订阅。
    */
   private subscribeToEvents(session: SdkSession): void {
-    // Streaming text deltas -> agent:stream-chunk (type: text)
+    // 先移除旧监听器（如果有）
+    session.removeAllListeners?.('assistant.message_delta')
+    session.removeAllListeners?.('assistant.reasoning_delta')
+    session.removeAllListeners?.('assistant.usage')
+    session.removeAllListeners?.('session.idle')
+
     session.on('assistant.message_delta', (event: unknown) => {
       const e = event as { data?: { deltaContent?: string } }
       const delta = e.data?.deltaContent || ''
@@ -289,7 +200,6 @@ export class CopilotAgentBridge {
       }
     })
 
-    // Streaming reasoning deltas -> agent:stream-chunk (type: thinking)
     session.on('assistant.reasoning_delta', (event: unknown) => {
       const e = event as { data?: { deltaContent?: string } }
       const delta = e.data?.deltaContent || ''
@@ -298,7 +208,6 @@ export class CopilotAgentBridge {
       }
     })
 
-    // Token usage tracking
     session.on('assistant.usage', (event: unknown) => {
       const e = event as { data?: { inputTokens?: number; outputTokens?: number } }
       const input = e.data?.inputTokens || 0
@@ -306,7 +215,6 @@ export class CopilotAgentBridge {
       this.totalTokens = input + output
     })
 
-    // Session idle = generation complete
     session.on('session.idle', () => {
       this.stepCounter++
       const trajectory = buildFinalTrajectory(
@@ -324,12 +232,12 @@ export class CopilotAgentBridge {
   }
 
   /**
-   * Cancel the current execution by aborting the SDK session.
+   * Cancel the current execution.
+   * 中止当前消息处理，但不销毁 session（session 保持活跃供下次使用）。
    */
   async cancel(): Promise<void> {
     this.cancelled = true
 
-    // Cancel any pending approval
     if (this.approvalManager) {
       this.approvalManager.cancel()
     }
@@ -338,18 +246,16 @@ export class CopilotAgentBridge {
       try {
         await this.session.abort()
       } catch {
-        // Ignore abort errors - session may already be idle
+        // Ignore abort errors
       }
     }
-    // Resolve the idle promise to unblock execute()
     if (this.idleResolve) {
       this.idleResolve()
     }
   }
 
   /**
-   * Respond to an approval request from the user.
-   * Forwards the response to the ApprovalManager which unblocks the tool handler.
+   * Respond to an approval request.
    */
   respondApproval(approved: boolean, reason?: string): void {
     if (this.approvalManager) {
@@ -358,97 +264,16 @@ export class CopilotAgentBridge {
   }
 
   /**
-   * Clean up SDK resources (session + client + approval manager).
+   * 清理本次执行的状态（不销毁持久化 session）。
    */
-  private async cleanup(): Promise<void> {
-    // Clean up any pending approval
+  private cleanupExecutionState(): void {
     if (this.approvalManager) {
       this.approvalManager.cancel()
       this.approvalManager = null
     }
-
-    if (this.session) {
-      try {
-        await this.session.disconnect()
-      } catch {
-        // Ignore disconnect errors during cleanup
-      }
-      this.session = null
-    }
-    if (this.client) {
-      try {
-        await this.client.stop()
-      } catch {
-        // Ignore stop errors during cleanup
-      }
-      this.client = null
-    }
+    // 注意：不 disconnect session 和不 stop client
+    // session 由 SessionManager 统一管理生命周期
+    this.session = null
     this.idleResolve = null
   }
-}
-
-// ─── 辅助函数 ────────────────────────────────────────────────────
-
-/**
- * 角色标签映射（用于历史对话格式化）。
- */
-const ROLE_LABELS: Record<string, string> = {
-  user: '用户',
-  assistant: '助手',
-  system: '系统',
-  tool: '工具结果',
-}
-
-/**
- * 将用户输入与历史对话消息组合成完整的 prompt。
- *
- * SDK 引擎是无状态的（每次创建新会话），因此需要将历史对话
- * 作为上下文拼接到当前用户输入前面，让模型能够理解对话背景。
- *
- * 格式示例：
- * ```
- * --- 以下为之前的对话历史 ---
- * [用户]: 之前的问题
- * [助手]: 之前的回答
- * --- 历史结束 ---
- *
- * 当前用户输入
- * ```
- *
- * @param userInput - 当前用户输入
- * @param history - 历史对话消息（已截断）
- * @returns 组合后的 prompt
- */
-function buildPromptWithHistory(
-  userInput: string,
-  history?: Array<{ role: string; content: string }>,
-): string {
-  // 无历史或空历史，直接返回用户输入
-  if (!history || history.length === 0) {
-    return userInput
-  }
-
-  // 过滤掉系统消息（已通过 systemMessage 注入）和空内容
-  const dialogMessages = history.filter(
-    (msg) => msg.role !== 'system' && msg.content && msg.content.trim().length > 0,
-  )
-
-  if (dialogMessages.length === 0) {
-    return userInput
-  }
-
-  // 格式化历史对话
-  const historyLines = dialogMessages.map((msg) => {
-    const label = ROLE_LABELS[msg.role] || msg.role
-    return `[${label}]: ${msg.content}`
-  })
-
-  const historyBlock = [
-    '--- 以下为之前的对话历史 ---',
-    ...historyLines,
-    '--- 历史结束 ---',
-    '',
-  ].join('\n')
-
-  return `${historyBlock}\n${userInput}`
 }
