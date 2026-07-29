@@ -40,6 +40,7 @@ const APPROVAL_OPTIONS: ReadonlyArray<{ value: ApprovalMode; label: string }> = 
 const ENGINE_OPTIONS: ReadonlyArray<{ value: EngineType; label: string; desc: string }> = [
   { value: 'builtin', label: '内置引擎', desc: 'AgentForge 原生 ReAct 循环' },
   { value: 'copilot-sdk', label: 'Copilot SDK', desc: 'GitHub Copilot SDK 驱动' },
+  { value: 'langgraph', label: 'LangGraph', desc: 'LangChain + LangGraph 编排引擎' },
 ]
 
 const REASONING_EFFORT_OPTIONS: ReadonlyArray<{

@@ -26,6 +26,7 @@ import { createMessage, getMessagesByConversationId } from '../db/repos/message'
 import { getToolRegistry } from '../tools/registry'
 import { AgentExecutor, type AgentExecutorConfig } from '../agent/executor'
 import { CopilotAgentBridge } from '../copilot/agent-bridge'
+import { LangGraphAgentBridge } from '../langgraph/bridge'
 import type { SessionExtras } from '../copilot/types'
 import type { AgentEventCallbacks, RegisteredTool } from '../agent/types'
 import { resolveSkill, buildSkillExecutionContext, filterTools } from '../skills/skill-executor'
@@ -43,6 +44,8 @@ import { getSessionManager } from '../copilot/session-manager'
 let currentExecutor: AgentExecutor | null = null
 /** 当前正在运行的 CopilotAgentBridge（SDK 引擎） */
 let currentBridge: CopilotAgentBridge | null = null
+/** 当前正在运行的 LangGraphAgentBridge（LangGraph 引擎） */
+let currentLangGraphBridge: LangGraphAgentBridge | null = null
 
 /**
  * 获取当前 AgentExecutor（仅供测试使用）。
@@ -115,6 +118,115 @@ function getToolsMap(): Map<string, RegisteredTool> {
 }
 
 // ─── IPC 处理函数 ─────────────────────────────────────────────────
+
+/**
+ * 使用 LangGraph 引擎执行 Agent 请求。
+ *
+ * LangGraph 引擎使用 LangChain + LangGraph 框架，复用现有 ModelAdapter 和 ToolRegistry。
+ * 支持流式输出、工具调用、审批机制，与现有 UI 完全兼容。
+ */
+async function executeWithLangGraph(request: AgentExecutionRequest): Promise<ExecutionResult> {
+  const callbacks: AgentEventCallbacks = {
+    onTrajectory: (trajectory) => sendTrajectory(trajectory),
+    onApprovalRequest: (approvalRequest) => sendApprovalRequest(approvalRequest),
+    onStreamChunk: (chunk) => {
+      if (chunk.type === 'title' && chunk.content) {
+        try {
+          updateConversationTitle(request.conversationId, chunk.content)
+        } catch {
+          // Ignore title update errors
+        }
+      }
+      sendStreamChunk(chunk)
+    },
+  }
+
+  const settings = getSettings()
+
+  const bridge = new LangGraphAgentBridge({
+    callbacks,
+    approvalTimeoutMs: settings.approvalTimeoutMs,
+    maxSteps: request.maxSteps,
+  })
+  currentLangGraphBridge = bridge
+
+  let result: ExecutionResult
+  try {
+    // 验证会话存在
+    getConversationById(request.conversationId)
+
+    // 加载历史对话消息
+    const contextWindow = getModelContextWindow(request.modelId)
+    const rawHistory = getMessagesByConversationId(request.conversationId)
+    const historyContext = chatMessagesToContext(rawHistory)
+    const contextResult = manageContext(historyContext, {
+      maxContextTokens: contextWindow,
+    })
+
+    // 保存用户消息
+    createMessage({
+      conversationId: request.conversationId,
+      role: 'user',
+      content: request.userInput,
+    })
+
+    // 解析 Skill
+    const adapter = getModelAdapter(request.modelId)
+    const tools = getToolsMap()
+    let skillPrompt: string | undefined
+
+    const skillResolution = await resolveSkill(request.userInput, request.skillName, adapter)
+    if (skillResolution.skill !== null) {
+      const skill = skillResolution.skill
+      const skillCtx = buildSkillExecutionContext(skill, tools)
+      skillPrompt = skillCtx.skillPrompt
+      // 过滤工具
+      const filteredTools = filterTools(tools, skill.allowedTools)
+      for (const [key, value] of filteredTools) {
+        tools.set(key, value)
+      }
+      // 清空原 map 再放入过滤后的
+      tools.clear()
+      for (const [key, value] of filteredTools) {
+        tools.set(key, value)
+      }
+    }
+
+    // 执行
+    result = await bridge.execute({
+      request,
+      adapter,
+      tools,
+      historyMessages: contextResult.messages,
+      skillPrompt,
+    })
+
+    // 保存助手回复
+    createMessage({
+      conversationId: request.conversationId,
+      role: 'assistant',
+      content: result.summary,
+      thinking: result.trajectories.map((t) => `Step ${t.step}: ${t.thought}`).join('\n\n'),
+    })
+
+    updateLastMessageAt(request.conversationId)
+  } catch (error) {
+    console.error('[Agent LangGraph] Execution error:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Execution failed'
+    createMessage({
+      conversationId: request.conversationId,
+      role: 'assistant',
+      content: errorMessage,
+      thinking: undefined,
+    })
+    updateLastMessageAt(request.conversationId)
+    throw error
+  } finally {
+    currentLangGraphBridge = null
+  }
+
+  return result
+}
 
 /**
  * 使用 Copilot SDK 引擎执行 Agent 请求。
@@ -457,7 +569,7 @@ export async function handleExecute(
   }
 
   // 1. 并发控制 - OPT-02: 在任何 await 之前设置锁，防止竞态条件
-  if (currentExecutor !== null || currentBridge !== null) {
+  if (currentExecutor !== null || currentBridge !== null || currentLangGraphBridge !== null) {
     throw new AppError(ErrorCodes.CHAT_ALREADY_RUNNING, 'An agent execution is already running.')
   }
 
@@ -467,6 +579,11 @@ export async function handleExecute(
   // SDK 引擎路径：使用 Copilot SDK
   if (settings.engineType === 'copilot-sdk') {
     return executeWithCopilotSdk(request)
+  }
+
+  // LangGraph 引擎路径：使用 LangChain + LangGraph
+  if (settings.engineType === 'langgraph') {
+    return executeWithLangGraph(request)
   }
 
   // 内置引擎路径：使用 AgentExecutor
@@ -576,6 +693,9 @@ export function handleStop(): void {
   if (currentBridge) {
     void currentBridge.cancel()
   }
+  if (currentLangGraphBridge) {
+    currentLangGraphBridge.cancel()
+  }
 }
 
 /**
@@ -605,6 +725,9 @@ export function handleApprove(params: unknown): void {
   }
   if (currentBridge) {
     currentBridge.respondApproval(approved, reason)
+  }
+  if (currentLangGraphBridge) {
+    currentLangGraphBridge.respondApproval(approved, reason)
   }
 }
 
