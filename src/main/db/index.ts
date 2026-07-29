@@ -136,6 +136,21 @@ function runConditionalMigrations(db: Database.Database): void {
     )
   }
 
+  // B9: 确保 app_settings 有 copilot_skill_directories 列（JSON 数组）
+  // NULL 表示未配置
+  if (!hasColumn(db, 'app_settings', 'copilot_skill_directories')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_skill_directories TEXT`
+    )
+  }
+
+  // B9: 确保 app_settings 有 copilot_enable_config_discovery 列（boolean 0/1）
+  if (!hasColumn(db, 'app_settings', 'copilot_enable_config_discovery')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_enable_config_discovery INTEGER DEFAULT 0`
+    )
+  }
+
   // CE-06: 确保 conversations 有 sdk_session_id 列（用于 SDK session resume）
   if (!hasColumn(db, 'conversations', 'sdk_session_id')) {
     db.exec(

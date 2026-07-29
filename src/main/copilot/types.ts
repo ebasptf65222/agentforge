@@ -92,6 +92,14 @@ export interface SessionExtras {
   enableElicitation?: boolean
   /** 自定义斜杠命令列表 */
   commands?: SlashCommandConfig[]
+  /** 技能目录路径列表（SDK skillDirectories） */
+  skillDirectories?: string[]
+  /** 是否启用 SDK 技能加载（含内置技能和目录发现），默认 true */
+  enableSkills?: boolean
+  /** 禁用的技能名称列表 */
+  disabledSkills?: string[]
+  /** 是否启用配置自动发现（.mcp.json、skill 目录等），默认 false */
+  enableConfigDiscovery?: boolean
 }
 
 /**

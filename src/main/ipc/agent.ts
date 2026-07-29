@@ -217,6 +217,17 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
       extras.sdkSessionId = conversation.sdkSessionId
     }
 
+    // 6. 传入技能目录配置（从 app_settings 读取）
+    // SDK 会自动从这些目录加载技能文件（.md 格式的技能定义）
+    if (settings.copilotSkillDirectories && settings.copilotSkillDirectories.length > 0) {
+      extras.skillDirectories = settings.copilotSkillDirectories
+    }
+
+    // 7. 配置自动发现（从工作目录自动发现 .mcp.json 和 skill 目录）
+    if (settings.copilotEnableConfigDiscovery) {
+      extras.enableConfigDiscovery = true
+    }
+
     // 执行 SDK Agent（传入 extras 配置）
     result = await bridge.execute(request, extras)
 

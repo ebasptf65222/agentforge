@@ -28,6 +28,8 @@ interface AppSettingsRow {
   engine_type: string
   copilot_reasoning_effort: string | null
   copilot_wire_api: string | null
+  copilot_skill_directories: string | null
+  copilot_enable_config_discovery: number
   window_bounds: string | null
   updated_at: number
 }
@@ -119,6 +121,8 @@ export interface UpdateSettingsParams {
   engineType?: EngineType
   copilotReasoningEffort?: ReasoningEffort | null
   copilotWireApi?: WireApiMode | null
+  copilotSkillDirectories?: string[] | null
+  copilotEnableConfigDiscovery?: boolean
   windowBounds?: WindowBounds | null
 }
 
@@ -174,6 +178,10 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     engineType: (row.engine_type || DEFAULT_ENGINE_TYPE) as EngineType,
     copilotReasoningEffort: (row.copilot_reasoning_effort ?? undefined) as ReasoningEffort | undefined,
     copilotWireApi: (row.copilot_wire_api ?? DEFAULT_COPILOT_WIRE_API) as WireApiMode,
+    copilotSkillDirectories: row.copilot_skill_directories
+      ? (JSON.parse(row.copilot_skill_directories) as string[])
+      : undefined,
+    copilotEnableConfigDiscovery: row.copilot_enable_config_discovery === 1,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -381,6 +389,21 @@ export function updateSettings(params: UpdateSettingsParams): void {
     setClauses.push('copilot_wire_api = ?')
     // null 表示清除设置（回退到 'auto' 自动判断）
     values.push(params.copilotWireApi === null ? null : params.copilotWireApi)
+  }
+
+  if (params.copilotSkillDirectories !== undefined) {
+    setClauses.push('copilot_skill_directories = ?')
+    // null 表示清除配置；数组序列化为 JSON
+    values.push(
+      params.copilotSkillDirectories === null
+        ? null
+        : JSON.stringify(params.copilotSkillDirectories),
+    )
+  }
+
+  if (params.copilotEnableConfigDiscovery !== undefined) {
+    setClauses.push('copilot_enable_config_discovery = ?')
+    values.push(params.copilotEnableConfigDiscovery ? 1 : 0)
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

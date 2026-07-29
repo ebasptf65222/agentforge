@@ -3,7 +3,7 @@
 // Each field change saves immediately via the settings store.
 
 import { computed, onMounted } from 'vue'
-import { NSelect, NInputNumber, NRadioGroup, NRadioButton } from 'naive-ui'
+import { NSelect, NInputNumber, NRadioGroup, NRadioButton, NSwitch, NDynamicTags } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import type { AppSettings, ApprovalMode, EngineType } from '@shared/types'
 import { useSettingsStore } from '@/stores/settings'
@@ -161,6 +161,26 @@ async function updateWireApi(value: string): Promise<void> {
   }
 }
 
+async function updateSkillDirectories(dirs: string[]): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotSkillDirectories', dirs.length > 0 ? dirs : null)
+    showToast('技能目录已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateConfigDiscovery(value: boolean): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotEnableConfigDiscovery', value)
+    showToast('配置自动发现已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
 // ─── Helpers for template binding ─────────────────────────────
 
 /** Convert the stored approvalTimeoutMs (ms) to seconds for display. */
@@ -310,6 +330,37 @@ const approvalTimeoutValue = computed<number | null>({
             :value="settings?.copilotWireApi ?? 'auto'"
             :options="wireApiOptions"
             @update:value="(v) => updateWireApi(v as string)"
+          />
+        </div>
+      </div>
+
+      <!-- 技能目录（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">技能目录</span>
+          <span class="setting-row__desc">SDK 从这些目录加载 .md 技能文件，为 AI 提供额外技能定义</span>
+        </div>
+        <div class="setting-row__control">
+          <NDynamicTags
+            :value="settings?.copilotSkillDirectories ?? []"
+            type="info"
+            :max="20"
+            round
+            @update:value="(v: Array<string | number>) => updateSkillDirectories(v.map(String))"
+          />
+        </div>
+      </div>
+
+      <!-- 配置自动发现（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">配置自动发现</span>
+          <span class="setting-row__desc">自动从工作目录发现 .mcp.json 和技能目录，与显式配置合并</span>
+        </div>
+        <div class="setting-row__control">
+          <NSwitch
+            :value="settings?.copilotEnableConfigDiscovery ?? false"
+            @update:value="(v: boolean) => updateConfigDiscovery(v)"
           />
         </div>
       </div>

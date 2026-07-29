@@ -60,6 +60,12 @@ describe('app-settings repository', () => {
     if (!cols.some((c) => c.name === 'copilot_wire_api')) {
       testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_wire_api TEXT')
     }
+    if (!cols.some((c) => c.name === 'copilot_skill_directories')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_skill_directories TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_enable_config_discovery')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_enable_config_discovery INTEGER DEFAULT 0')
+    }
     vi.clearAllMocks()
   })
 

@@ -131,6 +131,10 @@ interface AppSettings {
   copilotReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   /** SDK wire API 模式：'auto' 表示根据模型自动判断（GPT-4o/o 系列用 responses） */
   copilotWireApi?: 'completions' | 'responses' | 'auto'
+  /** SDK 技能目录路径列表（SDK skillDirectories，加载 .md 技能文件） */
+  copilotSkillDirectories?: string[]
+  /** 是否启用配置自动发现（.mcp.json、skill 目录等） */
+  copilotEnableConfigDiscovery?: boolean
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }

@@ -338,3 +338,19 @@ VALUES (11, strftime('%s','now') * 1000, 'Add sdk_session_id column to conversat
 
 INSERT OR IGNORE INTO schema_version (version, applied_at, description)
 VALUES (12, strftime('%s','now') * 1000, 'Add copilot_wire_api column to app_settings for SDK Responses API mode control');
+
+-- ─── 6.19 copilot_skill_directories (B9) ──────────────────────
+-- Copilot SDK 技能目录路径列表（JSON 数组），SDK 会从这些目录加载 .md 技能文件
+-- NULL 表示未配置（不传入 skillDirectories）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (13, strftime('%s','now') * 1000, 'Add copilot_skill_directories column to app_settings for SDK skill directory loading');
+
+-- ─── 6.20 copilot_enable_config_discovery (B9) ────────────────
+-- 是否启用配置自动发现（.mcp.json、skill 目录等）
+-- 0 表示禁用（默认），1 表示启用
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (14, strftime('%s','now') * 1000, 'Add copilot_enable_config_discovery column to app_settings for SDK config auto-discovery');

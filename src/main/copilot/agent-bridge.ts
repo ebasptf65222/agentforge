@@ -270,6 +270,26 @@ export class CopilotAgentBridge {
         }))
       }
 
+      // 4k. 技能目录（SDK skillDirectories）
+      if (extras?.skillDirectories && extras.skillDirectories.length > 0) {
+        sessionConfig['skillDirectories'] = extras.skillDirectories
+      }
+
+      // 4l. 技能加载开关
+      if (extras?.enableSkills !== undefined) {
+        sessionConfig['enableSkills'] = extras.enableSkills
+      }
+
+      // 4m. 禁用的技能列表
+      if (extras?.disabledSkills && extras.disabledSkills.length > 0) {
+        sessionConfig['disabledSkills'] = extras.disabledSkills
+      }
+
+      // 4n. 配置自动发现
+      if (extras?.enableConfigDiscovery !== undefined) {
+        sessionConfig['enableConfigDiscovery'] = extras.enableConfigDiscovery
+      }
+
       // 5. 通过 SessionManager 获取或恢复 session
       const conversationId = extras?.conversationId || request.conversationId
       const sessionManager = getSessionManager()
