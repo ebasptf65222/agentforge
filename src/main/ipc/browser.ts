@@ -65,10 +65,10 @@ async function handleNavigate(
 
   if (params['timeout'] !== undefined) {
     const timeout = Number(params['timeout'])
-    if (Number.isNaN(timeout) || timeout < 1000 || timeout > 60000) {
+    if (Number.isNaN(timeout) || timeout < 1000 || timeout >600000) {
       throw new AppError(
         ErrorCodes.VALIDATION_ERROR,
-        'timeout must be between 1000 and 60000.',
+        'timeout must be between 1000 and600000.',
         { timeout: params['timeout'] },
       )
     }

@@ -53,9 +53,9 @@ export const browserNavigateTool: BuiltinTool = {
         },
         timeout: {
           type: 'number',
-          description: '导航超时时间（毫秒，默认 30000，最大 60000）',
+          description: '导航超时时间（毫秒，默认 30000，最大600000）',
           minimum: 1000,
-          maximum: 60000,
+          maximum: 600000,
         },
         waitUntil: {
           type: 'string',
@@ -82,7 +82,7 @@ export const browserNavigateTool: BuiltinTool = {
 
     if (args['timeout'] !== undefined) {
       const timeout = Number(args['timeout'])
-      if (!Number.isNaN(timeout) && timeout >= 1000 && timeout <= 60000) {
+      if (!Number.isNaN(timeout) && timeout >= 1000 && timeout <= 600000) {
         options.timeout = Math.floor(timeout)
       }
     }
@@ -384,7 +384,9 @@ export const browserClickTool: BuiltinTool = {
   async execute(args: Record<string, unknown>): Promise<ToolExecutionResult> {
     const selector = args['selector']
     if (typeof selector !== 'string' || selector.trim() === '') {
-      throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Selector must be a non-empty string.', { selector })
+      throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Selector must be a non-empty string.', {
+        selector,
+      })
     }
 
     const options: Parameters<typeof clickElement>[1] = {}
@@ -424,7 +426,8 @@ export const browserFillTool: BuiltinTool = {
       properties: {
         selector: {
           type: 'string',
-          description: '目标 input/textarea 元素的 CSS 选择器（如 "#search-input", "textarea[name=content]"）',
+          description:
+            '目标 input/textarea 元素的 CSS 选择器（如 "#search-input", "textarea[name=content]"）',
         },
         value: {
           type: 'string',
@@ -449,7 +452,9 @@ export const browserFillTool: BuiltinTool = {
     const value = args['value']
 
     if (typeof selector !== 'string' || selector.trim() === '') {
-      throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Selector must be a non-empty string.', { selector })
+      throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Selector must be a non-empty string.', {
+        selector,
+      })
     }
     if (typeof value !== 'string') {
       throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Value must be a string.', { value })
@@ -504,9 +509,10 @@ export const browserCloseTool: BuiltinTool = {
     source: 'builtin',
   } satisfies ToolDefinition,
   async execute(args: Record<string, unknown>): Promise<ToolExecutionResult> {
-    const sessionId = typeof args['sessionId'] === 'string' && args['sessionId'].trim() !== ''
-      ? args['sessionId']
-      : 'default'
+    const sessionId =
+      typeof args['sessionId'] === 'string' && args['sessionId'].trim() !== ''
+        ? args['sessionId']
+        : 'default'
 
     try {
       closeSession(sessionId)

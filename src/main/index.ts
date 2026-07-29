@@ -12,6 +12,7 @@ import { registerIpcHandlers } from './ipc/index'
 import { initBuiltinTools } from './tools/registry-init'
 import { getSettings } from './db/repos/app-settings'
 import { setEmbeddingConfig } from './knowledge-base/embedding'
+import { getMcpServerManager } from './mcp/manager'
 
 // ─── 全局未捕获错误处理 ───────────────────────────────────────────────
 // 防止应用崩溃后静默退出，至少记录错误日志
@@ -48,7 +49,6 @@ registerCleanup(closeDatabase)
 
 // OPT-13: 注册 MCP Server 异步清理（关闭所有子进程）
 registerCleanup(async () => {
-  const { getMcpServerManager } = await import('./mcp/manager')
   await getMcpServerManager().closeAll()
 })
 
@@ -270,6 +270,13 @@ if (!gotTheLock) {
 
     // 注册所有内置工具到全局 ToolRegistry（Agent 依赖此注册表获取工具）
     initBuiltinTools()
+
+    // P2-08 / Step 4: 初始化 MCP Server 管理器
+    // 从 DB 加载已安装的 MCP Server 配置 + 连接所有已启用的 Server（builtin 模式）
+    // SDK 模式下仅加载配置到内存，跳过自建连接
+    void getMcpServerManager().initialize().catch((err) => {
+      console.error('[AgentForge] MCP Manager initialization failed:', err)
+    })
 
     // 设置原生菜单（隐藏菜单栏 / macOS 最小化菜单）
     setupMenu()

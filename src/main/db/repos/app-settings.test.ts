@@ -236,7 +236,7 @@ describe('app-settings repository', () => {
     })
 
     it('should update approvalTimeoutMs', () => {
-      updateSettings({ approvalTimeoutMs: 600000 })
+      updateSettings({ approvalTimeoutMs:600000 })
       expect(getSettings().approvalTimeoutMs).toBe(600000)
     })
 

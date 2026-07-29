@@ -250,7 +250,7 @@ API Key 也可在应用设置界面中配置，会加密存储到数据库。
 | 主题 | dark / light / system | dark |
 | 审批模式 | suggest / auto-edit / full-auto | suggest |
 | 最大执行步数 | Agent 循环上限 | 20 |
-| 审批超时 | 等待审批时间 | 60000ms |
+| 审批超时 | 等待审批时间 |600000ms |
 | 默认模型 | 首选模型 ID | - |
 
 ## 开发指南

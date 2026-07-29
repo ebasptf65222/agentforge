@@ -473,7 +473,8 @@ export class CopilotAgentBridge {
 
       // 8. Send user message with attachments and wait for completion
       //    使用 SDK 的 sendAndWait，内部自动管理 idle 事件
-      await this.session.sendAndWait(sendParams)
+      //    超时设为5分钟，避免模型响应慢时误报超时（默认60秒太短）
+      await this.session.sendAndWait(sendParams, 5 * 60 * 1000)
 
       // 9. Build and return execution result
       const status = this.cancelled ? 'cancelled' : 'completed'

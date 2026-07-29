@@ -75,8 +75,8 @@ export class CopilotSessionManager {
       this.evictOldestSession()
     }
 
-    // 创建新 client
-    const client = buildCopilotClient()
+    // 创建新 client（BYOK 模式下禁用 useLoggedInUser）
+    const client = buildCopilotClient({ hasCustomProvider: !!sessionConfig['provider'] })
     await startClientWithRetry(client)
 
     // 构建 session 配置，启用 infiniteSessions
@@ -182,8 +182,8 @@ export class CopilotSessionManager {
     // 2. 如果有 sdkSessionId，尝试 resume
     if (sdkSessionId) {
       try {
-        // 创建 client
-        const client = buildCopilotClient()
+        // 创建 client（BYOK 模式下禁用 useLoggedInUser）
+        const client = buildCopilotClient({ hasCustomProvider: !!sessionConfig['provider'] })
         await startClientWithRetry(client)
 
         // 构建 resume 配置（BYOK provider 必须重新提供，密钥不持久化）
@@ -458,15 +458,13 @@ function getSystemNodePath(): string {
  * - 注入 ELECTRON_RUN_AS_NODE=1 修复 Electron 环境下 CLI 进程立即退出的问题
  * - CLI 路径解析失败时抛出明确错误
  * - 支持通过 gitHubToken 或 useLoggedInUser 进行认证
+ * - BYOK 模式下自动禁用 useLoggedInUser，避免与自定义 provider 冲突
  *
- * Electron 兼容性修复：
- * SDK 的 getNodeExecPath() 返回 process.execPath（electron.exe），
- * Copilot CLI 检测到 process.versions.electron 后用 commander 的
- * `from: "electron"` 模式解析 argv，导致 "too many arguments" 错误。
- * 修复方式：临时将 process.execPath 替换为系统 Node.js 路径，
- * 让 SDK spawn CLI 时使用真正的 Node.js。
+ * 注意：process.execPath 的 Electron 兼容性修补在 startClientWithRetry() 中执行，
+ * 因为 SDK 的 getNodeExecPath() 在 client.start() 时才读取 process.execPath，
+ * 在构造函数阶段修补没有效果。
  */
-function buildCopilotClient(): CopilotClient {
+function buildCopilotClient(options?: { hasCustomProvider?: boolean }): CopilotClient {
   const cliPath = resolveCopilotCliPath()
   if (!cliPath) {
     throw new AppError(
@@ -478,44 +476,32 @@ function buildCopilotClient(): CopilotClient {
   // 从环境变量或设置中获取 GitHub token
   const gitHubToken = process.env.GITHUB_TOKEN || process.env.COPILOT_TOKEN || undefined
 
-  // Electron 兼容性修复：临时替换 process.execPath
-  const originalExecPath = process.execPath
-  if (process.versions?.electron) {
-    const nodePath = getSystemNodePath()
-    if (nodePath !== process.execPath) {
-      console.log(`[SessionManager] Electron detected, patching process.execPath: ${process.execPath} -> ${nodePath}`)
-      // @ts-expect-error - 临时替换，用于 SDK spawn
-      process.execPath = nodePath
-    }
+  const clientOptions: Record<string, unknown> = {
+    connection: RuntimeConnection.forStdio({
+      path: cliPath,
+      env: { ...process.env, ...getElectronFixEnv() } as Record<string, string>,
+    }),
   }
 
-  try {
-    const clientOptions: Record<string, unknown> = {
-      connection: RuntimeConnection.forStdio({
-        path: cliPath,
-        env: { ...process.env, ...getElectronFixEnv() } as Record<string, string>,
-      }),
-    }
-
-    // 认证配置：优先使用 token，否则使用本地登录状态
-    if (gitHubToken) {
-      clientOptions.gitHubToken = gitHubToken
-      clientOptions.useLoggedInUser = false
-      console.log('[SessionManager] Using GitHub token for authentication')
-    } else {
-      // 默认使用本地登录状态
-      clientOptions.useLoggedInUser = true
-      console.log('[SessionManager] Using local GitHub login for authentication')
-    }
-
-    return new CopilotClient(clientOptions)
-  } finally {
-    // 恢复原始 process.execPath
-    if (process.versions?.electron) {
-      // @ts-expect-error - 恢复
-      process.execPath = originalExecPath
-    }
+  // 认证配置：
+  // - 有 GitHub token 时使用 token 认证
+  // - BYOK 模式（有自定义 provider）时禁用 useLoggedInUser，避免 CLI 优先使用 GitHub 认证
+  // - 否则使用本地登录状态
+  if (gitHubToken) {
+    clientOptions.gitHubToken = gitHubToken
+    clientOptions.useLoggedInUser = false
+    console.log('[SessionManager] Using GitHub token for authentication')
+  } else if (options?.hasCustomProvider) {
+    // BYOK 模式：禁用 GitHub 登录，CLI 将仅使用 session 级别的 provider 配置
+    clientOptions.useLoggedInUser = false
+    console.log('[SessionManager] BYOK mode: disabled useLoggedInUser to avoid auth conflict with custom provider')
+  } else {
+    // 默认使用本地登录状态
+    clientOptions.useLoggedInUser = true
+    console.log('[SessionManager] Using local GitHub login for authentication')
   }
+
+  return new CopilotClient(clientOptions)
 }
 
 /** CLI 启动最大重试次数 */
@@ -524,35 +510,64 @@ const CLI_START_MAX_RETRIES = 2
 /**
  * 带重试的 CLI 启动：首次失败后等待 500ms 再重试。
  * 某些环境下子进程初始化存在竞态，重试通常能解决。
+ *
+ * Electron 兼容性修复：
+ * SDK 的 startCLIServer() 通过 spawn(getNodeExecPath(), ...) 启动 CLI 子进程，
+ * 而 getNodeExecPath() 在运行时读取 process.execPath。
+ * 在 Electron 环境下 process.execPath 指向 electron.exe，
+ * 导致 CLI 子进程以 Electron 模式启动后立即退出（"Connection is closed"）。
+ * 修复方式：在 client.start() 调用期间临时将 process.execPath 替换为系统 Node.js，
+ * 确保 SDK spawn CLI 时使用真正的 Node.js 可执行文件。
  */
 async function startClientWithRetry(client: CopilotClient): Promise<void> {
   let lastError: unknown
-  for (let attempt = 0; attempt <= CLI_START_MAX_RETRIES; attempt++) {
-    try {
-      console.log(`[SessionManager] Starting Copilot CLI (attempt ${attempt + 1}/${CLI_START_MAX_RETRIES + 1})...`)
-      await client.start()
-      console.log(`[SessionManager] Copilot CLI started successfully`)
-      return
-    } catch (error) {
-      lastError = error
-      const msg = error instanceof Error ? error.message : String(error)
-      console.error(`[SessionManager] CLI start attempt ${attempt + 1} failed:`, msg)
-      if (error instanceof Error && error.stack) {
-        console.error(`[SessionManager] Stack trace:`, error.stack)
-      }
-      if (attempt < CLI_START_MAX_RETRIES) {
-        console.warn(
-          `[SessionManager] Retrying in 500ms...`,
-        )
-        await new Promise((r) => setTimeout(r, 500))
-      }
+
+  // Electron 兼容性修复：在 start() 期间临时替换 process.execPath
+  // SDK 的 getNodeExecPath() 在 startCLIServer() 中读取 process.execPath
+  const originalExecPath = process.execPath
+  let patched = false
+  if (process.versions?.electron) {
+    const nodePath = getSystemNodePath()
+    if (nodePath !== process.execPath) {
+      console.log(`[SessionManager] Electron detected, patching process.execPath for CLI spawn: ${process.execPath} -> ${nodePath}`)
+      process.execPath = nodePath
+      patched = true
     }
   }
-  throw new AppError(
-    ErrorCodes.CLI_START_ERROR,
-    `Failed to start Copilot CLI after ${CLI_START_MAX_RETRIES + 1} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
-    { cause: lastError },
-  )
+
+  try {
+    for (let attempt = 0; attempt <= CLI_START_MAX_RETRIES; attempt++) {
+      try {
+        console.log(`[SessionManager] Starting Copilot CLI (attempt ${attempt + 1}/${CLI_START_MAX_RETRIES + 1})...`)
+        await client.start()
+        console.log(`[SessionManager] Copilot CLI started successfully`)
+        return
+      } catch (error) {
+        lastError = error
+        const msg = error instanceof Error ? error.message : String(error)
+        console.error(`[SessionManager] CLI start attempt ${attempt + 1} failed:`, msg)
+        if (error instanceof Error && error.stack) {
+          console.error(`[SessionManager] Stack trace:`, error.stack)
+        }
+        if (attempt < CLI_START_MAX_RETRIES) {
+          console.warn(
+            `[SessionManager] Retrying in 500ms...`,
+          )
+          await new Promise((r) => setTimeout(r, 500))
+        }
+      }
+    }
+    throw new AppError(
+      ErrorCodes.CLI_START_ERROR,
+      `Failed to start Copilot CLI after ${CLI_START_MAX_RETRIES + 1} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+      { cause: lastError },
+    )
+  } finally {
+    // 恢复原始 process.execPath
+    if (patched) {
+      process.execPath = originalExecPath
+    }
+  }
 }
 
 /**

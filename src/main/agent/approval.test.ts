@@ -143,7 +143,7 @@ describe('ApprovalWaiter', () => {
     const responsePromise = waiter.waitForResponse()
 
     // Fast-forward time past timeout
-    vi.advanceTimersByTime(6000)
+    vi.advanceTimersByTime(60000)
 
     const response = await responsePromise
     expect(response.approved).toBe(false)
