@@ -1,10 +1,33 @@
 // P2-09: useAgent composable
 // Sets up agent event listeners and wires them to AgentStore
 // WA-07: Added audit:report event listener
+// FIX: HMR-safe singleton listener registration to prevent duplicate IPC events
 
 import { onMounted, onUnmounted } from 'vue'
 import type { TAOTrajectory, ApprovalRequest, StreamChunk, AuditReport } from '@shared/types'
 import { useAgentStore } from '@/stores/agent'
+
+/**
+ * Module-level cleanup storage on window to survive HMR module re-evaluation.
+ * Without this, HMR can cause onMounted to fire without onUnmounted,
+ * leading to duplicate IPC listeners and tripled streaming text.
+ */
+const HMR_KEY = '__af_agent_cleanup__'
+
+interface AgentCleanupFns {
+  trajectory?: () => void
+  approval?: () => void
+  chunk?: () => void
+  audit?: () => void
+}
+
+function getPrevCleanup(): AgentCleanupFns {
+  return ((window as Record<string, unknown>)[HMR_KEY] as AgentCleanupFns) || {}
+}
+
+function setPrevCleanup(fns: AgentCleanupFns): void {
+  (window as Record<string, unknown>)[HMR_KEY] = fns
+}
 
 /**
  * Composable that sets up agent event listeners.
@@ -20,6 +43,13 @@ export function useAgent(): void {
 
   onMounted(() => {
     if (!window.electron?.agent) return
+
+    // HMR safety: clean up any lingering listeners from previous module evaluation
+    const prev = getPrevCleanup()
+    prev.trajectory?.()
+    prev.approval?.()
+    prev.chunk?.()
+    prev.audit?.()
 
     // Trajectory listener
     cleanupTrajectory = window.electron.agent.onTrajectory((trajectory: TAOTrajectory) => {
@@ -42,6 +72,14 @@ export function useAgent(): void {
         agentStore.handleAuditReport(report)
       })
     }
+
+    // Store cleanup functions globally so HMR re-evaluation can clean them up
+    setPrevCleanup({
+      trajectory: cleanupTrajectory,
+      approval: cleanupApproval,
+      chunk: cleanupChunk,
+      audit: cleanupAuditReport,
+    })
   })
 
   onUnmounted(() => {
@@ -49,5 +87,6 @@ export function useAgent(): void {
     cleanupApproval?.()
     cleanupChunk?.()
     cleanupAuditReport?.()
+    setPrevCleanup({})
   })
 }

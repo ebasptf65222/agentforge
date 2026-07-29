@@ -6,10 +6,11 @@ import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import type { MCPServerConfig, MCPServerStatus, TransportType } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { assertNonEmptyString } from '../utils/assertions'
-import { getMcpServerManager, type ServerListEntry } from '../mcp/manager'
+import { getMcpServerManager } from '../mcp/manager'
 import type { CreateMcpServerParams, UpdateMcpServerParams } from '../mcp/db-repo'
 import { listMcpServers } from '../mcp/db-repo'
 import { getToolRegistry } from '../tools/registry'
+import { getSettings } from '../db/repos/app-settings'
 
 // ─── 参数校验辅助函数 ─────────────────────────────────────────────
 
@@ -168,11 +169,11 @@ export async function handleUpdateMcp(params: unknown): Promise<MCPServerConfig>
 /**
  * mcp:list - 列出所有 MCP Server。
  *
- * @returns ServerListEntry 数组
+ * @returns MCPServerConfig 数组
  */
-export function handleListMcp(): ServerListEntry[] {
+export function handleListMcp(): MCPServerConfig[] {
   const manager = getMcpServerManager()
-  return manager.listServers()
+  return manager.listServers().map((s) => s.config)
 }
 
 /**
@@ -197,7 +198,7 @@ export function handleGetMcpStatus(params: unknown): {
   const id = p['id'] as string
 
   // 获取服务器状态
-  const status = manager.getServerStatus(id)
+  let status = manager.getServerStatus(id)
 
   // 获取服务器配置（从数据库）
   let config: MCPServerConfig | null = null
@@ -206,6 +207,25 @@ export function handleGetMcpStatus(params: unknown): {
     config = servers.find((s) => s.id === id) ?? null
   } catch {
     // Ignore errors
+  }
+
+  // SDK 模式下，MCP 连接由 Copilot SDK 管理（通过 buildMcpServersConfig 从 DB 读取）。
+  // Manager 不参与连接，状态始终为 disconnected。对已启用且配置完整的服务器，
+  // 返回 connected 以反映 SDK 管理的真实状态。
+  if (status === 'disconnected' && config?.enabled) {
+    try {
+      const engineType = getSettings().engineType ?? 'builtin'
+      if (engineType === 'copilot-sdk') {
+        const hasValidConfig =
+          (config.transport === 'stdio' && !!config.command) ||
+          (config.transport === 'http' && !!config.url)
+        if (hasValidConfig) {
+          status = 'connected'
+        }
+      }
+    } catch {
+      // Settings 读取失败，保持原状态
+    }
   }
 
   // 获取已注册的工具列表

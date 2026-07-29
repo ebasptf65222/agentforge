@@ -60,6 +60,8 @@ export class CopilotAgentBridge {
   private isNewSession = false
   /** SDK 分配的 sessionId（execute 完成后供 IPC 层读取并持久化） */
   private sdkSessionId: string | undefined = undefined
+  /** SDK session 事件 unsubscribe 函数集合（防止重复订阅） */
+  private eventUnsubscribers: Array<() => void> = []
   /** 上下文使用量信息 */
   private contextUsage: {
     tokenLimit: number
@@ -514,222 +516,246 @@ export class CopilotAgentBridge {
   /**
    * Subscribe to SDK session events.
    * 注意：每次 execute 都会重新订阅，需确保不重复订阅。
+   * SDK session.on() 返回 unsubscribe 函数，不支持 removeAllListeners。
    */
   private subscribeToEvents(session: SdkSession): void {
-    // 先移除旧监听器（如果有）
-    session.removeAllListeners?.('assistant.message_delta')
-    session.removeAllListeners?.('assistant.reasoning_delta')
-    session.removeAllListeners?.('assistant.usage')
-    session.removeAllListeners?.('session.idle')
-    session.removeAllListeners?.('session.compaction_start')
-    session.removeAllListeners?.('session.compaction_complete')
-    session.removeAllListeners?.('tool.execution_start')
-    session.removeAllListeners?.('tool.execution_complete')
-    session.removeAllListeners?.('tool.execution_progress')
-    session.removeAllListeners?.('session.title_changed')
-    session.removeAllListeners?.('session.usage_info')
-    session.removeAllListeners?.('session.error')
-    session.removeAllListeners?.('subagent.selected')
-    session.removeAllListeners?.('subagent.completed')
-    session.removeAllListeners?.('subagent.failed')
-
-    session.on('assistant.message_delta', (event: unknown) => {
-      const e = event as { data?: { deltaContent?: string } }
-      const delta = e.data?.deltaContent || ''
-      if (delta) {
-        this.accumulatedContent += delta
-        this.callbacks.onStreamChunk(convertMessageDelta(delta))
+    // 先清理旧监听器（使用 unsubscribe 函数，而非 removeAllListeners）
+    for (const unsub of this.eventUnsubscribers) {
+      try {
+        unsub()
+      } catch {
+        // Ignore cleanup errors
       }
-    })
+    }
+    this.eventUnsubscribers = []
 
-    session.on('assistant.reasoning_delta', (event: unknown) => {
-      const e = event as { data?: { deltaContent?: string } }
-      const delta = e.data?.deltaContent || ''
-      if (delta) {
-        this.callbacks.onStreamChunk(convertReasoningDelta(delta))
-      }
-    })
+    this.eventUnsubscribers.push(
+      session.on('assistant.message_delta', (event: unknown) => {
+        const e = event as { data?: { deltaContent?: string } }
+        const delta = e.data?.deltaContent || ''
+        if (delta) {
+          this.accumulatedContent += delta
+          this.callbacks.onStreamChunk(convertMessageDelta(delta))
+        }
+      }),
+    )
 
-    session.on('assistant.usage', (event: unknown) => {
-      const e = event as { data?: { inputTokens?: number; outputTokens?: number } }
-      const input = e.data?.inputTokens || 0
-      const output = e.data?.outputTokens || 0
-      this.totalTokens = input + output
-    })
+    this.eventUnsubscribers.push(
+      session.on('assistant.reasoning_delta', (event: unknown) => {
+        const e = event as { data?: { deltaContent?: string } }
+        const delta = e.data?.deltaContent || ''
+        if (delta) {
+          this.callbacks.onStreamChunk(convertReasoningDelta(delta))
+        }
+      }),
+    )
 
-    session.on('session.idle', () => {
-      this.stepCounter++
-      const trajectory = buildFinalTrajectory(this.stepCounter, this.accumulatedContent, Date.now())
-      this.trajectories.push(trajectory)
-      this.callbacks.onTrajectory(trajectory)
-      // 不再需要 idleResolve，sendAndWait 内部管理
-    })
+    this.eventUnsubscribers.push(
+      session.on('assistant.usage', (event: unknown) => {
+        const e = event as { data?: { inputTokens?: number; outputTokens?: number } }
+        const input = e.data?.inputTokens || 0
+        const output = e.data?.outputTokens || 0
+        this.totalTokens = input + output
+      }),
+    )
+
+    this.eventUnsubscribers.push(
+      session.on('session.idle', () => {
+        this.stepCounter++
+        const trajectory = buildFinalTrajectory(this.stepCounter, this.accumulatedContent, Date.now())
+        this.trajectories.push(trajectory)
+        this.callbacks.onTrajectory(trajectory)
+        // 不再需要 idleResolve，sendAndWait 内部管理
+      }),
+    )
 
     // ─── 上下文压缩开始 ────────────────────────────────────────
-    session.on('session.compaction_start', () => {
-      this.isCompacting = true
-      this.callbacks.onStreamChunk(convertCompactionStart('上下文压缩中...'))
-    })
+    this.eventUnsubscribers.push(
+      session.on('session.compaction_start', () => {
+        this.isCompacting = true
+        this.callbacks.onStreamChunk(convertCompactionStart('上下文压缩中...'))
+      }),
+    )
 
     // ─── 上下文压缩完成 ────────────────────────────────────────
-    session.on('session.compaction_complete', (event: unknown) => {
-      this.isCompacting = false
-      const e = event as {
-        data?: {
-          success?: boolean
-          preCompactionTokens?: number
-          postCompactionTokens?: number
-          messagesRemoved?: number
-          tokensRemoved?: number
-          summaryContent?: string
+    this.eventUnsubscribers.push(
+      session.on('session.compaction_complete', (event: unknown) => {
+        this.isCompacting = false
+        const e = event as {
+          data?: {
+            success?: boolean
+            preCompactionTokens?: number
+            postCompactionTokens?: number
+            messagesRemoved?: number
+            tokensRemoved?: number
+            summaryContent?: string
+          }
         }
-      }
-      const data = e.data
-      if (data) {
-        const saved = (data.preCompactionTokens ?? 0) - (data.postCompactionTokens ?? 0)
-        const msg = `上下文压缩完成：移除 ${data.messagesRemoved ?? 0} 条消息，节省 ${saved} tokens`
-        this.callbacks.onStreamChunk(convertCompactionComplete(msg))
-        console.warn(
-          `[CopilotAgentBridge] Compaction: ${data.messagesRemoved ?? 0} messages removed, ${saved} tokens saved`,
-        )
-      }
-    })
+        const data = e.data
+        if (data) {
+          const saved = (data.preCompactionTokens ?? 0) - (data.postCompactionTokens ?? 0)
+          const msg = `上下文压缩完成：移除 ${data.messagesRemoved ?? 0} 条消息，节省 ${saved} tokens`
+          this.callbacks.onStreamChunk(convertCompactionComplete(msg))
+          console.warn(
+            `[CopilotAgentBridge] Compaction: ${data.messagesRemoved ?? 0} messages removed, ${saved} tokens saved`,
+          )
+        }
+      }),
+    )
 
     // ─── 工具执行开始 ────────────────────────────────────────────
-    session.on('tool.execution_start', (event: unknown) => {
-      const e = event as {
-        data?: {
-          toolCallId?: string
-          toolName?: string
-          arguments?: Record<string, unknown>
-          parentToolCallId?: string
+    this.eventUnsubscribers.push(
+      session.on('tool.execution_start', (event: unknown) => {
+        const e = event as {
+          data?: {
+            toolCallId?: string
+            toolName?: string
+            arguments?: Record<string, unknown>
+            parentToolCallId?: string
+          }
         }
-      }
-      const data = e.data
-      if (data?.toolName) {
-        this.callbacks.onStreamChunk(
-          convertToolStart(
-            JSON.stringify({
-              toolName: data.toolName,
-              toolCallId: data.toolCallId,
-              arguments: data.arguments,
-            }),
-          ),
-        )
-      }
-    })
+        const data = e.data
+        if (data?.toolName) {
+          this.callbacks.onStreamChunk(
+            convertToolStart(
+              JSON.stringify({
+                toolName: data.toolName,
+                toolCallId: data.toolCallId,
+                arguments: data.arguments,
+              }),
+            ),
+          )
+        }
+      }),
+    )
 
     // ─── 工具执行完成 ────────────────────────────────────────────
-    session.on('tool.execution_complete', (event: unknown) => {
-      const e = event as {
-        data?: {
-          toolCallId?: string
-          success?: boolean
-          result?: { content?: string }
-          error?: { message?: string }
+    this.eventUnsubscribers.push(
+      session.on('tool.execution_complete', (event: unknown) => {
+        const e = event as {
+          data?: {
+            toolCallId?: string
+            success?: boolean
+            result?: { content?: string }
+            error?: { message?: string }
+          }
         }
-      }
-      const data = e.data
-      if (data) {
-        const content = data.success
-          ? (data.result?.content ?? '')
-          : (data.error?.message ?? 'Tool failed')
-        this.callbacks.onStreamChunk(
-          convertToolComplete(
-            JSON.stringify({
-              toolCallId: data.toolCallId,
-              success: data.success,
-              content,
-            }),
-          ),
-        )
-      }
-    })
+        const data = e.data
+        if (data) {
+          const content = data.success
+            ? (data.result?.content ?? '')
+            : (data.error?.message ?? 'Tool failed')
+          this.callbacks.onStreamChunk(
+            convertToolComplete(
+              JSON.stringify({
+                toolCallId: data.toolCallId,
+                success: data.success,
+                content,
+              }),
+            ),
+          )
+        }
+      }),
+    )
 
     // ─── 工具执行进度 ────────────────────────────────────────────
-    session.on('tool.execution_progress', (event: unknown) => {
-      const e = event as { data?: { toolCallId?: string; progressMessage?: string } }
-      const data = e.data
-      if (data?.progressMessage) {
-        this.callbacks.onStreamChunk(
-          convertToolProgress(
-            JSON.stringify({ toolCallId: data.toolCallId, message: data.progressMessage }),
-          ),
-        )
-      }
-    })
+    this.eventUnsubscribers.push(
+      session.on('tool.execution_progress', (event: unknown) => {
+        const e = event as { data?: { toolCallId?: string; progressMessage?: string } }
+        const data = e.data
+        if (data?.progressMessage) {
+          this.callbacks.onStreamChunk(
+            convertToolProgress(
+              JSON.stringify({ toolCallId: data.toolCallId, message: data.progressMessage }),
+            ),
+          )
+        }
+      }),
+    )
 
     // ─── 会话标题自动生成 ────────────────────────────────────────
-    session.on('session.title_changed', (event: unknown) => {
-      const e = event as { data?: { title?: string } }
-      const title = e.data?.title
-      if (title) {
-        // 通过 stream-chunk 推送标题变更（IPC 层会更新数据库）
-        this.callbacks.onStreamChunk(convertTitle(title))
-      }
-    })
+    this.eventUnsubscribers.push(
+      session.on('session.title_changed', (event: unknown) => {
+        const e = event as { data?: { title?: string } }
+        const title = e.data?.title
+        if (title) {
+          // 通过 stream-chunk 推送标题变更（IPC 层会更新数据库）
+          this.callbacks.onStreamChunk(convertTitle(title))
+        }
+      }),
+    )
 
     // ─── 上下文窗口使用量 ────────────────────────────────────────
-    session.on('session.usage_info', (event: unknown) => {
-      const e = event as {
-        data?: { tokenLimit?: number; currentTokens?: number; messagesLength?: number }
-      }
-      const data = e.data
-      if (data) {
-        this.contextUsage = {
-          tokenLimit: data.tokenLimit ?? 0,
-          currentTokens: data.currentTokens ?? 0,
-          messagesLength: data.messagesLength ?? 0,
+    this.eventUnsubscribers.push(
+      session.on('session.usage_info', (event: unknown) => {
+        const e = event as {
+          data?: { tokenLimit?: number; currentTokens?: number; messagesLength?: number }
         }
-        this.callbacks.onStreamChunk(convertUsageInfo(JSON.stringify(this.contextUsage)))
-      }
-    })
+        const data = e.data
+        if (data) {
+          this.contextUsage = {
+            tokenLimit: data.tokenLimit ?? 0,
+            currentTokens: data.currentTokens ?? 0,
+            messagesLength: data.messagesLength ?? 0,
+          }
+          this.callbacks.onStreamChunk(convertUsageInfo(JSON.stringify(this.contextUsage)))
+        }
+      }),
+    )
 
     // ─── 会话错误 ────────────────────────────────────────────────
-    session.on('session.error', (event: unknown) => {
-      const e = event as { data?: { errorType?: string; message?: string; statusCode?: number } }
-      const data = e.data
-      if (data) {
-        console.error(`[CopilotAgentBridge] Session error: ${data.errorType} - ${data.message}`)
-        this.callbacks.onStreamChunk(convertSessionError(JSON.stringify(data)))
-      }
-    })
+    this.eventUnsubscribers.push(
+      session.on('session.error', (event: unknown) => {
+        const e = event as { data?: { errorType?: string; message?: string; statusCode?: number } }
+        const data = e.data
+        if (data) {
+          console.error(`[CopilotAgentBridge] Session error: ${data.errorType} - ${data.message}`)
+          this.callbacks.onStreamChunk(convertSessionError(JSON.stringify(data)))
+        }
+      }),
+    )
 
     // 子代理选择
-    session.on('subagent.selected', (event: unknown) => {
-      const e = event as { data?: { agentName?: string; agentDisplayName?: string } }
-      const data = e.data
-      if (data?.agentName) {
-        this.callbacks.onStreamChunk({
-          type: 'tool-start',
-          content: JSON.stringify({ subagent: data.agentName, displayName: data.agentDisplayName }),
-        })
-      }
-    })
+    this.eventUnsubscribers.push(
+      session.on('subagent.selected', (event: unknown) => {
+        const e = event as { data?: { agentName?: string; agentDisplayName?: string } }
+        const data = e.data
+        if (data?.agentName) {
+          this.callbacks.onStreamChunk({
+            type: 'tool-start',
+            content: JSON.stringify({ subagent: data.agentName, displayName: data.agentDisplayName }),
+          })
+        }
+      }),
+    )
 
     // 子代理完成
-    session.on('subagent.completed', (event: unknown) => {
-      const e = event as { data?: { toolCallId?: string } }
-      const data = e.data
-      if (data?.toolCallId) {
-        this.callbacks.onStreamChunk({
-          type: 'tool-complete',
-          content: JSON.stringify({ subagent: true, toolCallId: data.toolCallId }),
-        })
-      }
-    })
+    this.eventUnsubscribers.push(
+      session.on('subagent.completed', (event: unknown) => {
+        const e = event as { data?: { toolCallId?: string } }
+        const data = e.data
+        if (data?.toolCallId) {
+          this.callbacks.onStreamChunk({
+            type: 'tool-complete',
+            content: JSON.stringify({ subagent: true, toolCallId: data.toolCallId }),
+          })
+        }
+      }),
+    )
 
     // 子代理失败
-    session.on('subagent.failed', (event: unknown) => {
-      const e = event as { data?: { error?: string } }
-      const data = e.data
-      if (data?.error) {
-        this.callbacks.onStreamChunk({
-          type: 'error',
-          content: JSON.stringify({ subagent: true, error: data.error }),
-        })
-      }
-    })
+    this.eventUnsubscribers.push(
+      session.on('subagent.failed', (event: unknown) => {
+        const e = event as { data?: { error?: string } }
+        const data = e.data
+        if (data?.error) {
+          this.callbacks.onStreamChunk({
+            type: 'error',
+            content: JSON.stringify({ subagent: true, error: data.error }),
+          })
+        }
+      }),
+    )
   }
 
   /**
@@ -828,6 +854,16 @@ export class CopilotAgentBridge {
    * 清理本次执行的状态（不销毁持久化 session）。
    */
   private cleanupExecutionState(): void {
+    // 清理 SDK 事件监听器（防止下次 execute 时重复订阅）
+    for (const unsub of this.eventUnsubscribers) {
+      try {
+        unsub()
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+    this.eventUnsubscribers = []
+
     if (this.approvalManager) {
       this.approvalManager.cancel()
       this.approvalManager = null

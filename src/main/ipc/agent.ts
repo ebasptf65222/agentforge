@@ -178,17 +178,30 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
     if (skillResolution.skill !== null) {
       const skill = skillResolution.skill
 
-      // Skill 指定模型时，覆盖 BYOK 配置
-      if (skill.modelId !== undefined) {
-        request.modelId = skill.modelId
+      try {
+        // Skill 指定模型时，覆盖 BYOK 配置
+        if (skill.modelId !== undefined) {
+          request.modelId = skill.modelId
+        }
+
+        // 构建执行上下文（替换变量、构建 prompt 段落）
+        // tools 参数传入空 Map — SDK 引擎的 prompt 构建不需要工具定义
+        const skillCtx = buildSkillExecutionContext(skill, new Map())
+
+        extras.systemMessageContent = skillCtx.skillPrompt
+        extras.availableTools = skill.allowedTools.length > 0 ? skill.allowedTools : undefined
+      } catch (err) {
+        // 自动匹配的 Skill 如果有必填变量缺失，降级为无 Skill（不阻断对话）
+        if (skillResolution.source === 'auto') {
+          console.warn(
+            `[Agent] Auto-matched skill "${skill.name}" failed to build context, skipping:`,
+            err instanceof Error ? err.message : err,
+          )
+        } else {
+          // 手动指定的 Skill 变量缺失，抛出错误提示用户
+          throw err
+        }
       }
-
-      // 构建执行上下文（替换变量、构建 prompt 段落）
-      // tools 参数传入空 Map — SDK 引擎的 prompt 构建不需要工具定义
-      const skillCtx = buildSkillExecutionContext(skill, new Map())
-
-      extras.systemMessageContent = skillCtx.skillPrompt
-      extras.availableTools = skill.allowedTools.length > 0 ? skill.allowedTools : undefined
     }
 
     // 2. 传入工作区路径（文件操作上下文）

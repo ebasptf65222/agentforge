@@ -38,7 +38,11 @@ useAgent()
 
 onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
-  await Promise.all([chatStore.loadConversations(), modelStore.loadModels()])
+  await Promise.all([
+    chatStore.loadConversations(),
+    modelStore.loadModels(),
+    settingsStore.loadSettings(),
+  ])
 })
 
 onUnmounted(() => {
