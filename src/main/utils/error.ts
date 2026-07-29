@@ -63,6 +63,10 @@ export const ErrorCodes = {
   /** MCP 连接失败 */
   MCP_CONNECT_FAILED: 'MCP_CONNECT_FAILED',
 
+  // ─── Copilot CLI 相关 ────────────────────────────────────────
+  /** CLI 服务器启动失败 */
+  CLI_START_ERROR: 'CLI_START_ERROR',
+
   // ─── 文件相关（P2/P3） ──────────────────────────────────────
   /** 文件不存在 */
   FILE_NOT_FOUND: 'FILE_NOT_FOUND',

@@ -7,6 +7,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CopilotClient, RuntimeConnection } from '@github/copilot-sdk'
 import type { ActiveSessionInfo } from '@shared/types'
+import { AppError, ErrorCodes } from '../utils/error'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SdkSession = any
@@ -75,12 +76,8 @@ export class CopilotSessionManager {
     }
 
     // 创建新 client
-    const cliPath = resolveCopilotCliPath()
-    const clientOptions = cliPath
-      ? { connection: RuntimeConnection.forStdio({ path: cliPath }) }
-      : {}
-    const client = new CopilotClient(clientOptions)
-    await client.start()
+    const client = buildCopilotClient()
+    await startClientWithRetry(client)
 
     // 构建 session 配置，启用 infiniteSessions
     // 如果 sessionConfig 中包含 infiniteSessionThreshold 或 largeOutputMaxSize，使用自定义值
@@ -107,7 +104,14 @@ export class CopilotSessionManager {
     delete fullConfig['infiniteSessionThreshold']
     delete fullConfig['largeOutputMaxSize']
 
-    const session = await client.createSession(fullConfig)
+    let session: SdkSession
+    try {
+      session = await client.createSession(fullConfig)
+    } catch (error) {
+      // createSession 失败时清理 client（停止 CLI 子进程）
+      try { await client.stop() } catch { /* ignore */ }
+      throw error
+    }
     // 保存 SDK 分配的 sessionId，用于后续 resume
     const sdkSessionId = session.sessionId || session.id || undefined
 
@@ -179,12 +183,8 @@ export class CopilotSessionManager {
     if (sdkSessionId) {
       try {
         // 创建 client
-        const cliPath = resolveCopilotCliPath()
-        const clientOptions = cliPath
-          ? { connection: RuntimeConnection.forStdio({ path: cliPath }) }
-          : {}
-        const client = new CopilotClient(clientOptions)
-        await client.start()
+        const client = buildCopilotClient()
+        await startClientWithRetry(client)
 
         // 构建 resume 配置（BYOK provider 必须重新提供，密钥不持久化）
         const resumeCompactionThreshold = sessionConfig['infiniteSessionThreshold'] ?? 0.80
@@ -226,7 +226,8 @@ export class CopilotSessionManager {
           error,
         )
         // 恢复失败，清理 client 后继续创建新 session
-        // Fall through to create new session
+        // client 变量在 catch 块外，但 resume 失败时 CLI 进程可能已退出
+        // 无需显式 stop，Fall through 到 getOrCreateSession 创建新 client
       }
     }
 
@@ -380,6 +381,71 @@ export function resetSessionManager(): void {
 }
 
 // ─── CLI 路径解析（从 agent-bridge.ts 移出） ──────────────────
+
+/**
+ * Electron 环境下 process.execPath 指向 Electron 二进制而非 Node.js，
+ * 导致 SDK 以 Electron 模式启动 CLI 子进程后立即退出（code 0）。
+ * 设置 ELECTRON_RUN_AS_NODE=1 使 Electron 二进制以 Node.js 模式运行。
+ */
+function getElectronFixEnv(): Record<string, string> {
+  if (process.versions?.electron) {
+    return { ELECTRON_RUN_AS_NODE: '1' }
+  }
+  return {}
+}
+
+/**
+ * 构建 CopilotClient 实例（统一配置，避免重复代码）。
+ * - 注入 ELECTRON_RUN_AS_NODE=1 修复 Electron 环境下 CLI 进程立即退出的问题
+ * - CLI 路径解析失败时抛出明确错误
+ */
+function buildCopilotClient(): CopilotClient {
+  const cliPath = resolveCopilotCliPath()
+  if (!cliPath) {
+    throw new AppError(
+      ErrorCodes.CLI_START_ERROR,
+      'Copilot CLI binary not found. Ensure @github/copilot and the platform package (@github/copilot-win32-x64 etc.) are installed.',
+    )
+  }
+  const clientOptions = {
+    connection: RuntimeConnection.forStdio({
+      path: cliPath,
+      env: { ...process.env, ...getElectronFixEnv() } as Record<string, string>,
+    }),
+  }
+  return new CopilotClient(clientOptions)
+}
+
+/** CLI 启动最大重试次数 */
+const CLI_START_MAX_RETRIES = 2
+
+/**
+ * 带重试的 CLI 启动：首次失败后等待 500ms 再重试。
+ * 某些环境下子进程初始化存在竞态，重试通常能解决。
+ */
+async function startClientWithRetry(client: CopilotClient): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= CLI_START_MAX_RETRIES; attempt++) {
+    try {
+      await client.start()
+      return
+    } catch (error) {
+      lastError = error
+      const msg = error instanceof Error ? error.message : String(error)
+      if (attempt < CLI_START_MAX_RETRIES) {
+        console.warn(
+          `[SessionManager] CLI start attempt ${attempt + 1} failed: ${msg}. Retrying...`,
+        )
+        await new Promise((r) => setTimeout(r, 500))
+      }
+    }
+  }
+  throw new AppError(
+    ErrorCodes.CLI_START_ERROR,
+    `Failed to start Copilot CLI after ${CLI_START_MAX_RETRIES + 1} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+    { cause: lastError },
+  )
+}
 
 /**
  * Resolve the Copilot CLI entry point path for the current platform.
