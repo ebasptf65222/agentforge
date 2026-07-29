@@ -289,6 +289,20 @@ interface SkillMatchResult {
   reason: string
 }
 
+// ─── 5.6.1 Prompt 模板库类型 (PT-01) ────────────────────────────
+
+/** Prompt 模板 */
+interface PromptTemplate {
+  id: string
+  title: string
+  content: string
+  category: string
+  /** 变量名列表（用于 {{变量名}} 插值） */
+  variables: string[]
+  createdAt: number
+  updatedAt: number
+}
+
 // ─── 5.6 语音类型 ────────────────────────────────────────────────
 
 /** 语音提供商 */
@@ -670,6 +684,7 @@ export type {
   Skill,
   SkillVariable,
   SkillMatchResult,
+  PromptTemplate,
   VoiceConfig,
   TtsConfig,
   SttConfig,

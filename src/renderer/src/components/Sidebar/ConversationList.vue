@@ -90,6 +90,14 @@ const sortedConversations = computed(() => {
   return [...props.conversations].sort((a, b) => b.updatedAt - a.updatedAt)
 })
 
+const filteredConversations = computed(() => {
+  const query = props.searchQuery?.trim().toLowerCase() || ''
+  if (!query) return sortedConversations.value
+  return sortedConversations.value.filter(conv => {
+    return conv.title.toLowerCase().includes(query)
+  })
+})
+
 /** Skeleton placeholder rows shown during initial load */
 const skeletonRows = [0, 1, 2, 3, 4, 5]
 </script>
@@ -122,14 +130,14 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
     </ul>
 
     <!-- Empty state -->
-    <div v-else-if="conversations.length === 0" class="conversation-list__empty">
-      <p>暂无对话</p>
+    <div v-else-if="filteredConversations.length === 0" class="conversation-list__empty">
+      <p>{{ props.searchQuery?.trim() ? '未找到匹配对话' : '暂无对话' }}</p>
     </div>
 
     <!-- Conversation list -->
     <ul v-else class="conversation-list__items">
       <li
-        v-for="conv in sortedConversations"
+        v-for="conv in filteredConversations"
         :key="conv.id"
         class="conversation-item"
         :class="{ 'conversation-item--active': conv.id === currentId }"

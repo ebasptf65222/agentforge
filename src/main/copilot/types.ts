@@ -29,6 +29,8 @@ export interface SessionExtras {
   workingDirectory?: string
   /** 推理强度（SDK reasoningEffort） */
   reasoningEffort?: ReasoningEffort
+  /** 历史对话消息（已截断），SDK 引擎无状态，需主动注入历史上下文 */
+  conversationHistory?: Array<{ role: string; content: string }>
 }
 
 /**

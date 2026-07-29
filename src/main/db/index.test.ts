@@ -42,9 +42,9 @@ describe('Database Initialization', () => {
 
   // ─── 验收标准 4: schema_version ──────────────────────────────
 
-  it('should create schema_version table with version=9', () => {
+  it('should create schema_version table with version=10', () => {
     initDatabase(dbPath)
-    expect(getSchemaVersion()).toBe(9)
+    expect(getSchemaVersion()).toBe(10)
   })
 
   // ─── 验收标准 5: conversations 外键 ───────────────────────────
@@ -203,7 +203,7 @@ describe('Database Initialization', () => {
 
   // ─── 辅助验证 ────────────────────────────────────────────────
 
-  it('should create 11 tables (5 P1 + mcp_servers + skills + kb_documents + kb_chunks + kg_entities + kg_relations)', () => {
+  it('should create 12 tables (5 P1 + mcp_servers + skills + kb_documents + kb_chunks + kg_entities + kg_relations + prompt_templates)', () => {
     const db = initDatabase(dbPath)
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
@@ -219,6 +219,7 @@ describe('Database Initialization', () => {
       'mcp_servers',
       'messages',
       'model_configs',
+      'prompt_templates',
       'schema_version',
       'skills',
     ])

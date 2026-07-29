@@ -262,6 +262,23 @@ const audit = {
     onEvent('audit:report', callback),
 }
 
+// ─── Prompt Template 命名空间 (Prompt 模板库) ─────────────────
+
+const promptTemplate = {
+  list: (params?: Record<string, unknown>): Promise<unknown[]> =>
+    ipcRenderer.invoke('prompt-template:list', params ?? {}),
+
+  get: (id: string): Promise<unknown> => ipcRenderer.invoke('prompt-template:get', { id }),
+
+  create: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('prompt-template:create', params),
+
+  update: (id: string, data: Record<string, unknown>): Promise<void> =>
+    ipcRenderer.invoke('prompt-template:update', { id, ...data }),
+
+  delete: (id: string): Promise<void> => ipcRenderer.invoke('prompt-template:delete', { id }),
+}
+
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
@@ -282,6 +299,7 @@ if (process.contextIsolated) {
       workspace,
       wiki,
       audit,
+      promptTemplate,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)

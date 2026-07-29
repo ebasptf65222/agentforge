@@ -300,3 +300,22 @@ VALUES (8, strftime('%s','now') * 1000, 'Add workspace column to app_settings fo
 
 INSERT OR IGNORE INTO schema_version (version, applied_at, description)
 VALUES (9, strftime('%s','now') * 1000, 'Add copilot_reasoning_effort column to app_settings for SDK reasoning control');
+
+-- ─── 6.16 prompt_templates (PT-01) ────────────────────────────
+-- Prompt 模板库，保存和复用常用 prompt 模板
+-- variables 以 JSON 字符串数组存储（变量名列表）
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (10, strftime('%s','now') * 1000, 'Add prompt_templates table for Prompt Template Library');
+
+CREATE TABLE IF NOT EXISTS prompt_templates (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  content     TEXT NOT NULL,
+  category    TEXT NOT NULL DEFAULT 'general',
+  variables   TEXT NOT NULL DEFAULT '[]',  -- JSON array of variable names
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_prompt_templates_category ON prompt_templates(category);
+CREATE INDEX IF NOT EXISTS idx_prompt_templates_updated ON prompt_templates(updated_at DESC);

@@ -17,13 +17,19 @@ import { getMainWindowWebContents } from '../utils/electron-helpers'
 import { getModelAdapter } from '../models/router'
 import { getSettings } from '../db/repos/app-settings'
 import { getConversationById, updateLastMessageAt } from '../db/repos/conversation'
-import { createMessage } from '../db/repos/message'
+import { createMessage, getMessagesByConversationId } from '../db/repos/message'
 import { getToolRegistry } from '../tools/registry'
 import { AgentExecutor, type AgentExecutorConfig } from '../agent/executor'
 import { CopilotAgentBridge } from '../copilot/agent-bridge'
 import type { SessionExtras } from '../copilot/types'
 import type { AgentEventCallbacks, RegisteredTool } from '../agent/types'
 import { resolveSkill, buildSkillExecutionContext, filterTools } from '../skills/skill-executor'
+import { loadProjectRules, formatRulesPrompt } from '../agent/project-rules'
+import {
+  manageContext,
+  getModelContextWindow,
+  chatMessagesToContext,
+} from '../agent/context-manager'
 
 // ─── 并发控制 ─────────────────────────────────────────────────────
 
@@ -140,6 +146,30 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
     // ─── 构建 SessionExtras ────────────────────────────────────
     const extras: SessionExtras = {}
 
+    // 0. 加载历史对话消息并进行上下文窗口管理
+    //    SDK 引擎无状态，需主动注入历史上下文
+    const sdkContextWindow = getModelContextWindow(request.modelId)
+    const sdkRawHistory = getMessagesByConversationId(request.conversationId)
+    // 移除刚保存的当前用户消息（避免与 request.userInput 重复）
+    const sdkHistoryMsgs = sdkRawHistory.filter(
+      (m) => m.content !== request.userInput || m.role !== 'user',
+    )
+    const sdkHistoryContext = chatMessagesToContext(sdkHistoryMsgs)
+    const sdkContextResult = manageContext(sdkHistoryContext, {
+      maxContextTokens: sdkContextWindow,
+    })
+    if (sdkContextResult.messages.length > 0) {
+      extras.conversationHistory = sdkContextResult.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }))
+    }
+    if (sdkContextResult.truncated) {
+      console.info(
+        `[Agent SDK] Context truncated: ${sdkContextResult.originalCount} -> ${sdkContextResult.retainedCount} messages, ~${sdkContextResult.estimatedTokens} tokens`,
+      )
+    }
+
     // 1. 解析 Skill（用户指定或意图匹配）
     //    SDK 引擎复用现有 skills/ 模块，使用当前会话模型做意图匹配
     const skillResolution = await resolveSkill(
@@ -169,7 +199,18 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
       extras.workingDirectory = settings.workspace.path
     }
 
-    // 3. 传入推理强度（如果设置中有配置）
+    // 3. 加载项目规则文件（AGENTS.md）
+    const projectRules = await loadProjectRules()
+    if (projectRules) {
+      const rulesPrompt = formatRulesPrompt(projectRules)
+      if (extras.systemMessageContent) {
+        extras.systemMessageContent += rulesPrompt
+      } else {
+        extras.systemMessageContent = rulesPrompt.trim()
+      }
+    }
+
+    // 4. 传入推理强度（如果设置中有配置）
     if (settings.copilotReasoningEffort) {
       extras.reasoningEffort = settings.copilotReasoningEffort
     }
@@ -255,6 +296,8 @@ export async function handleExecute(
   }
 
   // 内置引擎路径：使用 AgentExecutor
+  // 根据模型配置获取上下文窗口大小（替代硬编码的 4096）
+  const contextWindow = getModelContextWindow(request.modelId)
   const executorConfig: AgentExecutorConfig = {
     adapter: getModelAdapter(request.modelId),
     tools: getToolsMap(),
@@ -264,7 +307,7 @@ export async function handleExecute(
       onStreamChunk: (chunk) => sendStreamChunk(chunk),
     },
     approvalTimeoutMs: settings.approvalTimeoutMs,
-    maxContextLength: 4096,
+    maxContextLength: contextWindow,
     skillPrompt: undefined,
   }
 
@@ -278,36 +321,50 @@ export async function handleExecute(
     // 4. 验证会话存在
     getConversationById(request.conversationId)
 
-    // 5. 保存用户消息
+    // 5. 加载历史对话消息并进行上下文窗口管理
+    //    在保存当前用户消息之前加载，避免重复包含当前输入
+    const rawHistory = getMessagesByConversationId(request.conversationId)
+    const historyContext = chatMessagesToContext(rawHistory)
+    const contextResult = manageContext(historyContext, {
+      maxContextTokens: contextWindow,
+    })
+    executorConfig.historyMessages = contextResult.messages
+    if (contextResult.truncated) {
+      console.info(
+        `[Agent Builtin] Context truncated: ${contextResult.originalCount} -> ${contextResult.retainedCount} messages, ~${contextResult.estimatedTokens} tokens`,
+      )
+    }
+
+    // 6. 保存用户消息
     createMessage({
       conversationId: request.conversationId,
       role: 'user',
       content: request.userInput,
     })
 
-    // 6. 解析 Skill（用户指定或意图匹配）
+    // 7. 解析 Skill（用户指定或意图匹配）
     const skillResolution = await resolveSkill(request.userInput, request.skillName, executorConfig.adapter)
 
     if (skillResolution.skill !== null) {
       const skill = skillResolution.skill
 
-      // 6a. 如果 Skill 指定了 modelId，使用该模型
+      // 7a. 如果 Skill 指定了 modelId，使用该模型
       if (skill.modelId !== undefined) {
         executorConfig.adapter = getModelAdapter(skill.modelId)
       }
 
-      // 6b. 构建执行上下文（替换变量、过滤工具）
+      // 7b. 构建执行上下文（替换变量、过滤工具）
       const skillCtx = buildSkillExecutionContext(skill, executorConfig.tools)
       executorConfig.skillPrompt = skillCtx.skillPrompt
 
-      // 6c. 过滤工具列表
+      // 7c. 过滤工具列表
       executorConfig.tools = filterTools(executorConfig.tools, skill.allowedTools)
     }
 
-    // 7. 执行 Agent
+    // 8. 执行 Agent
     result = await executor.execute(request)
 
-    // 8. 保存助手回复
+    // 9. 保存助手回复
     createMessage({
       conversationId: request.conversationId,
       role: 'assistant',

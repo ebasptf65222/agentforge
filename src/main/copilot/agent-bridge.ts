@@ -231,7 +231,10 @@ export class CopilotAgentBridge {
       })
 
       // 9. Send user message (non-blocking, events stream via callbacks)
-      await session.send({ prompt: request.userInput })
+      //    如果有历史对话，将其格式化后作为上下文拼接到用户输入前面
+      //    SDK 引擎无状态，需主动注入历史上下文
+      const prompt = buildPromptWithHistory(request.userInput, extras?.conversationHistory)
+      await session.send({ prompt })
 
       // 10. Wait for session to become idle (completion signal)
       await idlePromise
@@ -382,4 +385,70 @@ export class CopilotAgentBridge {
     }
     this.idleResolve = null
   }
+}
+
+// ─── 辅助函数 ────────────────────────────────────────────────────
+
+/**
+ * 角色标签映射（用于历史对话格式化）。
+ */
+const ROLE_LABELS: Record<string, string> = {
+  user: '用户',
+  assistant: '助手',
+  system: '系统',
+  tool: '工具结果',
+}
+
+/**
+ * 将用户输入与历史对话消息组合成完整的 prompt。
+ *
+ * SDK 引擎是无状态的（每次创建新会话），因此需要将历史对话
+ * 作为上下文拼接到当前用户输入前面，让模型能够理解对话背景。
+ *
+ * 格式示例：
+ * ```
+ * --- 以下为之前的对话历史 ---
+ * [用户]: 之前的问题
+ * [助手]: 之前的回答
+ * --- 历史结束 ---
+ *
+ * 当前用户输入
+ * ```
+ *
+ * @param userInput - 当前用户输入
+ * @param history - 历史对话消息（已截断）
+ * @returns 组合后的 prompt
+ */
+function buildPromptWithHistory(
+  userInput: string,
+  history?: Array<{ role: string; content: string }>,
+): string {
+  // 无历史或空历史，直接返回用户输入
+  if (!history || history.length === 0) {
+    return userInput
+  }
+
+  // 过滤掉系统消息（已通过 systemMessage 注入）和空内容
+  const dialogMessages = history.filter(
+    (msg) => msg.role !== 'system' && msg.content && msg.content.trim().length > 0,
+  )
+
+  if (dialogMessages.length === 0) {
+    return userInput
+  }
+
+  // 格式化历史对话
+  const historyLines = dialogMessages.map((msg) => {
+    const label = ROLE_LABELS[msg.role] || msg.role
+    return `[${label}]: ${msg.content}`
+  })
+
+  const historyBlock = [
+    '--- 以下为之前的对话历史 ---',
+    ...historyLines,
+    '--- 历史结束 ---',
+    '',
+  ].join('\n')
+
+  return `${historyBlock}\n${userInput}`
 }

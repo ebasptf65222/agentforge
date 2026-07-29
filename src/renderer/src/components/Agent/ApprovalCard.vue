@@ -12,6 +12,7 @@ import {
   EditNoteOutlined,
   ExpandMoreOutlined,
 } from '@vicons/material'
+import CodeDiffPreview from './CodeDiffPreview.vue'
 import type { ApprovalRequest } from '@shared/types'
 
 const props = defineProps<{
@@ -103,6 +104,22 @@ const contentPreview = computed(() => {
   return content
 })
 
+// ─── Diff preview data ──────────────────────────────────
+
+const diffOldCode = computed(() => {
+  const a = args.value
+  return (a.oldCode as string) || (a.old_content as string) || (a.original as string) || ''
+})
+
+const diffNewCode = computed(() => {
+  const a = args.value
+  return (a.newCode as string) || (a.new_content as string) || (a.replacement as string) || (a.content as string) || ''
+})
+
+const hasDiffData = computed(() => {
+  return diffOldCode.value.length > 0 || diffNewCode.value.length > 0
+})
+
 const expandedNames = ref<string[]>([])
 
 function handleApprove(): void {
@@ -191,7 +208,15 @@ function handleReject(): void {
           <span class="preview-label">编辑文件</span>
           <code class="preview-code">{{ filePath || '(未指定)' }}</code>
         </div>
-        <div v-if="contentPreview" class="preview-section">
+        <div v-if="hasDiffData" class="preview-section">
+          <span class="preview-label">代码变更 (Diff)</span>
+          <CodeDiffPreview
+            :old-code="diffOldCode"
+            :new-code="diffNewCode"
+            :filename="filePath"
+          />
+        </div>
+        <div v-else-if="contentPreview" class="preview-section">
           <span class="preview-label">变更预览</span>
           <pre class="preview-content">{{ contentPreview }}</pre>
         </div>

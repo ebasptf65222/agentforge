@@ -4,7 +4,7 @@
 
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { NSelect, NSwitch, NIcon } from 'naive-ui'
-import { BookOutlined, CloseOutlined } from '@vicons/material'
+import { BookOutlined, CloseOutlined, ImageOutlined } from '@vicons/material'
 import AppButton from '@/components/common/AppButton.vue'
 import VoiceInputButton from './VoiceInputButton.vue'
 import VoiceModeToggle from './VoiceModeToggle.vue'
@@ -21,7 +21,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  send: [content: string, skillName?: string]
+  send: [content: string, skillName?: string, images?: Array<{ dataUrl: string; name: string; size: number }>]
   stop: []
 }>()
 
@@ -79,8 +79,16 @@ const MAX_CHARS = 32000
 const inputContent = ref('')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
+// 图片附件状态
+const attachedImages = ref<Array<{ dataUrl: string; name: string; size: number }>>([])
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const isDragging = ref(false)
+
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024 // 5MB
+const MAX_IMAGES = 5
+
 const canSend = computed(() => {
-  return inputContent.value.trim().length > 0 && !props.isGenerating && !props.disabled
+  return (inputContent.value.trim().length > 0 || attachedImages.value.length > 0) && !props.isGenerating && !props.disabled
 })
 
 /** Remaining character count before hitting the limit */
@@ -94,9 +102,11 @@ const showVoiceButton = computed(() => voiceStore.sttEnabled)
 
 function handleSend(): void {
   const content = inputContent.value.trim()
-  if (!content || props.disabled || props.isGenerating) return
-  emit('send', content, selectedSkill.value ?? undefined)
+  const images = [...attachedImages.value]
+  if ((!content && images.length === 0) || props.disabled || props.isGenerating) return
+  emit('send', content, selectedSkill.value ?? undefined, images.length > 0 ? images : undefined)
   inputContent.value = ''
+  attachedImages.value = []
   // Reset textarea height after sending
   nextTick(() => {
     autoResize()
@@ -133,6 +143,82 @@ function autoResize(): void {
 
 function handleInput(): void {
   autoResize()
+}
+
+function handleImageSelect(event: Event): void {
+  const target = event.target as HTMLInputElement
+  if (!target.files) return
+  for (const file of Array.from(target.files)) {
+    if (attachedImages.value.length >= MAX_IMAGES) break
+    if (!file.type.startsWith('image/')) continue
+    if (file.size > MAX_IMAGE_SIZE) continue
+    const reader = new FileReader()
+    reader.onload = () => {
+      attachedImages.value.push({
+        dataUrl: reader.result as string,
+        name: file.name,
+        size: file.size,
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+  target.value = ''
+}
+
+function removeImage(index: number): void {
+  attachedImages.value.splice(index, 1)
+}
+
+function handlePaste(event: ClipboardEvent): void {
+  const items = event.clipboardData?.items
+  if (!items) return
+  for (const item of Array.from(items)) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (!file || attachedImages.value.length >= MAX_IMAGES) continue
+      if (file.size > MAX_IMAGE_SIZE) continue
+      const reader = new FileReader()
+      reader.onload = () => {
+        attachedImages.value.push({
+          dataUrl: reader.result as string,
+          name: `pasted-${Date.now()}.png`,
+          size: file.size,
+        })
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+}
+
+function handleDrop(event: DragEvent): void {
+  event.preventDefault()
+  isDragging.value = false
+  const files = event.dataTransfer?.files
+  if (!files) return
+  for (const file of Array.from(files)) {
+    if (attachedImages.value.length >= MAX_IMAGES) break
+    if (!file.type.startsWith('image/')) continue
+    if (file.size > MAX_IMAGE_SIZE) continue
+    const reader = new FileReader()
+    reader.onload = () => {
+      attachedImages.value.push({
+        dataUrl: reader.result as string,
+        name: file.name,
+        size: file.size,
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+}
+
+function handleDragOver(event: DragEvent): void {
+  event.preventDefault()
+  isDragging.value = true
+}
+
+function handleDragLeave(event: DragEvent): void {
+  event.preventDefault()
+  isDragging.value = false
 }
 </script>
 
@@ -179,7 +265,16 @@ function handleInput(): void {
       </button>
     </div>
 
-    <div class="chat-input__wrapper">
+    <div class="chat-input__wrapper" :class="{ 'is-dragging': isDragging }">
+      <!-- Image attachments preview -->
+      <div v-if="attachedImages.length > 0" class="chat-input__images">
+        <div v-for="(img, idx) in attachedImages" :key="idx" class="image-thumb">
+          <img :src="img.dataUrl" :alt="img.name" />
+          <button class="image-thumb__remove" title="移除" @click="removeImage(idx)">
+            <NIcon :size="12"><CloseOutlined /></NIcon>
+          </button>
+        </div>
+      </div>
       <textarea
         ref="textareaRef"
         v-model="inputContent"
@@ -190,8 +285,28 @@ function handleInput(): void {
         rows="1"
         @keydown="handleKeydown"
         @input="handleInput"
+        @paste="handlePaste"
+        @drop="handleDrop"
+        @dragover="handleDragOver"
+        @dragleave="handleDragLeave"
       />
       <div class="chat-input__actions">
+        <button
+          class="chat-input__image-btn"
+          title="添加图片"
+          :disabled="attachedImages.length >= 5"
+          @click="fileInputRef?.click()"
+        >
+          <NIcon :size="18"><ImageOutlined /></NIcon>
+        </button>
+        <input
+          ref="fileInputRef"
+          type="file"
+          accept="image/*"
+          multiple
+          style="display: none"
+          @change="handleImageSelect"
+        />
         <VoiceInputButton v-if="showVoiceButton && !isGenerating" @submit="handleVoiceSubmit" />
         <AppButton v-if="isGenerating" variant="danger" size="sm" @click="emit('stop')">
           停止生成
@@ -297,6 +412,7 @@ function handleInput(): void {
 .chat-input__wrapper {
   display: flex;
   align-items: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   background-color: var(--af-bg-input, #1f2937);
   border: 1px solid var(--af-border, #374151);
@@ -399,5 +515,78 @@ function handleInput(): void {
 .skill-mode-banner__close:hover {
   color: var(--af-text-primary, #e5e7eb);
   background: var(--af-bg-hover, #374151);
+}
+
+.chat-input__image-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  color: var(--af-text-muted, #6b7280);
+  cursor: pointer;
+  border-radius: var(--af-radius-sm, 6px);
+  transition: all 0.15s ease;
+}
+
+.chat-input__image-btn:hover:not(:disabled) {
+  color: var(--af-brand, #818cf8);
+  background: var(--af-bg-hover, #374151);
+}
+
+.chat-input__image-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chat-input__images {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+  flex-basis: 100%;
+}
+
+.image-thumb {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  border-radius: var(--af-radius-sm, 6px);
+  overflow: hidden;
+  border: 1px solid var(--af-border, #374151);
+}
+
+.image-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-thumb__remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  padding: 0;
+}
+
+.image-thumb__remove:hover {
+  background: rgba(239, 68, 68, 0.8);
+}
+
+.chat-input__wrapper.is-dragging {
+  border-color: var(--af-brand, #4f46e5);
+  background-color: color-mix(in srgb, var(--af-brand, #4f46e5) 5%, var(--af-bg-input, #1f2937));
 }
 </style>

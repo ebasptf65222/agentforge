@@ -55,6 +55,17 @@ const renderer = {
     const language = lang || 'plaintext'
     const escapedCode = escapeHtml(text)
 
+    // Mermaid 图表：生成占位 div，由 MarkdownRenderer 异步渲染
+    if (language.toLowerCase() === 'mermaid') {
+      return `<div class="mermaid-block" data-mermaid="${encodeURIComponent(text)}">
+  <div class="mermaid-block__header">
+    <span class="code-block__lang">mermaid</span>
+    <button class="code-block__copy" data-code="${escapedCode}">复制</button>
+  </div>
+  <div class="mermaid-block__loading">渲染图表中...</div>
+</div>`
+    }
+
     // If highlighter is ready, use it synchronously
     if (highlighterInstance) {
       const loadedLangs = highlighterInstance.getLoadedLanguages()
@@ -103,7 +114,55 @@ marked.use({
 
 const PURIFY_CONFIG = {
   ADD_TAGS: ['button'],
-  ADD_ATTR: ['data-code', 'data-lang', 'class', 'style'],
+  ADD_ATTR: [
+    'data-code',
+    'data-lang',
+    'data-mermaid',
+    'class',
+    'style',
+    'viewBox',
+    'xmlns',
+    'd',
+    'fill',
+    'stroke',
+    'stroke-width',
+    'stroke-linecap',
+    'stroke-linejoin',
+    'x',
+    'y',
+    'x1',
+    'y1',
+    'x2',
+    'y2',
+    'cx',
+    'cy',
+    'r',
+    'rx',
+    'ry',
+    'width',
+    'height',
+    'transform',
+    'points',
+    'text-anchor',
+    'dominant-baseline',
+    'font-size',
+    'font-family',
+    'font-weight',
+    'opacity',
+    'gradientUnits',
+    'offset',
+    'stop-color',
+    'stop-opacity',
+    'id',
+    'markerWidth',
+    'markerHeight',
+    'refX',
+    'refY',
+    'orient',
+    'markerUnits',
+    'preserveAspectRatio',
+    'href',
+  ],
   ALLOW_DATA_ATTR: true,
 }
 
