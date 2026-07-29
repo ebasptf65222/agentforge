@@ -8,6 +8,8 @@ import { AppError, ErrorCodes } from '../utils/error'
 import { assertNonEmptyString } from '../utils/assertions'
 import { getMcpServerManager, type ServerListEntry } from '../mcp/manager'
 import type { CreateMcpServerParams, UpdateMcpServerParams } from '../mcp/db-repo'
+import { listMcpServers } from '../mcp/db-repo'
+import { getToolRegistry } from '../tools/registry'
 
 // ─── 参数校验辅助函数 ─────────────────────────────────────────────
 
@@ -174,12 +176,16 @@ export function handleListMcp(): ServerListEntry[] {
 }
 
 /**
- * mcp:get-status - 获取指定 Server 的状态。
+ * mcp:get-status - 获取指定 Server 的状态信息。
  *
  * @param params - { id }
- * @returns MCPServerStatus
+ * @returns { config, status, tools } - 服务器配置、状态和工具列表
  */
-export function handleGetMcpStatus(params: unknown): MCPServerStatus {
+export function handleGetMcpStatus(params: unknown): {
+  config: MCPServerConfig | null
+  status: MCPServerStatus
+  tools: unknown[]
+} {
   if (params === null || typeof params !== 'object') {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Get MCP status params must be an object.')
   }
@@ -188,7 +194,27 @@ export function handleGetMcpStatus(params: unknown): MCPServerStatus {
   assertNonEmptyString(p['id'], 'id')
 
   const manager = getMcpServerManager()
-  return manager.getServerStatus(p['id'] as string)
+  const id = p['id'] as string
+
+  // 获取服务器状态
+  const status = manager.getServerStatus(id)
+
+  // 获取服务器配置（从数据库）
+  let config: MCPServerConfig | null = null
+  try {
+    const servers = listMcpServers()
+    config = servers.find((s) => s.id === id) ?? null
+  } catch {
+    // Ignore errors
+  }
+
+  // 获取已注册的工具列表
+  const tools = getToolRegistry()
+    .list()
+    .filter((t) => t.source === 'mcp' && t.mcpServerId === id)
+    .map((t) => ({ name: t.definition.name, description: t.definition.description }))
+
+  return { config, status, tools }
 }
 
 /**

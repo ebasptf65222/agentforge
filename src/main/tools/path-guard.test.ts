@@ -102,14 +102,20 @@ describe('path-guard', () => {
       const targetOutside = join(outsideDir, 'secret.txt')
       writeFileSync(targetOutside, 'secret')
 
+      // Check if symlinks are supported on this system
+      let symlinkSupported = true
       try {
         symlinkSync(targetOutside, symlinkPath)
-        expect(isPathInWorkspace(workspaceDir, symlinkPath)).toBe(false)
       } catch {
-        // Symlink creation may fail on some systems without permissions
-        // Skip this test if symlink creation fails
-        it.skip('symlink creation not supported')
+        symlinkSupported = false
       }
+
+      if (!symlinkSupported) {
+        // Skip test on systems without symlink support (e.g., Windows without admin rights)
+        return
+      }
+
+      expect(isPathInWorkspace(workspaceDir, symlinkPath)).toBe(false)
     })
 
     it('should accept symlink that points inside workspace', () => {
@@ -117,12 +123,20 @@ describe('path-guard', () => {
       const symlinkPath = join(workspaceDir, 'good-link')
       const targetInside = join(workspaceDir, 'test.txt')
 
+      // Check if symlinks are supported on this system
+      let symlinkSupported = true
       try {
         symlinkSync(targetInside, symlinkPath)
-        expect(isPathInWorkspace(workspaceDir, symlinkPath)).toBe(true)
       } catch {
-        it.skip('symlink creation not supported')
+        symlinkSupported = false
       }
+
+      if (!symlinkSupported) {
+        // Skip test on systems without symlink support (e.g., Windows without admin rights)
+        return
+      }
+
+      expect(isPathInWorkspace(workspaceDir, symlinkPath)).toBe(true)
     })
 
     it('should accept path for a new file that does not exist yet', () => {

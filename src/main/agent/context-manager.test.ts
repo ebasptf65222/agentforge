@@ -6,9 +6,9 @@ import {
   manageContext,
   getContextWindowSize,
   chatMessagesToContext,
-} from '../../workspace/agentforge/src/main/agent/context-manager'
-import type { AgentContextMessage } from '../../workspace/agentforge/src/main/agent/types'
-import type { ChatMessage } from '../../workspace/agentforge/src/shared/types'
+} from './context-manager'
+import type { AgentContextMessage } from './types'
+import type { ChatMessage } from '@shared/types'
 
 describe('context-manager', () => {
   // ─── manageContext ──────────────────────────────────────────

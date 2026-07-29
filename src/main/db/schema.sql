@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   message_count  INTEGER NOT NULL DEFAULT 0,
   last_message_at INTEGER,
   sdk_session_id TEXT DEFAULT NULL,
-  -- P3-01: 对话分支支持
+  -- P3-01: 对话分支支持（列和索引由 runConditionalMigrations 添加）
   parent_id      TEXT REFERENCES conversations(id) ON DELETE SET NULL,
   fork_index     INTEGER DEFAULT 0,
   is_forked      INTEGER DEFAULT 0 CHECK(is_forked IN (0, 1)),
@@ -53,8 +53,6 @@ CREATE TABLE IF NOT EXISTS conversations (
   updated_at     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_conv_updated ON conversations(updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_conv_parent ON conversations(parent_id);
-CREATE INDEX IF NOT EXISTS idx_conv_forked ON conversations(is_forked);
 
 -- ─── 6.4 messages ─────────────────────────────────────────────
 

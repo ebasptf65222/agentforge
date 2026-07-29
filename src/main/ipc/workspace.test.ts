@@ -481,7 +481,14 @@ describe('Workspace IPC Handlers (WS-06)', () => {
       const symlinkPath = join(workspaceDir, 'evil-link.txt')
       const outsideFile = join(outsideDir, 'secret.txt')
       writeFileSync(outsideFile, 'secret data')
-      symlinkSync(outsideFile, symlinkPath)
+
+      // Check if symlinks are supported on this system
+      try {
+        symlinkSync(outsideFile, symlinkPath)
+      } catch {
+        // Skip on systems without symlink support (e.g., Windows without admin rights)
+        return
+      }
 
       await expectAppError(async () => handleWsRead('evil-link.txt'), ErrorCodes.WORKSPACE_PATH_ESCAPE)
     })
@@ -490,7 +497,14 @@ describe('Workspace IPC Handlers (WS-06)', () => {
       const symlinkPath = join(workspaceDir, 'evil-write-link.txt')
       const outsideFile = join(outsideDir, 'target.txt')
       writeFileSync(outsideFile, 'original')
-      symlinkSync(outsideFile, symlinkPath)
+
+      // Check if symlinks are supported on this system
+      try {
+        symlinkSync(outsideFile, symlinkPath)
+      } catch {
+        // Skip on systems without symlink support (e.g., Windows without admin rights)
+        return
+      }
 
       await expectAppError(
         async () => handleWsWrite('evil-write-link.txt', 'malicious'),

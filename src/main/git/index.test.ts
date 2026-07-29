@@ -3,7 +3,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, normalize } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execSync } from 'node:child_process'
 import {
@@ -73,14 +73,16 @@ describe('Git Core Module', () => {
   describe('getRepoRoot', () => {
     it('should return the repository root path', async () => {
       const root = await getRepoRoot(tempDir)
-      expect(root).toBe(tempDir)
+      // Normalize paths for Windows (git returns forward slashes, Node uses backslashes)
+      expect(normalize(root)).toBe(normalize(tempDir))
     })
 
     it('should return root even from a subdirectory', async () => {
       const subDir = join(tempDir, 'src')
       mkdirSync(subDir, { recursive: true })
       const root = await getRepoRoot(subDir)
-      expect(root).toBe(tempDir)
+      // Normalize paths for Windows (git returns forward slashes, Node uses backslashes)
+      expect(normalize(root)).toBe(normalize(tempDir))
     })
   })
 
@@ -260,7 +262,12 @@ describe('Git Core Module', () => {
 
     it('should mark remote branches', async () => {
       // Add a remote branch reference (without actual remote)
-      execSync('git branch -r origin/main 2>/dev/null || true', { cwd: tempDir })
+      // On Windows, 2>/dev/null doesn't work, so we use a try-catch
+      try {
+        execSync('git branch -r origin/main', { cwd: tempDir, stdio: 'ignore' })
+      } catch {
+        // Ignore errors - this is expected without a remote
+      }
       // This might not work without a remote, but test won't fail
       const branches = await listBranches(tempDir)
       expect(branches.length).toBeGreaterThanOrEqual(1)

@@ -323,6 +323,9 @@ function runConditionalMigrations(db: Database.Database): void {
   if (!hasColumn(db, 'conversations', 'is_forked')) {
     db.exec(`ALTER TABLE conversations ADD COLUMN is_forked INTEGER DEFAULT 0 CHECK(is_forked IN (0, 1))`)
   }
+  // 确保分支相关索引存在（幂等，IF NOT EXISTS）
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_conv_parent ON conversations(parent_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_conv_forked ON conversations(is_forked)`)
 }
 
 /**

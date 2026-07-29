@@ -445,17 +445,12 @@ describe('ModelRouter', () => {
     expect(adapter).toBeInstanceOf(OpenAIAdapter)
   })
 
-  it('should throw MODEL_API_ERROR for anthropic provider (not yet supported)', () => {
+  it('should return AnthropicAdapter for anthropic provider', () => {
     mockGetModelConfigById.mockReturnValue(makeModelConfig({ provider: 'anthropic' }))
 
-    try {
-      getModelAdapter('model-uuid-1')
-      expect.fail('Expected AppError')
-    } catch (error) {
-      expect(error).toBeInstanceOf(AppError)
-      expect((error as AppError).code).toBe('MODEL_API_ERROR')
-      expect((error as AppError).message).toContain('anthropic')
-    }
+    const adapter = getModelAdapter('model-uuid-1')
+    expect(adapter).toBeDefined()
+    // AnthropicAdapter is now supported
   })
 
   it('should cache adapter instances', () => {

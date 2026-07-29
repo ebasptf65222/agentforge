@@ -60,6 +60,22 @@ vi.mock('../db/repos/message', () => ({
   getMessagesByConversationId: (...args: unknown[]) => mockGetMessagesByConversationId(...args),
 }))
 
+vi.mock('../db', () => ({
+  getDatabase: vi.fn(() => ({
+    transaction: vi.fn((fn: (...a: unknown[]) => unknown) => {
+      const tx = (...args: unknown[]) => fn(...args)
+      tx.immediate = tx
+      return tx
+    }),
+    exec: vi.fn(),
+    prepare: vi.fn(() => ({
+      run: vi.fn(),
+      get: vi.fn(),
+      all: vi.fn(() => []),
+    })),
+  })),
+}))
+
 vi.mock('../models/router', () => ({
   getModelAdapter: (...args: unknown[]) => mockGetModelAdapter(...args),
 }))

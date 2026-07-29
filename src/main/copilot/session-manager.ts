@@ -395,9 +395,76 @@ function getElectronFixEnv(): Record<string, string> {
 }
 
 /**
+ * 获取系统 Node.js 可执行文件路径（非 Electron）。
+ * Electron 环境下 process.execPath 指向 electron.exe，
+ * Copilot CLI 检测到 process.versions.electron 后会用 commander 的
+ * `from: "electron"` 模式解析 argv，导致参数解析错误。
+ * 通过找到系统真正的 Node.js 来 spawn CLI 子进程可避免此问题。
+ */
+function getSystemNodePath(): string {
+  // 1. 优先使用环境变量 NODE_PATH 指定的 Node.js
+  if (process.env.COPilot_NODE_PATH) {
+    return process.env.COPilot_NODE_PATH
+  }
+
+  // 2. Electron 环境下，从 execPath 向上查找 Node.js
+  if (process.versions?.electron) {
+    // Electron 的 execPath 类似：
+    //   Windows: .../electron/dist/electron.exe
+    //   macOS:   .../electron/dist/Electron.app/Contents/MacOS/Electron
+    //   Linux:   .../electron/dist/electron
+    // 通过 nvm 或 which 找到系统 Node.js
+    try {
+      const { execFileSync } = require('node:child_process')
+      // Windows 上用 where，Unix 上用 which
+      const cmd = process.platform === 'win32' ? 'where' : 'which'
+      const nodePath = execFileSync(cmd, ['node'], { encoding: 'utf-8', timeout: 5000 }).trim()
+      // Windows 的 where 可能返回多行，取第一行
+      const firstLine = nodePath.split(/\r?\n/)[0].trim()
+      if (firstLine) {
+        console.log(`[SessionManager] Found system Node.js: ${firstLine}`)
+        return firstLine
+      }
+    } catch {
+      // Fallback: 尝试常见的 Node.js 路径
+    }
+
+    // 3. 尝试从 nvm 目录查找
+    const { join, dirname } = require('node:path')
+    const { existsSync } = require('node:fs')
+
+    if (process.platform === 'win32') {
+      // Windows: 从 electron.exe 路径向上查找 node.exe
+      // 通常 nvm 安装的 Node.js 在类似 D:\nvm\nodejs\node.exe
+      const envNode = process.env.ProgramFiles
+        ? join(process.env.ProgramFiles, 'nodejs', 'node.exe')
+        : undefined
+      if (envNode && existsSync(envNode)) return envNode
+
+      // 尝试 NVM_HOME
+      if (process.env.NVM_HOME) {
+        const nvmNode = join(process.env.NVM_HOME, 'node.exe')
+        if (existsSync(nvmNode)) return nvmNode
+      }
+    }
+  }
+
+  // 4. 非 Electron 环境或找不到时，使用 process.execPath
+  return process.execPath
+}
+
+/**
  * 构建 CopilotClient 实例（统一配置，避免重复代码）。
  * - 注入 ELECTRON_RUN_AS_NODE=1 修复 Electron 环境下 CLI 进程立即退出的问题
  * - CLI 路径解析失败时抛出明确错误
+ * - 支持通过 gitHubToken 或 useLoggedInUser 进行认证
+ *
+ * Electron 兼容性修复：
+ * SDK 的 getNodeExecPath() 返回 process.execPath（electron.exe），
+ * Copilot CLI 检测到 process.versions.electron 后用 commander 的
+ * `from: "electron"` 模式解析 argv，导致 "too many arguments" 错误。
+ * 修复方式：临时将 process.execPath 替换为系统 Node.js 路径，
+ * 让 SDK spawn CLI 时使用真正的 Node.js。
  */
 function buildCopilotClient(): CopilotClient {
   const cliPath = resolveCopilotCliPath()
@@ -407,13 +474,48 @@ function buildCopilotClient(): CopilotClient {
       'Copilot CLI binary not found. Ensure @github/copilot and the platform package (@github/copilot-win32-x64 etc.) are installed.',
     )
   }
-  const clientOptions = {
-    connection: RuntimeConnection.forStdio({
-      path: cliPath,
-      env: { ...process.env, ...getElectronFixEnv() } as Record<string, string>,
-    }),
+
+  // 从环境变量或设置中获取 GitHub token
+  const gitHubToken = process.env.GITHUB_TOKEN || process.env.COPILOT_TOKEN || undefined
+
+  // Electron 兼容性修复：临时替换 process.execPath
+  const originalExecPath = process.execPath
+  if (process.versions?.electron) {
+    const nodePath = getSystemNodePath()
+    if (nodePath !== process.execPath) {
+      console.log(`[SessionManager] Electron detected, patching process.execPath: ${process.execPath} -> ${nodePath}`)
+      // @ts-expect-error - 临时替换，用于 SDK spawn
+      process.execPath = nodePath
+    }
   }
-  return new CopilotClient(clientOptions)
+
+  try {
+    const clientOptions: Record<string, unknown> = {
+      connection: RuntimeConnection.forStdio({
+        path: cliPath,
+        env: { ...process.env, ...getElectronFixEnv() } as Record<string, string>,
+      }),
+    }
+
+    // 认证配置：优先使用 token，否则使用本地登录状态
+    if (gitHubToken) {
+      clientOptions.gitHubToken = gitHubToken
+      clientOptions.useLoggedInUser = false
+      console.log('[SessionManager] Using GitHub token for authentication')
+    } else {
+      // 默认使用本地登录状态
+      clientOptions.useLoggedInUser = true
+      console.log('[SessionManager] Using local GitHub login for authentication')
+    }
+
+    return new CopilotClient(clientOptions)
+  } finally {
+    // 恢复原始 process.execPath
+    if (process.versions?.electron) {
+      // @ts-expect-error - 恢复
+      process.execPath = originalExecPath
+    }
+  }
 }
 
 /** CLI 启动最大重试次数 */
@@ -427,14 +529,20 @@ async function startClientWithRetry(client: CopilotClient): Promise<void> {
   let lastError: unknown
   for (let attempt = 0; attempt <= CLI_START_MAX_RETRIES; attempt++) {
     try {
+      console.log(`[SessionManager] Starting Copilot CLI (attempt ${attempt + 1}/${CLI_START_MAX_RETRIES + 1})...`)
       await client.start()
+      console.log(`[SessionManager] Copilot CLI started successfully`)
       return
     } catch (error) {
       lastError = error
       const msg = error instanceof Error ? error.message : String(error)
+      console.error(`[SessionManager] CLI start attempt ${attempt + 1} failed:`, msg)
+      if (error instanceof Error && error.stack) {
+        console.error(`[SessionManager] Stack trace:`, error.stack)
+      }
       if (attempt < CLI_START_MAX_RETRIES) {
         console.warn(
-          `[SessionManager] CLI start attempt ${attempt + 1} failed: ${msg}. Retrying...`,
+          `[SessionManager] Retrying in 500ms...`,
         )
         await new Promise((r) => setTimeout(r, 500))
       }
