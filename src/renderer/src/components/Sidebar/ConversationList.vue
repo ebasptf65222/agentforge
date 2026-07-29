@@ -4,7 +4,7 @@
 
 import { ref, computed, nextTick } from 'vue'
 import { NIcon, NPopconfirm, NInput } from 'naive-ui'
-import { EditOutlined, CheckOutlined, DeleteOutlined, ClearAllOutlined, SearchOutlined } from '@vicons/material'
+import { EditOutlined, CheckOutlined, DeleteOutlined, ClearAllOutlined, SearchOutlined, CallSplitOutlined, AccountTreeOutlined } from '@vicons/material'
 import type { Conversation } from '@shared/types'
 
 const props = defineProps<{
@@ -22,6 +22,8 @@ const emit = defineEmits<{
   delete: [id: string]
   rename: [id: string, newTitle: string]
   clear: [id: string]
+  fork: [id: string]
+  'show-tree': [id: string]
   'update:searchQuery': [value: string]
 }>()
 
@@ -145,9 +147,21 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
       >
         <div class="conversation-item__content">
           <!-- Normal title display -->
-          <span v-if="renamingId !== conv.id" class="conversation-item__title">
-            {{ conv.title }}
-          </span>
+          <div v-if="renamingId !== conv.id" class="conversation-item__title-row">
+            <span class="conversation-item__title">
+              {{ conv.title }}
+            </span>
+            <!-- Branch indicator -->
+            <NIcon
+              v-if="conv.isForked"
+              :size="12"
+              class="conversation-item__branch-icon"
+              title="查看分支树"
+              @click.stop="emit('show-tree', conv.id)"
+            >
+              <AccountTreeOutlined />
+            </NIcon>
+          </div>
           <!-- Inline rename input -->
           <input
             v-else
@@ -163,6 +177,15 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
           </span>
         </div>
         <div class="conversation-item__actions">
+          <!-- Fork button (P3-01) -->
+          <button
+            v-if="renamingId !== conv.id"
+            class="conversation-item__action conversation-item__fork"
+            title="分支此对话"
+            @click.stop="emit('fork', conv.id)"
+          >
+            <NIcon :size="14"><CallSplitOutlined /></NIcon>
+          </button>
           <!-- Rename button -->
           <button
             v-if="renamingId !== conv.id"
@@ -297,12 +320,24 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
   min-width: 0;
 }
 
+.conversation-item__title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
 .conversation-item__title {
   font-size: 13px;
   color: var(--af-text-primary, #e5e7eb);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.conversation-item__branch-icon {
+  color: var(--af-warning, #f59e0b);
+  flex-shrink: 0;
 }
 
 .conversation-item__rename-input {
@@ -361,6 +396,11 @@ const skeletonRows = [0, 1, 2, 3, 4, 5]
 .conversation-item__clear:hover {
   color: var(--af-warning, #f59e0b);
   background-color: color-mix(in srgb, var(--af-warning, #f59e0b) 10%, transparent);
+}
+
+.conversation-item__fork:hover {
+  color: var(--af-brand, #6366f1);
+  background-color: color-mix(in srgb, var(--af-brand, #6366f1) 10%, transparent);
 }
 
 /* ─── Skeleton placeholders (P1-12) ─────────────────────────── */

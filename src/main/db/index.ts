@@ -290,6 +290,39 @@ function runConditionalMigrations(db: Database.Database): void {
       `ALTER TABLE app_settings ADD COLUMN copilot_large_output_max_size INTEGER`
     )
   }
+
+  // RAG-FIX-01: 确保 app_settings 有嵌入模型配置列
+  if (!hasColumn(db, 'app_settings', 'embedding_provider')) {
+    db.exec(`ALTER TABLE app_settings ADD COLUMN embedding_provider TEXT DEFAULT 'ollama'`)
+  }
+  if (!hasColumn(db, 'app_settings', 'embedding_base_url')) {
+    db.exec(`ALTER TABLE app_settings ADD COLUMN embedding_base_url TEXT DEFAULT 'http://localhost:11434'`)
+  }
+  if (!hasColumn(db, 'app_settings', 'embedding_model')) {
+    db.exec(`ALTER TABLE app_settings ADD COLUMN embedding_model TEXT DEFAULT 'nomic-embed-text'`)
+  }
+  if (!hasColumn(db, 'app_settings', 'embedding_api_key')) {
+    db.exec(`ALTER TABLE app_settings ADD COLUMN embedding_api_key TEXT`)
+  }
+  if (!hasColumn(db, 'app_settings', 'embedding_dimensions')) {
+    db.exec(`ALTER TABLE app_settings ADD COLUMN embedding_dimensions INTEGER DEFAULT 768`)
+  }
+
+  // RAG-FIX-02: 确保 kb_documents 有 content_hash 列（用于快速去重）
+  if (!hasColumn(db, 'kb_documents', 'content_hash')) {
+    db.exec(`ALTER TABLE kb_documents ADD COLUMN content_hash TEXT`)
+  }
+
+  // P3-01: 确保 conversations 有 parent_id 列（对话分支）
+  if (!hasColumn(db, 'conversations', 'parent_id')) {
+    db.exec(`ALTER TABLE conversations ADD COLUMN parent_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`)
+  }
+  if (!hasColumn(db, 'conversations', 'fork_index')) {
+    db.exec(`ALTER TABLE conversations ADD COLUMN fork_index INTEGER DEFAULT 0`)
+  }
+  if (!hasColumn(db, 'conversations', 'is_forked')) {
+    db.exec(`ALTER TABLE conversations ADD COLUMN is_forked INTEGER DEFAULT 0 CHECK(is_forked IN (0, 1))`)
+  }
 }
 
 /**

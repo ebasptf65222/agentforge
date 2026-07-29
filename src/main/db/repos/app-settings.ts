@@ -49,6 +49,11 @@ interface AppSettingsRow {
   copilot_disabled_skills: string | null
   copilot_infinite_session_threshold: number | null
   copilot_large_output_max_size: number | null
+  embedding_provider: string | null
+  embedding_base_url: string | null
+  embedding_model: string | null
+  embedding_api_key: string | null
+  embedding_dimensions: number | null
   window_bounds: string | null
   updated_at: number
 }
@@ -161,6 +166,11 @@ export interface UpdateSettingsParams {
   copilotDisabledSkills?: string[] | null
   copilotInfiniteSessionThreshold?: number | null
   copilotLargeOutputMaxSize?: number | null
+  embeddingProvider?: 'ollama' | 'openai' | null
+  embeddingBaseUrl?: string | null
+  embeddingModel?: string | null
+  embeddingApiKey?: string | null
+  embeddingDimensions?: number | null
   windowBounds?: WindowBounds | null
 }
 
@@ -251,6 +261,11 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
       : undefined,
     copilotInfiniteSessionThreshold: row.copilot_infinite_session_threshold ?? undefined,
     copilotLargeOutputMaxSize: row.copilot_large_output_max_size ?? undefined,
+    embeddingProvider: (row.embedding_provider ?? 'ollama') as 'ollama' | 'openai',
+    embeddingBaseUrl: row.embedding_base_url ?? 'http://localhost:11434',
+    embeddingModel: row.embedding_model ?? 'nomic-embed-text',
+    embeddingApiKey: row.embedding_api_key ?? undefined,
+    embeddingDimensions: row.embedding_dimensions ?? 768,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -588,6 +603,31 @@ export function updateSettings(params: UpdateSettingsParams): void {
   if (params.copilotLargeOutputMaxSize !== undefined) {
     setClauses.push('copilot_large_output_max_size = ?')
     values.push(params.copilotLargeOutputMaxSize === null ? null : params.copilotLargeOutputMaxSize)
+  }
+
+  if (params.embeddingProvider !== undefined) {
+    setClauses.push('embedding_provider = ?')
+    values.push(params.embeddingProvider === null ? null : params.embeddingProvider)
+  }
+
+  if (params.embeddingBaseUrl !== undefined) {
+    setClauses.push('embedding_base_url = ?')
+    values.push(params.embeddingBaseUrl === null ? null : params.embeddingBaseUrl)
+  }
+
+  if (params.embeddingModel !== undefined) {
+    setClauses.push('embedding_model = ?')
+    values.push(params.embeddingModel === null ? null : params.embeddingModel)
+  }
+
+  if (params.embeddingApiKey !== undefined) {
+    setClauses.push('embedding_api_key = ?')
+    values.push(params.embeddingApiKey === null ? null : params.embeddingApiKey)
+  }
+
+  if (params.embeddingDimensions !== undefined) {
+    setClauses.push('embedding_dimensions = ?')
+    values.push(params.embeddingDimensions === null ? null : params.embeddingDimensions)
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

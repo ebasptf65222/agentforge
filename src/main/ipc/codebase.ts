@@ -1,0 +1,234 @@
+// AgentForge 代码库索引 IPC Handlers
+// 通道命名: cb:scan, cb:status, cb:stats, cb:search, cb:symbols, cb:files, cb:clear, cb:reindex
+
+import { ipcMain, type IpcMainInvokeHandler } from 'electron'
+import type { CodebaseSearchResult, CodebaseStats, CodebaseSymbol, CodebaseFile } from '@shared/types'
+import { AppError, ErrorCodes } from '../utils/error'
+import { scanCodebase, getCodebaseStats, clearCodebaseIndex, reindexFile } from '../codebase/scanner'
+import type { ScanOptions } from '../codebase/scanner'
+import { searchCodebase } from '../codebase/search'
+import type { CodebaseSearchOptions } from '../codebase/search'
+import { listCodebaseFiles } from '../db/repos/codebase-file'
+import { listCodebaseSymbols, searchCodebaseSymbols } from '../db/repos/codebase-symbol'
+
+// ─── 参数校验辅助函数 ─────────────────────────────────────────────
+
+function assertNonEmptyString(value: unknown, field: string): asserts value is string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      `Field "${field}" must be a non-empty string.`,
+      { field, value },
+    )
+  }
+}
+
+function assertOptionalNumber(value: unknown, field: string, min?: number, max?: number): void {
+  if (value === undefined) return
+  const num = Number(value)
+  if (Number.isNaN(num)) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}" must be a number.`, {
+      field,
+      value,
+    })
+  }
+  if (min !== undefined && num < min) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}" must be >= ${min}.`, {
+      field,
+      value,
+    })
+  }
+  if (max !== undefined && num > max) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}" must be <= ${max}.`, {
+      field,
+      value,
+    })
+  }
+}
+
+// ─── IPC Handlers ────────────────────────────────────────────────
+
+/**
+ * 扫描代码库（增量索引）。
+ * 参数: { rootPath, generateEmbeddings?, excludeDirs?, languages? }
+ */
+async function handleScan(
+  _event: unknown,
+  params: Record<string, unknown>,
+) {
+  assertNonEmptyString(params['rootPath'], 'rootPath')
+
+  const options: ScanOptions = {
+    rootPath: params['rootPath'],
+  }
+
+  if (params['generateEmbeddings'] !== undefined) {
+    options.generateEmbeddings = !!params['generateEmbeddings']
+  }
+
+  if (params['excludeDirs'] !== undefined && Array.isArray(params['excludeDirs'])) {
+    options.excludeDirs = params['excludeDirs'] as string[]
+  }
+
+  if (params['languages'] !== undefined && Array.isArray(params['languages'])) {
+    options.languages = params['languages'] as ScanOptions['languages']
+  }
+
+  if (params['maxFileSize'] !== undefined) {
+    assertOptionalNumber(params['maxFileSize'], 'maxFileSize', 1)
+    options.maxFileSize = Number(params['maxFileSize'])
+  }
+
+  if (params['embeddingBatchSize'] !== undefined) {
+    assertOptionalNumber(params['embeddingBatchSize'], 'embeddingBatchSize', 1, 256)
+    options.embeddingBatchSize = Math.floor(Number(params['embeddingBatchSize']))
+  }
+
+  return await scanCodebase(options)
+}
+
+/**
+ * 获取代码库统计信息。
+ */
+function handleStats(): CodebaseStats {
+  return getCodebaseStats()
+}
+
+/**
+ * 代码库语义搜索。
+ * 参数: { query, topK?, language?, chunkType?, threshold? }
+ */
+async function handleSearch(
+  _event: unknown,
+  params: Record<string, unknown>,
+): Promise<CodebaseSearchResult[]> {
+  assertNonEmptyString(params['query'], 'query')
+
+  const options: CodebaseSearchOptions = {}
+
+  if (params['topK'] !== undefined) {
+    assertOptionalNumber(params['topK'], 'topK', 1, 50)
+    options.topK = Math.floor(Number(params['topK']))
+  }
+
+  if (typeof params['language'] === 'string' && params['language'].trim().length > 0) {
+    options.language = params['language'] as CodebaseSearchOptions['language']
+  }
+
+  if (typeof params['chunkType'] === 'string' && params['chunkType'].trim().length > 0) {
+    options.chunkType = params['chunkType'] as CodebaseSearchOptions['chunkType']
+  }
+
+  if (params['threshold'] !== undefined) {
+    assertOptionalNumber(params['threshold'], 'threshold', 0, 1)
+    options.threshold = Number(params['threshold'])
+  }
+
+  return searchCodebase(params['query'], options)
+}
+
+/**
+ * 搜索代码符号。
+ * 参数: { name, limit? }
+ */
+function handleSearchSymbols(
+  _event: unknown,
+  params: Record<string, unknown>,
+): CodebaseSymbol[] {
+  assertNonEmptyString(params['name'], 'name')
+
+  const limit = params['limit'] !== undefined
+    ? Math.min(Math.floor(Number(params['limit'])), 100)
+    : 20
+
+  return searchCodebaseSymbols(params['name'], limit)
+}
+
+/**
+ * 列出代码库文件。
+ * 参数: { language?, status?, limit?, offset? }
+ */
+function handleListFiles(
+  _event: unknown,
+  params?: Record<string, unknown>,
+): CodebaseFile[] {
+  return listCodebaseFiles({
+    language: params?.['language'] as CodebaseFile['language'] | undefined,
+    status: params?.['status'] as CodebaseFile['status'] | undefined,
+    limit: params?.['limit'] !== undefined ? Math.floor(Number(params['limit'])) : undefined,
+    offset: params?.['offset'] !== undefined ? Math.floor(Number(params['offset'])) : undefined,
+  })
+}
+
+/**
+ * 列出代码符号。
+ * 参数: { fileId?, symbolType?, name?, limit?, offset? }
+ */
+function handleListSymbols(
+  _event: unknown,
+  params?: Record<string, unknown>,
+): CodebaseSymbol[] {
+  return listCodebaseSymbols({
+    fileId: params?.['fileId'] as string | undefined,
+    symbolType: params?.['symbolType'] as CodebaseSymbol['symbolType'] | undefined,
+    name: params?.['name'] as string | undefined,
+    limit: params?.['limit'] !== undefined ? Math.floor(Number(params['limit'])) : undefined,
+    offset: params?.['offset'] !== undefined ? Math.floor(Number(params['offset'])) : undefined,
+  })
+}
+
+/**
+ * 清空代码库索引。
+ */
+function handleClear(): void {
+  clearCodebaseIndex()
+}
+
+/**
+ * 重新索引单个文件。
+ * 参数: { filePath, generateEmbeddings? }
+ */
+async function handleReindex(
+  _event: unknown,
+  params: Record<string, unknown>,
+): Promise<void> {
+  assertNonEmptyString(params['filePath'], 'filePath')
+
+  const generateEmbeddings = params['generateEmbeddings'] !== false
+  await reindexFile(params['filePath'], generateEmbeddings)
+}
+
+// ─── 注册函数 ────────────────────────────────────────────────────
+
+const handlers: Array<{ channel: string; handler: IpcMainInvokeHandler }> = [
+  { channel: 'cb:scan', handler: handleScan },
+  { channel: 'cb:stats', handler: handleStats },
+  { channel: 'cb:search', handler: handleSearch },
+  { channel: 'cb:symbols:search', handler: handleSearchSymbols },
+  { channel: 'cb:files:list', handler: handleListFiles },
+  { channel: 'cb:symbols:list', handler: handleListSymbols },
+  { channel: 'cb:clear', handler: handleClear },
+  { channel: 'cb:reindex', handler: handleReindex },
+]
+
+/**
+ * 注册代码库索引 IPC handlers。
+ * 幂等：重复调用安全。
+ */
+export function registerCodebaseHandlers(): void {
+  for (const { channel, handler } of handlers) {
+    const wrappedHandler: IpcMainInvokeHandler = async (event, ...args) => {
+      try {
+        return await handler(event, ...args)
+      } catch (error) {
+        if (error instanceof AppError) {
+          throw error
+        }
+        const message = error instanceof Error ? error.message : String(error)
+        throw new AppError(ErrorCodes.INTERNAL_ERROR, message, { channel })
+      }
+    }
+    ipcMain.removeHandler(channel)
+    ipcMain.handle(channel, wrappedHandler)
+  }
+}

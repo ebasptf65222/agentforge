@@ -59,6 +59,12 @@ interface Conversation {
   updatedAt: number
   /** SDK 分配的 sessionId（用于 resume，应用重启后恢复会话） */
   sdkSessionId?: string
+  /** P3-01: 父会话 ID（fork 来源，null 表示根会话） */
+  parentId?: string | null
+  /** P3-01: 在同层级中的顺序索引 */
+  forkIndex?: number
+  /** P3-01: 是否为 fork 出的会话 */
+  isForked?: boolean
 }
 
 /** 消息 */
@@ -173,6 +179,16 @@ interface AppSettings {
   copilotInfiniteSessionThreshold?: number
   /** SDK 大输出最大字节数（默认 51200） */
   copilotLargeOutputMaxSize?: number
+  /** 嵌入模型提供商（'ollama' | 'openai'，用于知识库向量化） */
+  embeddingProvider?: 'ollama' | 'openai'
+  /** 嵌入 API 基础 URL */
+  embeddingBaseUrl?: string
+  /** 嵌入模型名称 */
+  embeddingModel?: string
+  /** 嵌入 API 密钥（OpenAI 必需） */
+  embeddingApiKey?: string
+  /** 嵌入向量维度（用于校验） */
+  embeddingDimensions?: number
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }
@@ -552,6 +568,8 @@ interface KbDocument {
   chunkCount: number
   status: 'indexing' | 'ready' | 'error'
   errorMessage?: string
+  /** 内容 SHA-256 哈希（用于快速去重） */
+  contentHash?: string
   createdAt: number
   updatedAt: number
 }
@@ -615,6 +633,342 @@ interface KbStats {
   totalChunks: number
   embeddedChunks: number
   pendingEmbeddings: number
+}
+
+// ─── 5.7.1 代码库索引类型 (CB) ────────────────────────────────
+
+/** 代码库文件状态 */
+type CodebaseFileStatus = 'pending' | 'indexing' | 'ready' | 'error'
+
+/** 支持的编程语言 */
+type CodebaseLanguage =
+  | 'typescript'
+  | 'javascript'
+  | 'python'
+  | 'go'
+  | 'rust'
+  | 'java'
+  | 'c'
+  | 'cpp'
+  | 'csharp'
+  | 'ruby'
+  | 'php'
+  | 'swift'
+  | 'kotlin'
+  | 'scala'
+  | 'css'
+  | 'scss'
+  | 'html'
+  | 'vue'
+  | 'svelte'
+  | 'json'
+  | 'yaml'
+  | 'toml'
+  | 'markdown'
+  | 'sql'
+  | 'shell'
+  | 'dockerfile'
+  | 'unknown'
+
+/** 代码符号类型 */
+type SymbolType =
+  | 'function'
+  | 'method'
+  | 'class'
+  | 'interface'
+  | 'type'
+  | 'variable'
+  | 'import'
+  | 'export'
+  | 'constant'
+  | 'enum'
+
+/** 符号可见性 */
+type SymbolVisibility = 'public' | 'private' | 'protected' | 'default'
+
+/** 代码分块类型 */
+type CodeChunkType = 'module' | 'function' | 'class' | 'block' | 'comment'
+
+/** 代码库文件记录 */
+interface CodebaseFile {
+  id: string
+  filePath: string
+  fileName: string
+  language: CodebaseLanguage
+  fileHash: string
+  lineCount: number
+  symbolCount: number
+  chunkCount: number
+  status: CodebaseFileStatus
+  errorMessage?: string
+  indexedAt: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** 代码符号 */
+interface CodebaseSymbol {
+  id: string
+  fileId: string
+  name: string
+  qualifiedName: string
+  symbolType: SymbolType
+  visibility: SymbolVisibility
+  signature?: string
+  startLine: number
+  endLine: number
+  docComment?: string
+  createdAt: number
+}
+
+/** 代码分块 */
+interface CodebaseChunk {
+  id: string
+  fileId: string
+  content: string
+  chunkType: CodeChunkType
+  symbolId?: string
+  startLine: number
+  endLine: number
+  tokenCount: number
+  chunkIndex: number
+  embedding?: number[]
+}
+
+/** 代码库搜索结果 */
+interface CodebaseSearchResult {
+  chunkId: string
+  fileId: string
+  filePath: string
+  fileName: string
+  language: CodebaseLanguage
+  content: string
+  chunkType: CodeChunkType
+  startLine: number
+  endLine: number
+  score: number
+}
+
+/** 代码库索引进度事件 */
+interface CodebaseIndexProgress {
+  stage: 'scanning' | 'parsing' | 'embedding' | 'completed' | 'error'
+  current: number
+  total: number
+  currentFile?: string
+  message?: string
+}
+
+/** 代码库统计信息 */
+interface CodebaseStats {
+  totalFiles: number
+  readyFiles: number
+  errorFiles: number
+  pendingFiles: number
+  totalSymbols: number
+  totalChunks: number
+  embeddedChunks: number
+  pendingEmbeddings: number
+  languages: Array<{ language: CodebaseLanguage; fileCount: number }>
+}
+
+// ─── 5.7a Git 工作流类型 (P1-03) ────────────────────────────────
+
+/** Git 文件状态码 */
+type GitStatusCode =
+  | 'modified'     // 修改
+  | 'added'        // 新增
+  | 'deleted'      // 删除
+  | 'renamed'      // 重命名
+  | 'copied'       // 复制
+  | 'untracked'    // 未跟踪
+  | 'ignored'      // 被忽略
+  | 'conflicted'   // 冲突
+  | 'type_changed' // 类型变更
+
+/** Git 文件变更区域 */
+type GitFileArea = 'staged' | 'unstaged' | 'untracked'
+
+/** Git 文件变更信息 */
+interface GitFileChange {
+  /** 文件路径 */
+  filePath: string
+  /** 暂存区状态码 */
+  stagedStatus: GitStatusCode | null
+  /** 工作区状态码 */
+  unstagedStatus: GitStatusCode | null
+  /** 所属区域 */
+  area: GitFileArea
+}
+
+/** Git 状态摘要 */
+interface GitStatus {
+  /** 当前分支名 */
+  branch: string
+  /** 上游分支（如 origin/main），无则为 null */
+  upstream: string | null
+  /** 领先上游的提交数 */
+  ahead: number
+  /** 落后上游的提交数 */
+  behind: number
+  /** 暂存的文件变更 */
+  staged: GitFileChange[]
+  /** 未暂存的文件变更 */
+  unstaged: GitFileChange[]
+  /** 未跟踪的文件 */
+  untracked: GitFileChange[]
+  /** 是否有冲突 */
+  hasConflicts: boolean
+  /** HEAD 提交哈希（短） */
+  headSha: string | null
+  /** 是否处于 rebase/cherry-pick/merge 状态 */
+  inProgress: 'none' | 'rebase' | 'merge' | 'cherry-pick'
+}
+
+/** Git diff 模式 */
+type GitDiffMode = 'unstaged' | 'staged' | 'committed' | 'branch'
+
+/** Git diff 结果 */
+interface GitDiffResult {
+  /** diff 模式 */
+  mode: GitDiffMode
+  /** diff 原始输出 */
+  patch: string
+  /** 变更文件统计 */
+  stats: GitDiffStat[]
+  /** 是否被截断 */
+  truncated: boolean
+}
+
+/** Git diff 单文件统计 */
+interface GitDiffStat {
+  filePath: string
+  additions: number
+  deletions: number
+}
+
+/** Git 提交日志条目 */
+interface GitLogEntry {
+  /** 完整 SHA */
+  sha: string
+  /** 短 SHA */
+  shortSha: string
+  /** 作者名 */
+  author: string
+  /** 作者邮箱 */
+  authorEmail: string
+  /** 提交时间（ISO 字符串） */
+  date: string
+  /** 提交消息 */
+  message: string
+  /** 引用分支列表 */
+  refs: string[]
+}
+
+/** Git 分支信息 */
+interface GitBranch {
+  /** 分支名 */
+  name: string
+  /** 是否为当前分支 */
+  isCurrent: boolean
+  /** 是否为远程分支 */
+  isRemote: boolean
+  /** 上游跟踪分支 */
+  upstream: string | null
+  /** 最后提交 SHA（短） */
+  lastCommitSha: string | null
+}
+
+/** Git 提交结果 */
+interface GitCommitResult {
+  /** 提交 SHA（完整） */
+  sha: string
+  /** 提交 SHA（短） */
+  shortSha: string
+  /** 提交消息 */
+  message: string
+  /** 变更文件数 */
+  filesChanged: number
+  /** 新增行数 */
+  insertions: number
+  /** 删除行数 */
+  deletions: number
+}
+
+/** Git 创建分支结果 */
+interface GitCreateBranchResult {
+  /** 分支名 */
+  branchName: string
+  /** 是否已切换到新分支 */
+  switched: boolean
+  /** 基于的分支/提交 */
+  baseRef: string
+}
+
+/** Git 创建 PR 结果 */
+interface GitCreatePrResult {
+  /** PR URL */
+  url: string
+  /** PR 编号 */
+  number: number
+  /** PR 标题 */
+  title: string
+  /** 目标分支 */
+  base: string
+  /** 源分支 */
+  head: string
+  /** 是否为草稿 */
+  draft: boolean
+}
+
+// ─── 5.7b 浏览器工具类型 (P2-01) ────────────────────────────────
+
+/** 浏览器页面信息 */
+interface BrowserPageInfo {
+  /** 当前 URL */
+  url: string
+  /** 页面标题 */
+  title: string
+  /** HTTP 状态码 */
+  statusCode: number
+  /** 页面加载耗时（毫秒） */
+  loadTime: number
+}
+
+/** 浏览器 DOM 元素信息 */
+interface BrowserElementInfo {
+  /** 标签名 */
+  tagName: string
+  /** 元素 ID */
+  id: string
+  /** CSS 类名 */
+  className: string
+  /** 元素文本内容（截断） */
+  text: string
+  /** 属性列表 */
+  attributes: Record<string, string>
+  /** 是否可见 */
+  isVisible: boolean
+  /** 是否可点击 */
+  isClickable: boolean
+  /** 矩形位置 */
+  rect: { x: number; y: number; width: number; height: number }
+}
+
+/** 浏览器截图格式 */
+type BrowserScreenshotFormat = 'png' | 'jpeg'
+
+/** 浏览器截图结果 */
+interface BrowserScreenshotResult {
+  /** Base64 编码的图片数据 */
+  base64: string
+  /** 图片格式 */
+  format: BrowserScreenshotFormat
+  /** 图片宽度 */
+  width: number
+  /** 图片高度 */
+  height: number
+  /** 是否截取完整页面 */
+  fullPage: boolean
 }
 
 // ─── 5.7 工作区类型 ──────────────────────────────────────────────
@@ -752,6 +1106,45 @@ interface AuditInput {
   summary: string
 }
 
+// ─── 5.7c Checkpoint 快照类型 (P2-02) ───────────────────────────
+
+/** 快照操作类型 */
+type CheckpointAction = 'write' | 'delete' | 'rename'
+
+/** 文件快照记录 */
+interface Checkpoint {
+  /** 快照 ID */
+  id: number
+  /** 关联的 Agent 执行 ID */
+  executionId?: string
+  /** 关联的会话 ID */
+  conversationId?: string
+  /** 工作区相对路径 */
+  relativePath: string
+  /** 原始内容（undefined 表示文件不存在或超大文件） */
+  originalContent?: string
+  /** 变更后的内容 */
+  newContent: string
+  /** 操作类型 */
+  action: CheckpointAction
+  /** 创建时间（Unix 毫秒） */
+  createdAt: number
+}
+
+/** 快照差异信息 */
+interface CheckpointDiff {
+  relativePath: string
+  checkpointId: number
+  /** 当前文件是否存在 */
+  currentExists: boolean
+  /** 快照时的原始内容 */
+  originalContent?: string
+  /** 当前文件内容 */
+  currentContent?: string
+  /** 当前内容是否已再次变更 */
+  hasChanged: boolean
+}
+
 // ─── 5.10 错误类型 ────────────────────────────────────────────────
 
 /** 应用统一错误 */
@@ -838,6 +1231,33 @@ export type {
   ChunkingOptions,
   ImportResult,
   KbStats,
+  CodebaseFileStatus,
+  CodebaseLanguage,
+  SymbolType,
+  SymbolVisibility,
+  CodeChunkType,
+  CodebaseFile,
+  CodebaseSymbol,
+  CodebaseChunk,
+  CodebaseSearchResult,
+  CodebaseIndexProgress,
+  CodebaseStats,
+  GitStatusCode,
+  GitFileArea,
+  GitFileChange,
+  GitStatus,
+  GitDiffMode,
+  GitDiffResult,
+  GitDiffStat,
+  GitLogEntry,
+  GitBranch,
+  GitCommitResult,
+  GitCreateBranchResult,
+  GitCreatePrResult,
+  BrowserPageInfo,
+  BrowserElementInfo,
+  BrowserScreenshotFormat,
+  BrowserScreenshotResult,
   WikiPageSummary,
   WikiStatus,
   AuditDimension,
@@ -849,6 +1269,9 @@ export type {
   SupportTrack,
   AuditReport,
   AuditInput,
+  CheckpointAction,
+  Checkpoint,
+  CheckpointDiff,
 }
 
 export { AppError }

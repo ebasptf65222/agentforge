@@ -22,6 +22,7 @@ interface KbDocumentRow {
   chunk_count: number
   status: string
   error_message: string | null
+  content_hash: string | null
   created_at: number
   updated_at: number
 }
@@ -31,6 +32,7 @@ export interface CreateKbDocumentParams {
   filePath: string
   fileName: string
   fileType: KbDocument['fileType']
+  contentHash?: string
 }
 
 /** 更新文档参数 */
@@ -39,6 +41,7 @@ export interface UpdateKbDocumentParams {
   status?: KbDocument['status']
   errorMessage?: string | null
   chunkCount?: number
+  contentHash?: string | null
 }
 
 /** 支持的文件类型 */
@@ -59,6 +62,7 @@ function rowToKbDocument(row: KbDocumentRow): KbDocument {
     chunkCount: row.chunk_count,
     status: row.status as KbDocument['status'],
     errorMessage: row.error_message ?? undefined,
+    contentHash: row.content_hash ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -110,9 +114,9 @@ export function createKbDocument(params: CreateKbDocumentParams): KbDocument {
 
   db.prepare(
     `INSERT INTO kb_documents
-      (id, file_path, file_name, file_type, chunk_count, status, error_message, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, params.filePath, params.fileName, params.fileType, 0, 'indexing', null, now, now)
+      (id, file_path, file_name, file_type, chunk_count, status, error_message, content_hash, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, params.filePath, params.fileName, params.fileType, 0, 'indexing', null, params.contentHash ?? null, now, now)
 
   return getKbDocumentById(id)
 }
@@ -230,6 +234,11 @@ export function updateKbDocument(params: UpdateKbDocumentParams): void {
   if (params.chunkCount !== undefined) {
     setClauses.push('chunk_count = ?')
     values.push(params.chunkCount)
+  }
+
+  if (params.contentHash !== undefined) {
+    setClauses.push('content_hash = ?')
+    values.push(params.contentHash === null ? null : params.contentHash)
   }
 
   values.push(params.id)

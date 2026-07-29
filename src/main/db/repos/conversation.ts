@@ -19,6 +19,9 @@ interface ConversationRow {
   message_count: number
   last_message_at: number | null
   sdk_session_id: string | null
+  parent_id: string | null
+  fork_index: number
+  is_forked: number
   created_at: number
   updated_at: number
 }
@@ -28,6 +31,13 @@ export interface CreateConversationParams {
   title?: string
   modelId: string
   approvalMode?: ApprovalMode
+}
+
+/** Fork 会话参数 (P3-01) */
+export interface ForkConversationParams {
+  sourceConversationId: string
+  /** 在 fork 点之前的消息数量（即保留 source 的前 N 条消息） */
+  messageCount?: number
 }
 
 /**
@@ -42,6 +52,9 @@ function rowToConversation(row: ConversationRow): Conversation {
     messageCount: row.message_count,
     lastMessageAt: row.last_message_at,
     sdkSessionId: row.sdk_session_id ?? undefined,
+    parentId: row.parent_id ?? null,
+    forkIndex: row.fork_index ?? 0,
+    isForked: row.is_forked === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -212,4 +225,172 @@ export function updateSdkSessionId(id: string, sdkSessionId: string): void {
     now,
     id,
   )
+}
+
+// ─── P3-01: 对话分支 (Fork) ────────────────────────────────────────
+
+/**
+ * Fork 一个会话：复制 source 会话及其消息，创建一个新的分支会话。
+ *
+ * - 新会话的 parent_id 指向 source
+ * - 新会话的 title 为 "source标题 (fork)"
+ * - 复制 source 的所有消息到新会话
+ * - 新会话的 model_id / approval_mode 与 source 相同
+ * - 新会话的 is_forked = 1
+ *
+ * @param params - Fork 参数
+ * @returns 新建的 fork 会话
+ * @throws {AppError} CONVERSATION_NOT_FOUND - 源会话不存在
+ */
+export function forkConversation(params: ForkConversationParams): Conversation {
+  const db: Database.Database = getDatabase()
+  const { sourceConversationId, messageCount } = params
+
+  // 1. 获取源会话
+  const source = getConversationById(sourceConversationId)
+
+  // 2. 计算 fork_index（同 parent 的兄弟数量）
+  const siblingCount = db
+    .prepare('SELECT COUNT(*) as count FROM conversations WHERE parent_id = ?')
+    .get(sourceConversationId) as { count: number }
+
+  const forkIndex = siblingCount.count
+
+  // 3. 创建新会话
+  const now = Date.now()
+  const newId = generateId()
+  const title = `${source.title} (分支 ${forkIndex + 1})`
+
+  db.prepare(
+    `INSERT INTO conversations
+     (id, title, model_id, approval_mode, message_count, last_message_at,
+      parent_id, fork_index, is_forked, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+  ).run(
+    newId,
+    title,
+    source.modelId,
+    source.approvalMode,
+    0, // 稍后根据复制的消息数更新
+    now,
+    sourceConversationId,
+    forkIndex,
+    now,
+    now,
+  )
+
+  // 4. 复制消息（如果指定了 messageCount，只复制前 N 条）
+  let copiedMessages = 0
+  if (messageCount === undefined || messageCount > 0) {
+    const limitClause = messageCount !== undefined ? `LIMIT ${messageCount}` : ''
+    const messages = db
+      .prepare(
+        `SELECT id, role, content, thinking, tool_calls, metadata, created_at, updated_at
+         FROM messages
+         WHERE conversation_id = ?
+         ORDER BY created_at ASC
+         ${limitClause}`,
+      )
+      .all(sourceConversationId) as Array<{
+        id: string
+        role: string
+        content: string
+        thinking: string | null
+        tool_calls: string | null
+        metadata: string | null
+        created_at: number
+        updated_at: number
+      }>
+
+    const insertMsg = db.prepare(
+      `INSERT INTO messages
+       (id, conversation_id, role, content, thinking, tool_calls, metadata, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+
+    for (const msg of messages) {
+      const newMsgId = generateId()
+      insertMsg.run(
+        newMsgId,
+        newId,
+        msg.role,
+        msg.content,
+        msg.thinking,
+        msg.tool_calls,
+        msg.metadata,
+        msg.created_at,
+        msg.updated_at,
+      )
+      copiedMessages++
+    }
+  }
+
+  // 5. 更新新会话的消息计数
+  if (copiedMessages > 0) {
+    db.prepare('UPDATE conversations SET message_count = ? WHERE id = ?').run(
+      copiedMessages,
+      newId,
+    )
+  }
+
+  return getConversationById(newId)
+}
+
+/**
+ * 获取指定会话的所有子分支（直接子级）。
+ *
+ * @param parentId - 父会话 ID
+ * @returns 子会话数组（按 fork_index 排序）
+ */
+export function getConversationChildren(parentId: string): Conversation[] {
+  const db: Database.Database = getDatabase()
+  const rows = db
+    .prepare('SELECT * FROM conversations WHERE parent_id = ? ORDER BY fork_index ASC')
+    .all(parentId) as ConversationRow[]
+
+  return rows.map(rowToConversation)
+}
+
+/**
+ * 获取指定会话的祖先链（从根到当前）。
+ *
+ * @param id - 会话 ID
+ * @returns 祖先会话数组（从根到直接父级）
+ */
+export function getConversationAncestors(id: string): Conversation[] {
+  const db: Database.Database = getDatabase()
+  const ancestors: Conversation[] = []
+
+  let currentId: string | null = id
+  const visited = new Set<string>()
+
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId)
+    const row = db
+      .prepare('SELECT * FROM conversations WHERE id = ?')
+      .get(currentId) as ConversationRow | undefined
+
+    if (!row || !row.parent_id) break
+
+    const parent = getConversationById(row.parent_id)
+    ancestors.unshift(parent)
+    currentId = row.parent_id
+  }
+
+  return ancestors
+}
+
+/**
+ * 获取所有 fork 会话（带有分支关系的会话列表）。
+ * 返回按 updated_at 降序排列的所有会话，前端自行构建树。
+ *
+ * @returns 所有会话数组
+ */
+export function listConversationsWithFork(): Conversation[] {
+  const db: Database.Database = getDatabase()
+  const rows = db
+    .prepare('SELECT * FROM conversations ORDER BY updated_at DESC')
+    .all() as ConversationRow[]
+
+  return rows.map(rowToConversation)
 }

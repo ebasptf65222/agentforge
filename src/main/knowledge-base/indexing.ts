@@ -2,7 +2,7 @@
 // 协调分块的嵌入向量生成与存储
 
 import { AppError, ErrorCodes } from '../utils/error'
-import { getKbChunksByDocumentId, batchUpdateKbChunkEmbeddings } from '../db/repos/kb-chunk'
+import { getKbChunksByDocumentId, batchUpdateKbChunkEmbeddings, clearKbChunkEmbeddings } from '../db/repos/kb-chunk'
 import { generateEmbeddings } from './embedding'
 import type { EmbeddingConfig } from './embedding'
 
@@ -169,20 +169,14 @@ export async function reindexDocumentEmbeddings(
   documentId: string,
   options: IndexOptions = {},
 ): Promise<number> {
-  // 清除现有嵌入（将 embedding 设为 null）
+  // 清除现有嵌入（设为 NULL，而非空数组）
   const chunks = getKbChunksByDocumentId(documentId)
 
   if (chunks.length === 0) {
     return 0
   }
 
-  // 简单方案：直接更新所有分块的 embedding 为 null
-  // 由于 repository 没有 clear embedding 方法，我们用空数组代替
-  const clearUpdates = chunks.map((chunk) => ({
-    id: chunk.id,
-    embedding: [] as number[],
-  }))
-  batchUpdateKbChunkEmbeddings(clearUpdates)
+  clearKbChunkEmbeddings(documentId)
 
   // 重新生成
   return indexDocumentEmbeddings(documentId, options)

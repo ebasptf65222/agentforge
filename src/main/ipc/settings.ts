@@ -6,6 +6,7 @@ import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getSettings, updateSettings, type UpdateSettingsParams } from '../db/repos/app-settings'
+import { setEmbeddingConfig } from '../knowledge-base/embedding'
 
 // ─── 参数校验辅助函数 ─────────────────────────────────────────────
 
@@ -294,9 +295,34 @@ export function handleUpdateSettings(params: unknown): void {
     workspace: p['workspace'] as UpdateSettingsParams['workspace'],
     windowBounds: p['windowBounds'] as UpdateSettingsParams['windowBounds'],
     engineType: p['engineType'] as UpdateSettingsParams['engineType'],
+    // 嵌入模型配置
+    embeddingProvider: p['embeddingProvider'] as UpdateSettingsParams['embeddingProvider'],
+    embeddingBaseUrl: p['embeddingBaseUrl'] as UpdateSettingsParams['embeddingBaseUrl'],
+    embeddingModel: p['embeddingModel'] as UpdateSettingsParams['embeddingModel'],
+    embeddingApiKey: p['embeddingApiKey'] as UpdateSettingsParams['embeddingApiKey'],
+    embeddingDimensions: p['embeddingDimensions'] as UpdateSettingsParams['embeddingDimensions'],
   }
 
   updateSettings(updateParams)
+
+  // 如果嵌入配置有变更，实时更新运行时配置
+  const embeddingChanged =
+    p['embeddingProvider'] !== undefined ||
+    p['embeddingBaseUrl'] !== undefined ||
+    p['embeddingModel'] !== undefined ||
+    p['embeddingApiKey'] !== undefined ||
+    p['embeddingDimensions'] !== undefined
+
+  if (embeddingChanged) {
+    const freshSettings = getSettings()
+    setEmbeddingConfig({
+      provider: freshSettings.embeddingProvider ?? 'ollama',
+      baseUrl: freshSettings.embeddingBaseUrl ?? 'http://localhost:11434',
+      model: freshSettings.embeddingModel ?? 'nomic-embed-text',
+      apiKey: freshSettings.embeddingApiKey,
+      dimensions: freshSettings.embeddingDimensions ?? 768,
+    })
+  }
 }
 
 // ─── 通道注册表 ───────────────────────────────────────────────────

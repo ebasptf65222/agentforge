@@ -38,6 +38,12 @@ const chat = {
   searchConversations: (keyword: string): Promise<unknown[]> =>
     ipcRenderer.invoke('chat:search-conversations', { keyword }),
 
+  forkConversation: (sourceConversationId: string, messageCount?: number): Promise<unknown> =>
+    ipcRenderer.invoke('chat:fork-conversation', { sourceConversationId, messageCount }),
+
+  getConversationTree: (id: string): Promise<unknown> =>
+    ipcRenderer.invoke('chat:get-conversation-tree', { id }),
+
   send: (conversationId: string, content: string, modelId: string, kbEnabled?: boolean): Promise<void> =>
     ipcRenderer.invoke('chat:send', { conversationId, content, modelId, kbEnabled }),
 
@@ -147,6 +153,15 @@ const mcp = {
 
   toggleEnable: (id: string, enabled: boolean): Promise<void> =>
     ipcRenderer.invoke('mcp:toggle-enable', { id, enabled }),
+
+  // P3-02: MCP 市场
+  catalogList: (params?: Record<string, unknown>): Promise<unknown[]> =>
+    ipcRenderer.invoke('mcp:catalog:list', params ?? {}),
+
+  catalogGet: (id: string): Promise<unknown> => ipcRenderer.invoke('mcp:catalog:get', { id }),
+
+  catalogInstall: (id: string, env?: Record<string, string>): Promise<unknown> =>
+    ipcRenderer.invoke('mcp:catalog:install', { id, env }),
 }
 
 // ─── Skill 命名空间 (P3-02) ─────────────────────────────────────
@@ -290,6 +305,113 @@ const promptTemplate = {
   delete: (id: string): Promise<void> => ipcRenderer.invoke('prompt-template:delete', { id }),
 }
 
+// ─── Codebase 命名空间 (代码库索引) ──────────────────────────
+
+const codebase = {
+  scan: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('cb:scan', params),
+
+  stats: (): Promise<unknown> => ipcRenderer.invoke('cb:stats'),
+
+  search: (params: Record<string, unknown>): Promise<unknown[]> =>
+    ipcRenderer.invoke('cb:search', params),
+
+  searchSymbols: (name: string, limit?: number): Promise<unknown[]> =>
+    ipcRenderer.invoke('cb:symbols:search', { name, limit }),
+
+  listFiles: (params?: Record<string, unknown>): Promise<unknown[]> =>
+    ipcRenderer.invoke('cb:files:list', params ?? {}),
+
+  listSymbols: (params?: Record<string, unknown>): Promise<unknown[]> =>
+    ipcRenderer.invoke('cb:symbols:list', params ?? {}),
+
+  clear: (): Promise<void> => ipcRenderer.invoke('cb:clear'),
+
+  reindex: (params: Record<string, unknown>): Promise<void> =>
+    ipcRenderer.invoke('cb:reindex', params),
+}
+
+// ─── Git 命名空间 (Git 工作流) ────────────────────────────────
+
+const git = {
+  status: (params?: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('git:status', params ?? {}),
+
+  diff: (params?: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('git:diff', params ?? {}),
+
+  log: (params?: Record<string, unknown>): Promise<unknown[]> =>
+    ipcRenderer.invoke('git:log', params ?? {}),
+
+  add: (params: Record<string, unknown>): Promise<void> =>
+    ipcRenderer.invoke('git:add', params),
+
+  commit: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('git:commit', params),
+
+  createBranch: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('git:branch:create', params),
+
+  listBranches: (params?: Record<string, unknown>): Promise<unknown[]> =>
+    ipcRenderer.invoke('git:branch:list', params ?? {}),
+
+  createPr: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('git:pr:create', params),
+
+  validate: (params?: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('git:validate', params ?? {}),
+}
+
+// ─── Browser 命名空间 (浏览器自动化) ──────────────────────────
+
+const browser = {
+  navigate: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('browser:navigate', params),
+
+  screenshot: (params?: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('browser:screenshot', params ?? {}),
+
+  getText: (params?: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('browser:get-text', params ?? {}),
+
+  getDom: (params?: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('browser:get-dom', params ?? {}),
+
+  click: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('browser:click', params),
+
+  fill: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('browser:fill', params),
+
+  close: (params?: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('browser:close', params ?? {}),
+
+  getPageInfo: (params?: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('browser:get-page-info', params ?? {}),
+}
+
+// ─── Checkpoint 命名空间 (快照回滚) ──────────────────────────
+
+const checkpoint = {
+  list: (params?: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('checkpoint:list', params ?? {}),
+
+  rollback: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('checkpoint:rollback', params),
+
+  diff: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('checkpoint:diff', params),
+
+  history: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('checkpoint:history', params),
+
+  cleanup: (params?: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('checkpoint:cleanup', params ?? {}),
+
+  delete: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('checkpoint:delete', params),
+}
+
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
@@ -311,6 +433,10 @@ if (process.contextIsolated) {
       wiki,
       audit,
       promptTemplate,
+      codebase,
+      git,
+      browser,
+      checkpoint,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)

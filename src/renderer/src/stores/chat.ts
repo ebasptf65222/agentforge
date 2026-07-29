@@ -206,6 +206,53 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // ─── P3-01: 对话分支 (Fork) ────────────────────────────────────
+
+  /**
+   * Fork 当前会话，创建一个新的分支。
+   */
+  async function forkConversation(messageCount?: number): Promise<Conversation | null> {
+    const conv = currentConversation.value
+    if (!conv) {
+      showToast('没有选中的会话', 'warning')
+      return null
+    }
+
+    try {
+      const forked = (await window.electron.chat.forkConversation(
+        conv.id,
+        messageCount,
+      )) as Conversation
+      conversations.value.unshift(forked)
+      currentConversationId.value = forked.id
+      messages.value = await window.electron.chat.getMessages(forked.id) as ChatMessage[]
+      showToast('会话已分支', 'success')
+      return forked
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      showToast(`分支会话失败: ${message}`, 'error')
+      console.error('[ChatStore] forkConversation error:', error)
+      return null
+    }
+  }
+
+  /**
+   * 获取指定会话的分支树（祖先 + 子分支）。
+   */
+  async function getConversationTree(id: string): Promise<{
+    ancestors: Conversation[]
+    children: Conversation[]
+  } | null> {
+    try {
+      return await window.electron.chat.getConversationTree(id)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      showToast(`获取分支树失败: ${message}`, 'error')
+      console.error('[ChatStore] getConversationTree error:', error)
+      return null
+    }
+  }
+
   /**
    * Export current conversation messages to Markdown file.
    */
@@ -427,5 +474,8 @@ export const useChatStore = defineStore('chat', () => {
     handleStreamChunk,
     handleStreamEnd,
     handleStreamError,
+    // P3-01: Fork
+    forkConversation,
+    getConversationTree,
   }
 })

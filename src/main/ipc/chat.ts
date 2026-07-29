@@ -26,6 +26,10 @@ import {
   updateConversationTitle,
   incrementMessageCount,
   updateLastMessageAt,
+  forkConversation,
+  getConversationChildren,
+  getConversationAncestors,
+  type ForkConversationParams,
 } from '../db/repos/conversation'
 import { createMessage, getMessagesByConversationId, deleteMessagesByConversationId } from '../db/repos/message'
 import { modelConfigExists } from '../db/repos/model-config'
@@ -506,6 +510,68 @@ export function handleSearchConversations(params: unknown): Conversation[] {
   return allMatches.map(rowToConversation)
 }
 
+// ─── P3-01: 对话分支 (Fork) IPC Handlers ─────────────────────────
+
+/**
+ * chat:fork-conversation - Fork 一个会话。
+ *
+ * @param params - { sourceConversationId, messageCount? }
+ * @returns 新建的 fork 会话
+ * @throws {AppError} CONVERSATION_NOT_FOUND - 源会话不存在
+ */
+export function handleForkConversation(params: unknown): Conversation {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Fork params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['sourceConversationId'], 'sourceConversationId')
+
+  const forkParams: ForkConversationParams = {
+    sourceConversationId: p['sourceConversationId'] as string,
+  }
+
+  if (p['messageCount'] !== undefined) {
+    const mc = Number(p['messageCount'])
+    if (Number.isNaN(mc) || mc < 0) {
+      throw new AppError(ErrorCodes.VALIDATION_ERROR, 'messageCount must be a non-negative number.', {
+        messageCount: p['messageCount'],
+      })
+    }
+    forkParams.messageCount = mc
+  }
+
+  return forkConversation(forkParams)
+}
+
+/**
+ * chat:get-conversation-tree - 获取会话的分支树。
+ *
+ * @param params - { id }
+ * @returns { ancestors: Conversation[], children: Conversation[] }
+ */
+export function handleGetConversationTree(params: unknown): {
+  ancestors: Conversation[]
+  children: Conversation[]
+} {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Get tree params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['id'], 'id')
+
+  const id = p['id'] as string
+
+  // 验证会话存在
+  getConversationById(id)
+
+  return {
+    ancestors: getConversationAncestors(id),
+    children: getConversationChildren(id),
+  }
+}
+
 // ─── 通道注册表 ───────────────────────────────────────────────────
 
 interface ChannelRegistration {
@@ -555,6 +621,15 @@ const registrations: ChannelRegistration[] = [
   {
     channel: 'chat:search-conversations',
     handler: (_event, params: unknown) => handleSearchConversations(params),
+  },
+  // P3-01: 对话分支
+  {
+    channel: 'chat:fork-conversation',
+    handler: (_event, params: unknown) => handleForkConversation(params),
+  },
+  {
+    channel: 'chat:get-conversation-tree',
+    handler: (_event, params: unknown) => handleGetConversationTree(params),
   },
 ]
 

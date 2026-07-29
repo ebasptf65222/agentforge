@@ -62,6 +62,10 @@ export const ErrorCodes = {
   MCP_SPAWN_FAILED: 'MCP_SPAWN_FAILED',
   /** MCP 连接失败 */
   MCP_CONNECT_FAILED: 'MCP_CONNECT_FAILED',
+  /** MCP 目录条目不存在 */
+  MCP_NOT_IN_CATALOG: 'MCP_NOT_IN_CATALOG',
+  /** MCP 服务器已安装 */
+  MCP_ALREADY_INSTALLED: 'MCP_ALREADY_INSTALLED',
 
   // ─── 文件相关（P2/P3） ──────────────────────────────────────
   /** 文件不存在 */
@@ -86,6 +90,50 @@ export const ErrorCodes = {
   KB_EMBEDDING_ERROR: 'KB_EMBEDDING_ERROR',
   /** 搜索失败 */
   KB_SEARCH_ERROR: 'KB_SEARCH_ERROR',
+
+  // ─── 代码库索引相关（CB） ─────────────────────────────────────
+  /** 代码库文件不存在 */
+  CB_FILE_NOT_FOUND: 'CB_FILE_NOT_FOUND',
+  /** 代码解析失败 */
+  CB_PARSE_ERROR: 'CB_PARSE_ERROR',
+  /** 代码库搜索失败 */
+  CB_SEARCH_ERROR: 'CB_SEARCH_ERROR',
+  /** 代码库未初始化（未扫描） */
+  CB_NOT_INITIALIZED: 'CB_NOT_INITIALIZED',
+  /** 不支持的文件类型 */
+  CB_UNSUPPORTED_FILE: 'CB_UNSUPPORTED_FILE',
+
+  // ─── Git 相关（P1-03） ────────────────────────────────────────
+  /** 不是 Git 仓库 */
+  GIT_NOT_A_REPO: 'GIT_NOT_A_REPO',
+  /** Git 命令执行失败 */
+  GIT_COMMAND_FAILED: 'GIT_COMMAND_FAILED',
+  /** Git 分支已存在 */
+  GIT_BRANCH_EXISTS: 'GIT_BRANCH_EXISTS',
+  /** Git 没有变更可提交 */
+  GIT_NOTHING_TO_COMMIT: 'GIT_NOTHING_TO_COMMIT',
+  /** PR 创建失败 */
+  GIT_PR_CREATE_FAILED: 'GIT_PR_CREATE_FAILED',
+
+  // ─── 浏览器相关（P2-01） ────────────────────────────────────────
+  /** 浏览器导航失败 */
+  BROWSER_NAVIGATION_ERROR: 'BROWSER_NAVIGATION_ERROR',
+  /** 浏览器操作超时 */
+  BROWSER_TIMEOUT: 'BROWSER_TIMEOUT',
+  /** 页面元素未找到 */
+  BROWSER_ELEMENT_NOT_FOUND: 'BROWSER_ELEMENT_NOT_FOUND',
+  /** 浏览器操作失败 */
+  BROWSER_OPERATION_ERROR: 'BROWSER_OPERATION_ERROR',
+  /** 截图失败 */
+  BROWSER_SCREENSHOT_ERROR: 'BROWSER_SCREENSHOT_ERROR',
+
+  // ─── Checkpoint 相关（P2-02） ──────────────────────────────
+  /** 快照不存在 */
+  CHECKPOINT_NOT_FOUND: 'CHECKPOINT_NOT_FOUND',
+  /** 快照无内容（超大文件或读取失败） */
+  CHECKPOINT_NO_CONTENT: 'CHECKPOINT_NO_CONTENT',
+  /** 快照回滚失败 */
+  CHECKPOINT_ROLLBACK_FAILED: 'CHECKPOINT_ROLLBACK_FAILED',
 
   // ─── Skills 相关（P3） ──────────────────────────────────────
   /** Skill 名称重复 */

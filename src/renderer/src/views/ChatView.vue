@@ -14,6 +14,7 @@ import { useChat } from '@/composables/use-chat'
 import { useAgent } from '@/composables/use-agent'
 import SidebarHeader from '@/components/Sidebar/SidebarHeader.vue'
 import ConversationList from '@/components/Sidebar/ConversationList.vue'
+import ConversationTreeModal from '@/components/Sidebar/ConversationTreeModal.vue'
 import FileTreePanel from '@/components/Sidebar/FileTreePanel.vue'
 import FilePreview from '@/components/Sidebar/FilePreview.vue'
 import MessageList from '@/components/ChatPanel/MessageList.vue'
@@ -21,6 +22,7 @@ import ContextUsageBar from '@/components/ChatPanel/ContextUsageBar.vue'
 import ChatInput from '@/components/ChatPanel/ChatInput.vue'
 import ExecutionPanel from '@/components/Agent/ExecutionPanel.vue'
 import AuditReportPanel from '@/components/Agent/AuditReportPanel.vue'
+import CheckpointPanel from '@/components/Checkpoint/CheckpointPanel.vue'
 import VoiceControlPanel from '@/components/VoiceControlPanel.vue'
 import { showToast } from '@/utils/toast'
 
@@ -119,6 +121,10 @@ function handleOpenFiles(): void {
   uiStore.toggleFilePanel()
 }
 
+function handleOpenCheckpoints(): void {
+  uiStore.toggleCheckpointPanel()
+}
+
 async function handleSelectConversation(id: string): Promise<void> {
   await chatStore.selectConversation(id)
 }
@@ -133,6 +139,27 @@ async function handleRenameConversation(id: string, newTitle: string): Promise<v
 
 async function handleClearConversation(id: string): Promise<void> {
   await chatStore.clearConversation(id)
+}
+
+async function handleForkConversation(id: string): Promise<void> {
+  // P3-01: Fork 对话
+  const conv = chatStore.conversations.find((c) => c.id === id)
+  if (!conv) return
+
+  const forked = await chatStore.forkConversation()
+  if (forked) {
+    // 分支成功后切换到新会话
+    await chatStore.selectConversation(forked.id)
+  }
+}
+
+// P3-01: 分支树视图
+const showTreeModal = ref(false)
+const treeTargetId = ref<string | null>(null)
+
+function handleShowTree(id: string): void {
+  treeTargetId.value = id
+  showTreeModal.value = true
 }
 
 async function handleSearchConversations(keyword: string): Promise<void> {
@@ -291,6 +318,7 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
         @settings="handleOpenSettings"
         @open-kb="handleOpenKb"
         @open-files="handleOpenFiles"
+        @open-checkpoints="handleOpenCheckpoints"
       />
       <ConversationList
         :conversations="chatStore.filteredConversations"
@@ -302,6 +330,8 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
         @delete="handleDeleteConversation"
         @rename="handleRenameConversation"
         @clear="handleClearConversation"
+        @fork="handleForkConversation"
+        @show-tree="handleShowTree"
         @update:search-query="handleSearchConversations"
       />
     </aside>
@@ -325,6 +355,14 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
     >
       <FileTreePanel />
       <FilePreview />
+    </aside>
+
+    <!-- Checkpoint Panel (P2-02) -->
+    <aside
+      v-if="uiStore.checkpointPanelVisible"
+      class="chat-view__checkpoint-panel"
+    >
+      <CheckpointPanel />
     </aside>
 
     <!-- Main chat panel -->
@@ -374,6 +412,13 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
         @keydown.enter.prevent="handleConfirmEdit"
       />
     </NModal>
+
+    <!-- Conversation branch tree modal (P3-01) -->
+    <ConversationTreeModal
+      v-model:show="showTreeModal"
+      :conversation-id="treeTargetId"
+      @select="handleSelectConversation"
+    />
   </div>
 </template>
 
@@ -446,6 +491,14 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--af-border, #374151);
+  overflow: hidden;
+}
+
+.chat-view__checkpoint-panel {
+  width: 360px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 </style>

@@ -9,9 +9,13 @@ import { fileWriteTool } from './file-write'
 import { terminalExecTool } from './terminal-exec'
 import { directoryListTool } from './directory-list'
 import { kbSearchTool } from './kb-search'
+import { codebaseSearchTool } from './codebase-search'
 import { kgExtractTool } from './kg-extract'
 import { kgQueryTool } from './kg-query'
 import { allWsTools } from './ws-tools'
+import { allGitTools } from './git-tools'
+import { allBrowserTools } from './browser-tools'
+import { allCheckpointTools } from './checkpoint-tools'
 import { wikiIngestTool } from './wiki-ingest'
 import { wikiQueryTool } from './wiki-query'
 import { wikiLintTool } from './wiki-lint'
@@ -30,6 +34,7 @@ export function initBuiltinTools(): void {
   registry.registerBuiltin(terminalExecTool)
   registry.registerBuiltin(directoryListTool)
   registry.registerBuiltin(kbSearchTool)
+  registry.registerBuiltin(codebaseSearchTool)
   registry.registerBuiltin(kgExtractTool)
   registry.registerBuiltin(kgQueryTool)
 
@@ -40,6 +45,21 @@ export function initBuiltinTools(): void {
 
   // 注册所有 ws_* 工作区工具
   for (const tool of allWsTools) {
+    registry.registerBuiltin(tool)
+  }
+
+  // 注册所有 git_* Git 工作流工具
+  for (const tool of allGitTools) {
+    registry.registerBuiltin(tool)
+  }
+
+  // 注册所有 browser_* 浏览器自动化工具
+  for (const tool of allBrowserTools) {
+    registry.registerBuiltin(tool)
+  }
+
+  // 注册所有 checkpoint_* 快照回滚工具
+  for (const tool of allCheckpointTools) {
     registry.registerBuiltin(tool)
   }
 }
