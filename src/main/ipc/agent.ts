@@ -2,122 +2,31 @@
 // 实现 agent 命名空间的 IPC handlers：
 // agent:execute, agent:stop, agent:approve
 // 事件推送: agent:trajectory, agent:approval-request, agent:stream-chunk
+//
+// 架构优化批次二（任务1）：核心执行逻辑已移至 engine-dispatcher.ts。
+// 本文件仅保留 IPC handler 注册和参数校验。
 
 import { ipcMain, app, type IpcMainInvokeHandler } from 'electron'
 import type {
   AgentExecutionRequest,
   ExecutionResult,
-  TAOTrajectory,
-  ApprovalRequest,
   ApprovalMode,
 } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { assertNonEmptyString } from '../utils/assertions'
-import { StreamBatcher } from '../utils/stream-batcher'
-import { getMainWindowWebContents } from '../utils/electron-helpers'
-import { getModelAdapter } from '../models/router'
-import { getSettings } from '../db/repos/app-settings'
-import {
-  getConversationById,
-  updateLastMessageAt,
-  updateSdkSessionId,
-  updateConversationTitle,
-} from '../db/repos/conversation'
-import { createMessage, getMessagesByConversationId } from '../db/repos/message'
-import { getToolRegistry } from '../tools/registry'
-import { AgentExecutor, type AgentExecutorConfig } from '../agent/executor'
-import { CopilotAgentBridge } from '../copilot/agent-bridge'
-import { LangGraphAgentBridge } from '../langgraph/bridge'
-import type { SessionExtras } from '../copilot/types'
-import type { AgentEventCallbacks, RegisteredTool } from '../agent/types'
-import { resolveSkill, buildSkillExecutionContext, filterTools } from '../skills/skill-executor'
-import { loadProjectRules, formatRulesPrompt } from '../agent/project-rules'
-import {
-  manageContext,
-  getModelContextWindow,
-  chatMessagesToContext,
-} from '../agent/context-manager'
 import { getSessionManager } from '../copilot/session-manager'
+import {
+  executeAgentFlow,
+  getCurrentExecutor,
+  resetCurrentExecutor,
+  getCurrentBridge,
+  getCurrentLangGraphBridge,
+} from '../agent/engine-dispatcher'
 
-// ─── 并发控制 ─────────────────────────────────────────────────────
-
-/** 当前正在运行的 AgentExecutor */
-let currentExecutor: AgentExecutor | null = null
-/** 当前正在运行的 CopilotAgentBridge（SDK 引擎） */
-let currentBridge: CopilotAgentBridge | null = null
-/** 当前正在运行的 LangGraphAgentBridge（LangGraph 引擎） */
-let currentLangGraphBridge: LangGraphAgentBridge | null = null
-
-/**
- * 获取当前 AgentExecutor（仅供测试使用）。
- */
-export function getCurrentExecutor(): AgentExecutor | null {
-  return currentExecutor
-}
-
-/**
- * 重置当前 AgentExecutor（仅供测试使用）。
- */
-export function resetCurrentExecutor(): void {
-  currentExecutor = null
-}
-
-// ─── 主窗口事件推送 ───────────────────────────────────────────────
-
-function sendTrajectory(trajectory: TAOTrajectory): void {
-  const wc = getMainWindowWebContents()
-  if (wc) {
-    wc.send('agent:trajectory', trajectory)
-  }
-}
-
-function sendApprovalRequest(request: ApprovalRequest): void {
-  const wc = getMainWindowWebContents()
-  if (wc) {
-    wc.send('agent:approval-request', request)
-  }
-}
-
-function sendStreamChunk(chunk: { type: string; content: string }): void {
-  const wc = getMainWindowWebContents()
-  if (wc) {
-    wc.send('agent:stream-chunk', chunk)
-  }
-}
-
-/**
- * 创建带微批次优化的 AgentEventCallbacks。
- * 文本 chunk 通过 StreamBatcher 累积 50ms 后批量推送，
- * 非 text chunk（如 title/approval）立即推送。
- *
- * @returns callbacks 和 flush/destroy 方法
- */
-function createBatchedCallbacks(): {
-  callbacks: AgentEventCallbacks
-  flush: () => void
-  destroy: () => void
-} {
-  const batcher = new StreamBatcher((combined) => {
-    sendStreamChunk({ type: 'text', content: combined })
-  })
-
-  return {
-    callbacks: {
-      onTrajectory: (trajectory) => sendTrajectory(trajectory),
-      onApprovalRequest: (approvalRequest) => sendApprovalRequest(approvalRequest),
-      onStreamChunk: (chunk) => {
-        if (chunk.type === 'text' && chunk.content) {
-          batcher.push(chunk.content)
-        } else {
-          batcher.flush()
-          sendStreamChunk(chunk)
-        }
-      },
-    },
-    flush: () => batcher.flush(),
-    destroy: () => batcher.destroy(),
-  }
-}
+// ─── 测试辅助函数（保持公共 API 不变） ─────────────────────────
+// getCurrentExecutor / resetCurrentExecutor 直接从 engine-dispatcher 重导出，
+// 避免在此文件维护并发状态副本。
+export { getCurrentExecutor, resetCurrentExecutor }
 
 // ─── 参数校验 ─────────────────────────────────────────────────────
 
@@ -133,453 +42,14 @@ function assertApprovalMode(value: unknown): asserts value is ApprovalMode {
   }
 }
 
-// ─── 工具注册表转换 ───────────────────────────────────────────────
-
-/**
- * 从全局 ToolRegistry 获取工具映射。
- */
-function getToolsMap(): Map<string, RegisteredTool> {
-  const registry = getToolRegistry()
-  const tools = new Map<string, RegisteredTool>()
-
-  for (const tool of registry.list()) {
-    tools.set(tool.definition.name, {
-      definition: tool.definition,
-      execute: tool.execute,
-    })
-  }
-
-  return tools
-}
-
 // ─── IPC 处理函数 ─────────────────────────────────────────────────
-
-/**
- * 使用 LangGraph 引擎执行 Agent 请求。
- *
- * LangGraph 引擎使用 LangChain + LangGraph 框架，复用现有 ModelAdapter 和 ToolRegistry。
- * 支持流式输出、工具调用、审批机制，与现有 UI 完全兼容。
- */
-async function executeWithLangGraph(request: AgentExecutionRequest): Promise<ExecutionResult> {
-  const { callbacks, flush, destroy } = createBatchedCallbacks()
-  // LangGraph 引擎需要在 title chunk 时更新会话标题
-  const originalOnStreamChunk = callbacks.onStreamChunk
-  callbacks.onStreamChunk = (chunk) => {
-    if (chunk.type === 'title' && chunk.content) {
-      try {
-        updateConversationTitle(request.conversationId, chunk.content)
-      } catch {
-        // Ignore title update errors
-      }
-    }
-    originalOnStreamChunk(chunk)
-  }
-
-  const settings = getSettings()
-
-  const bridge = new LangGraphAgentBridge({
-    callbacks,
-    approvalTimeoutMs: settings.approvalTimeoutMs,
-  })
-  currentLangGraphBridge = bridge
-
-  let result: ExecutionResult
-  try {
-    // 验证会话存在
-    getConversationById(request.conversationId)
-
-    // 加载历史对话消息
-    const contextWindow = getModelContextWindow(request.modelId)
-    const rawHistory = getMessagesByConversationId(request.conversationId)
-    const historyContext = chatMessagesToContext(rawHistory)
-    const contextResult = manageContext(historyContext, {
-      maxContextTokens: contextWindow,
-    })
-    if (contextResult.truncated) {
-      console.info(
-        `[Agent LangGraph] Context truncated: ${contextResult.originalCount} -> ${contextResult.retainedCount} messages, ~${contextResult.estimatedTokens} tokens`,
-      )
-    }
-
-    // 保存用户消息
-    createMessage({
-      conversationId: request.conversationId,
-      role: 'user',
-      content: request.userInput,
-    })
-
-    // 解析 Skill
-    let adapter = getModelAdapter(request.modelId)
-    const tools = getToolsMap()
-    let skillPrompt: string | undefined
-
-    const skillResolution = await resolveSkill(request.userInput, request.skillName, adapter)
-    if (skillResolution.skill !== null) {
-      const skill = skillResolution.skill
-      const skillCtx = buildSkillExecutionContext(skill, tools)
-      skillPrompt = skillCtx.skillPrompt
-
-      // Skill 指定 modelId 时切换模型适配器
-      if (skill.modelId !== undefined) {
-        adapter = getModelAdapter(skill.modelId)
-      }
-
-      // 过滤工具（清除后重新填充，避免冗余操作）
-      const filteredTools = filterTools(tools, skill.allowedTools)
-      tools.clear()
-      for (const [key, value] of filteredTools) {
-        tools.set(key, value)
-      }
-    }
-
-    // 执行
-    result = await bridge.execute({
-      request,
-      adapter,
-      tools,
-      historyMessages: contextResult.messages,
-      skillPrompt,
-    })
-
-    // 保存助手回复
-    createMessage({
-      conversationId: request.conversationId,
-      role: 'assistant',
-      content: result.summary,
-      thinking: result.trajectories.map((t) => `Step ${t.step}: ${t.thought}`).join('\n\n'),
-    })
-
-    updateLastMessageAt(request.conversationId)
-  } catch (error) {
-    console.error('[Agent LangGraph] Execution error:', error)
-    const errorMessage = error instanceof Error ? error.message : 'Execution failed'
-    createMessage({
-      conversationId: request.conversationId,
-      role: 'assistant',
-      content: errorMessage,
-      thinking: undefined,
-    })
-    updateLastMessageAt(request.conversationId)
-    throw error
-  } finally {
-    flush()
-    destroy()
-    currentLangGraphBridge = null
-  }
-
-  return result
-}
-
-/**
- * 使用 Copilot SDK 引擎执行 Agent 请求。
- *
- * 增强版：支持 Skill 集成（prompt 注入 + 工具过滤）、workingDirectory、
- * largeOutput、reasoningEffort 等 SDK 高级能力。
- */
-async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<ExecutionResult> {
-  const { callbacks, flush, destroy } = createBatchedCallbacks()
-  // Copilot SDK 引擎需要在 title chunk 时更新会话标题
-  const originalOnStreamChunk = callbacks.onStreamChunk
-  callbacks.onStreamChunk = (chunk) => {
-    if (chunk.type === 'title' && chunk.content) {
-      try {
-        updateConversationTitle(request.conversationId, chunk.content)
-      } catch {
-        // Ignore title update errors
-      }
-    }
-    originalOnStreamChunk(chunk)
-  }
-
-  const settings = getSettings()
-
-  const bridge = new CopilotAgentBridge({
-    callbacks,
-    approvalTimeoutMs: settings.approvalTimeoutMs,
-  })
-  currentBridge = bridge
-
-  let result: ExecutionResult
-  try {
-    // 验证会话存在，并读取 sdkSessionId（用于 resume）
-    const conversation = getConversationById(request.conversationId)
-
-    // 保存用户消息
-    createMessage({
-      conversationId: request.conversationId,
-      role: 'user',
-      content: request.userInput,
-    })
-
-    // ─── 构建 SessionExtras ────────────────────────────────────
-    const extras: SessionExtras = {}
-
-    // SDK 持久化会话模式：不再需要手动加载历史对话
-    // SDK 的 Infinite Sessions 机制自动管理上下文窗口和对话历史
-    // 传入 conversationId 以复用 SDK session
-    extras.conversationId = request.conversationId
-
-    // 1. 解析 Skill（用户指定或意图匹配）
-    //    SDK 引擎复用现有 skills/ 模块，使用当前会话模型做意图匹配
-    const skillResolution = await resolveSkill(
-      request.userInput,
-      request.skillName,
-      getModelAdapter(request.modelId),
-    )
-
-    if (skillResolution.skill !== null) {
-      const skill = skillResolution.skill
-
-      try {
-        // Skill 指定模型时，覆盖 BYOK 配置
-        if (skill.modelId !== undefined) {
-          request.modelId = skill.modelId
-        }
-
-        // 构建执行上下文（替换变量、构建 prompt 段落）
-        // tools 参数传入空 Map — SDK 引擎的 prompt 构建不需要工具定义
-        const skillCtx = buildSkillExecutionContext(skill, new Map())
-
-        extras.systemMessageContent = skillCtx.skillPrompt
-        extras.availableTools = skill.allowedTools.length > 0 ? skill.allowedTools : undefined
-      } catch (err) {
-        // 自动匹配的 Skill 如果有必填变量缺失，降级为无 Skill（不阻断对话）
-        if (skillResolution.source === 'auto') {
-          console.warn(
-            `[Agent] Auto-matched skill "${skill.name}" failed to build context, skipping:`,
-            err instanceof Error ? err.message : err,
-          )
-        } else {
-          // 手动指定的 Skill 变量缺失，抛出错误提示用户
-          throw err
-        }
-      }
-    }
-
-    // 2. 传入工作区路径（文件操作上下文）
-    if (settings.workspace.path) {
-      extras.workingDirectory = settings.workspace.path
-    }
-
-    // 3. 加载项目规则文件（AGENTS.md）
-    const projectRules = await loadProjectRules()
-    if (projectRules) {
-      const rulesPrompt = formatRulesPrompt(projectRules)
-      if (extras.systemMessageContent) {
-        extras.systemMessageContent += rulesPrompt
-      } else {
-        extras.systemMessageContent = rulesPrompt.trim()
-      }
-    }
-
-    // 4. 传入推理强度（如果设置中有配置）
-    if (settings.copilotReasoningEffort) {
-      extras.reasoningEffort = settings.copilotReasoningEffort
-    }
-
-    // 5. 传入 sdkSessionId（从数据库读取，用于 resume 已有 SDK session）
-    if (conversation.sdkSessionId) {
-      extras.sdkSessionId = conversation.sdkSessionId
-    }
-
-    // 6. 传入技能目录配置（从 app_settings 读取）
-    // SDK 会自动从这些目录加载技能文件（.md 格式的技能定义）
-    if (settings.copilotSkillDirectories && settings.copilotSkillDirectories.length > 0) {
-      extras.skillDirectories = settings.copilotSkillDirectories
-    }
-
-    // 7. 配置自动发现（从工作目录自动发现 .mcp.json 和 skill 目录）
-    if (settings.copilotEnableConfigDiscovery) {
-      extras.enableConfigDiscovery = true
-    }
-
-    // 8. 上下文层级
-    if (settings.copilotContextTier) {
-      extras.contextTier = settings.copilotContextTier
-    }
-
-    // 9. 推理摘要模式
-    if (settings.copilotReasoningSummary) {
-      extras.reasoningSummary = settings.copilotReasoningSummary
-    }
-
-    // 10. 排除的工具列表
-    if (settings.copilotExcludedTools && settings.copilotExcludedTools.length > 0) {
-      extras.excludedTools = settings.copilotExcludedTools
-    }
-
-    // 11. 主机 Git 操作
-    if (settings.copilotEnableHostGitOperations !== undefined) {
-      extras.enableHostGitOperations = settings.copilotEnableHostGitOperations
-    }
-
-    // 12. 客户端名称
-    extras.clientName = 'AgentForge'
-
-    // 13. 工具搜索配置
-    if (settings.copilotToolSearchDeferThreshold !== undefined && settings.copilotToolSearchDeferThreshold > 0) {
-      extras.toolSearch = { deferThreshold: settings.copilotToolSearchDeferThreshold }
-    }
-
-    // 14. 默认代理排除的工具
-    if (settings.copilotDefaultAgentExcludedTools && settings.copilotDefaultAgentExcludedTools.length > 0) {
-      extras.defaultAgentExcludedTools = settings.copilotDefaultAgentExcludedTools
-    }
-
-    // 15. Open Plugins 目录
-    if (settings.copilotPluginDirectories && settings.copilotPluginDirectories.length > 0) {
-      extras.pluginDirectories = settings.copilotPluginDirectories
-    }
-
-    // 16. 自定义指令目录
-    if (settings.copilotInstructionDirectories && settings.copilotInstructionDirectories.length > 0) {
-      extras.instructionDirectories = settings.copilotInstructionDirectories
-    }
-
-    // 17. 记忆功能
-    if (settings.copilotEnableMemory) {
-      extras.enableMemory = true
-    }
-
-    // 18. 跳过自定义指令
-    if (settings.copilotSkipCustomInstructions) {
-      extras.skipCustomInstructions = true
-    }
-
-    // 19. ask_user 双向交互
-    if (settings.copilotEnableAskUser) {
-      extras.enableAskUser = true
-    }
-
-    // 20. elicitation 表单交互
-    if (settings.copilotEnableElicitation) {
-      extras.enableElicitation = true
-    }
-
-    // 21. Agent 执行模式
-    if (settings.copilotAgentMode) {
-      extras.agentMode = settings.copilotAgentMode
-    }
-
-    // 22. 最大提示词 token 数（压缩阈值）
-    if (settings.copilotMaxPromptTokens && settings.copilotMaxPromptTokens > 0) {
-      extras.maxPromptTokens = settings.copilotMaxPromptTokens
-    }
-
-    // 23. 排除的内置代理
-    if (settings.copilotExcludedBuiltinAgents && settings.copilotExcludedBuiltinAgents.length > 0) {
-      extras.excludedBuiltinAgents = settings.copilotExcludedBuiltinAgents
-    }
-
-    // 24. 技能加载开关
-    if (settings.copilotEnableSkills !== undefined) {
-      extras.enableSkills = settings.copilotEnableSkills
-    }
-
-    // 25. 禁用的技能列表
-    if (settings.copilotDisabledSkills && settings.copilotDisabledSkills.length > 0) {
-      extras.disabledSkills = settings.copilotDisabledSkills
-    }
-
-    // 26. 上下文压缩阈值
-    if (settings.copilotInfiniteSessionThreshold && settings.copilotInfiniteSessionThreshold > 0) {
-      extras.infiniteSessionThreshold = settings.copilotInfiniteSessionThreshold
-    }
-
-    // 27. 大输出最大字节数
-    if (settings.copilotLargeOutputMaxSize && settings.copilotLargeOutputMaxSize > 0) {
-      extras.largeOutputMaxSize = settings.copilotLargeOutputMaxSize
-    }
-
-    // 28. Per-conversation 配置（从请求参数传递）
-    // 自定义代理配置
-    if (request.customAgents && request.customAgents.length > 0) {
-      extras.customAgents = request.customAgents.map((a) => ({
-        name: a.name,
-        displayName: a.displayName,
-        description: a.description,
-        tools: a.tools ?? null,
-        prompt: a.prompt,
-        infer: a.infer ?? true,
-        model: a.model,
-        reasoningEffort: a.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined,
-        skills: a.skills,
-      }))
-    }
-
-    // 预选激活的代理
-    if (request.activeAgent) {
-      extras.activeAgent = request.activeAgent
-    }
-
-    // 自定义斜杠命令
-    if (request.commands && request.commands.length > 0) {
-      extras.commands = request.commands
-    }
-
-    // 系统提示词模式
-    if (request.systemMessageMode) {
-      extras.systemMessageMode = request.systemMessageMode
-    }
-
-    // 系统提示词分区配置
-    if (request.systemMessageSections) {
-      extras.systemMessageSections = request.systemMessageSections as SessionExtras['systemMessageSections']
-    }
-
-    // 执行 SDK Agent（传入 extras 配置）
-    result = await bridge.execute(request, extras)
-
-    // 如果是新 session，将 sdkSessionId 持久化到数据库（供下次 resume）
-    if (bridge.wasNewSession()) {
-      const sdkSessionId = bridge.getSdkSessionId()
-      if (sdkSessionId) {
-        updateSdkSessionId(request.conversationId, sdkSessionId)
-      }
-    }
-
-    // 保存助手回复
-    createMessage({
-      conversationId: request.conversationId,
-      role: 'assistant',
-      content: result.summary,
-      thinking: result.trajectories.map((t) => `Step ${t.step}: ${t.thought}`).join('\n\n'),
-    })
-
-    updateLastMessageAt(request.conversationId)
-  } catch (error) {
-    // 保存错误信息到消息（透传真实错误信息，而非吞掉为 "Execution failed"）
-    console.error('[Agent SDK] Execution error:', error)
-    const errorMessage = error instanceof Error ? error.message : 'Execution failed'
-    createMessage({
-      conversationId: request.conversationId,
-      role: 'assistant',
-      content: errorMessage,
-      thinking: undefined,
-    })
-    updateLastMessageAt(request.conversationId)
-    throw error
-  } finally {
-    flush()
-    destroy()
-    currentBridge = null
-  }
-
-  return result
-}
 
 /**
  * agent:execute - 启动 Agent 执行。
  *
- * 流程：
- * 1. 验证参数和并发锁
- * 2. 获取模型适配器、设置、工具列表
- * 3. 解析 Skill（用户指定或意图匹配）
- * 4. 如果 Skill 匹配成功：替换变量、过滤工具、可能覆盖模型
- * 5. 创建 AgentExecutor
- * 6. 执行并实时推送 trajectory / approval-request / stream-chunk 事件
- * 7. 保存执行结果到消息表
- * 8. 返回 ExecutionResult
+ * 本函数仅负责参数校验，核心执行流程（三引擎路由、并发控制、
+ * 保存用户消息→执行→保存助手回复→错误处理）由 engine-dispatcher.ts 的
+ * executeAgentFlow 实现。
  */
 export async function handleExecute(
   _event: Electron.IpcMainInvokeEvent,
@@ -610,132 +80,25 @@ export async function handleExecute(
     systemMessageSections: p['systemMessageSections'] as Record<string, unknown> | undefined,
   }
 
-  // 1. 并发控制 - OPT-02: 在任何 await 之前设置锁，防止竞态条件
-  if (currentExecutor !== null || currentBridge !== null || currentLangGraphBridge !== null) {
-    throw new AppError(ErrorCodes.CHAT_ALREADY_RUNNING, 'An agent execution is already running.')
-  }
-
-  // 2. 获取设置，判断引擎类型
-  const settings = getSettings()
-
-  // SDK 引擎路径：使用 Copilot SDK
-  if (settings.engineType === 'copilot-sdk') {
-    return executeWithCopilotSdk(request)
-  }
-
-  // LangGraph 引擎路径：使用 LangChain + LangGraph
-  if (settings.engineType === 'langgraph') {
-    return executeWithLangGraph(request)
-  }
-
-  // 内置引擎路径：使用 AgentExecutor
-  // 根据模型配置获取上下文窗口大小（替代硬编码的 4096）
-  const contextWindow = getModelContextWindow(request.modelId)
-  const { callbacks: batchedCallbacks, flush: flushBatcher, destroy: destroyBatcher } = createBatchedCallbacks()
-  const executorConfig: AgentExecutorConfig = {
-    adapter: getModelAdapter(request.modelId),
-    tools: getToolsMap(),
-    callbacks: batchedCallbacks,
-    approvalTimeoutMs: settings.approvalTimeoutMs,
-    maxContextLength: contextWindow,
-    skillPrompt: undefined,
-  }
-
-  // 3. 在任何 await 之前创建执行器并持有锁
-  const executor = new AgentExecutor(executorConfig)
-  currentExecutor = executor
-
-  // OPT2-03: 所有后续操作包入 try/finally，确保锁在异常时也能释放
-  let result: ExecutionResult
-  try {
-    // 4. 验证会话存在
-    getConversationById(request.conversationId)
-
-    // 5. 加载历史对话消息并进行上下文窗口管理
-    //    在保存当前用户消息之前加载，避免重复包含当前输入
-    const rawHistory = getMessagesByConversationId(request.conversationId)
-    const historyContext = chatMessagesToContext(rawHistory)
-    const contextResult = manageContext(historyContext, {
-      maxContextTokens: contextWindow,
-    })
-    executorConfig.historyMessages = contextResult.messages
-    if (contextResult.truncated) {
-      console.info(
-        `[Agent Builtin] Context truncated: ${contextResult.originalCount} -> ${contextResult.retainedCount} messages, ~${contextResult.estimatedTokens} tokens`,
-      )
-    }
-
-    // 6. 保存用户消息
-    createMessage({
-      conversationId: request.conversationId,
-      role: 'user',
-      content: request.userInput,
-    })
-
-    // 7. 解析 Skill（用户指定或意图匹配）
-    const skillResolution = await resolveSkill(request.userInput, request.skillName, executorConfig.adapter)
-
-    if (skillResolution.skill !== null) {
-      const skill = skillResolution.skill
-
-      // 7a. 如果 Skill 指定了 modelId，使用该模型
-      if (skill.modelId !== undefined) {
-        executorConfig.adapter = getModelAdapter(skill.modelId)
-      }
-
-      // 7b. 构建执行上下文（替换变量、过滤工具）
-      const skillCtx = buildSkillExecutionContext(skill, executorConfig.tools)
-      executorConfig.skillPrompt = skillCtx.skillPrompt
-
-      // 7c. 过滤工具列表
-      executorConfig.tools = filterTools(executorConfig.tools, skill.allowedTools)
-    }
-
-    // 8. 执行 Agent
-    result = await executor.execute(request)
-
-    // 9. 保存助手回复
-    createMessage({
-      conversationId: request.conversationId,
-      role: 'assistant',
-      content: result.summary,
-      thinking: result.trajectories.map((t) => `Step ${t.step}: ${t.thought}`).join('\n\n'),
-    })
-
-    updateLastMessageAt(request.conversationId)
-  } catch (error) {
-    // 保存错误信息到消息（透传真实错误信息，而非吞掉为 "Execution failed"）
-    console.error('[Agent Builtin] Execution error:', error)
-    const errorMessage = error instanceof Error ? error.message : 'Execution failed'
-    createMessage({
-      conversationId: request.conversationId,
-      role: 'assistant',
-      content: errorMessage,
-      thinking: undefined,
-    })
-    updateLastMessageAt(request.conversationId)
-    throw error
-  } finally {
-    flushBatcher()
-    destroyBatcher()
-    currentExecutor = null
-  }
-
-  return result
+  // 核心执行流程（含并发控制）由 dispatcher 管理
+  return executeAgentFlow(request)
 }
 
 /**
  * agent:stop - 取消当前 Agent 执行。
  */
 export function handleStop(): void {
-  if (currentExecutor) {
-    currentExecutor.cancel()
+  const executor = getCurrentExecutor()
+  const bridge = getCurrentBridge()
+  const lgBridge = getCurrentLangGraphBridge()
+  if (executor) {
+    executor.cancel()
   }
-  if (currentBridge) {
-    void currentBridge.cancel()
+  if (bridge) {
+    void bridge.cancel()
   }
-  if (currentLangGraphBridge) {
-    currentLangGraphBridge.cancel()
+  if (lgBridge) {
+    lgBridge.cancel()
   }
 }
 
@@ -761,14 +124,17 @@ export function handleApprove(params: unknown): void {
   const approved = p['approved'] as boolean
   const reason = typeof p['reason'] === 'string' ? p['reason'] : undefined
 
-  if (currentExecutor) {
-    currentExecutor.respondApproval(approved, reason)
+  const executor = getCurrentExecutor()
+  const bridge = getCurrentBridge()
+  const lgBridge = getCurrentLangGraphBridge()
+  if (executor) {
+    executor.respondApproval(approved, reason)
   }
-  if (currentBridge) {
-    currentBridge.respondApproval(approved, reason)
+  if (bridge) {
+    bridge.respondApproval(approved, reason)
   }
-  if (currentLangGraphBridge) {
-    currentLangGraphBridge.respondApproval(approved, reason)
+  if (lgBridge) {
+    lgBridge.respondApproval(approved, reason)
   }
 }
 
@@ -789,8 +155,9 @@ export function handleRespondUserInput(params: unknown): void {
     )
   }
 
-  if (currentBridge) {
-    const success = currentBridge.respondToUserInput(p['requestId'], p['response'] as string)
+  const bridge = getCurrentBridge()
+  if (bridge) {
+    const success = bridge.respondToUserInput(p['requestId'], p['response'] as string)
     if (!success) {
       throw new AppError(
         ErrorCodes.VALIDATION_ERROR,
@@ -817,8 +184,9 @@ export function handleRespondElicitation(params: unknown): void {
     )
   }
 
-  if (currentBridge) {
-    const success = currentBridge.respondToElicitation(
+  const bridge = getCurrentBridge()
+  if (bridge) {
+    const success = bridge.respondToElicitation(
       p['requestId'],
       p['response'] as Record<string, unknown>,
     )
@@ -846,7 +214,8 @@ async function handleSwitchModel(
 
   assertNonEmptyString(p['modelId'], 'modelId')
 
-  if (!currentBridge) {
+  const bridge = getCurrentBridge()
+  if (!bridge) {
     throw new AppError(
       ErrorCodes.VALIDATION_ERROR,
       'No active agent session. Switch model can only be used during an active conversation.',
@@ -862,7 +231,7 @@ async function handleSwitchModel(
     )
   }
 
-  return currentBridge.setModel(p['modelId'] as string, providerConfig)
+  return bridge.setModel(p['modelId'] as string, providerConfig)
 }
 
 // ─── 通道注册 ───────────────────────────────────────────────────

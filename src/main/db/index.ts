@@ -95,237 +95,273 @@ function hasColumn(db: Database.Database, tableName: string, columnName: string)
   return columns.some((c) => c.name === columnName)
 }
 
+// ─── 数据驱动的条件迁移定义 ─────────────────────────────────────
+
+/**
+ * 单个列迁移定义。
+ */
+interface ColumnMigration {
+  /** 目标表名 */
+  table: string
+  /** 目标列名 */
+  column: string
+  /** 完整的 ALTER TABLE 语句 */
+  sql: string
+  /** 迁移说明（文档用途） */
+  comment: string
+}
+
+/**
+ * 所有需要条件添加的列。
+ * 每条记录对应一个 `ALTER TABLE ... ADD COLUMN` 操作，
+ * 通过 hasColumn 检查保证幂等性。
+ */
+const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
+  {
+    table: 'app_settings',
+    column: 'voice',
+    comment: 'V1-01: TTS/STT 语音配置',
+    sql: `ALTER TABLE app_settings ADD COLUMN voice TEXT NOT NULL DEFAULT '{"tts":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"tts-1","voice":"alloy","speed":1.0,"format":"mp3","autoPlay":false},"stt":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"whisper-1","language":"","temperature":0.0},"mode":{"vadSilenceThreshold":1.5,"autoAwait":true}}'`,
+  },
+  {
+    table: 'app_settings',
+    column: 'workspace',
+    comment: 'WS-01: 工作区配置',
+    sql: `ALTER TABLE app_settings ADD COLUMN workspace TEXT NOT NULL DEFAULT '{"path":null,"recentPaths":[],"autoRestore":true,"excludePatterns":["node_modules",".git","dist",".DS_Store"]}'`,
+  },
+  {
+    table: 'app_settings',
+    column: 'engine_type',
+    comment: 'SDK-02: 引擎类型（builtin/copilot-sdk/langgraph）',
+    sql: `ALTER TABLE app_settings ADD COLUMN engine_type TEXT NOT NULL DEFAULT 'builtin'`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_reasoning_effort',
+    comment: 'CE-05: SDK 推理强度',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_reasoning_effort TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_wire_api',
+    comment: 'B5: SDK wire API 模式（completions/responses/auto）',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_wire_api TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_skill_directories',
+    comment: 'B9: SDK 技能目录（JSON 数组）',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_skill_directories TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_enable_config_discovery',
+    comment: 'B9: SDK 配置自动发现开关',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_enable_config_discovery INTEGER DEFAULT 0`,
+  },
+  {
+    table: 'conversations',
+    column: 'sdk_session_id',
+    comment: 'CE-06: SDK session resume',
+    sql: `ALTER TABLE conversations ADD COLUMN sdk_session_id TEXT DEFAULT NULL`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_context_tier',
+    comment: 'P1-01: SDK 上下文层级',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_context_tier TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_reasoning_summary',
+    comment: 'P1-02: SDK 推理摘要模式',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_reasoning_summary TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_excluded_tools',
+    comment: 'P1-03: SDK 排除的工具列表',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_excluded_tools TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_enable_host_git_operations',
+    comment: 'P1-04: SDK 主机 Git 操作开关',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_enable_host_git_operations INTEGER DEFAULT 1`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_tool_search_defer_threshold',
+    comment: 'P2-01: SDK 工具搜索延迟阈值',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_tool_search_defer_threshold INTEGER`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_default_agent_excluded_tools',
+    comment: 'P2-02: SDK 默认代理排除工具',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_default_agent_excluded_tools TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_plugin_directories',
+    comment: 'P2-03: SDK Open Plugins 目录',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_plugin_directories TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_instruction_directories',
+    comment: 'P2-04: SDK 自定义指令目录',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_instruction_directories TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_enable_memory',
+    comment: 'P2-05: SDK 记忆功能开关',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_enable_memory INTEGER DEFAULT 0`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_skip_custom_instructions',
+    comment: 'P2-06: SDK 跳过自定义指令开关',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_skip_custom_instructions INTEGER DEFAULT 0`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_enable_ask_user',
+    comment: 'P3-01: SDK ask_user 交互开关',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_enable_ask_user INTEGER DEFAULT 0`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_enable_elicitation',
+    comment: 'P3-02: SDK elicitation 表单交互开关',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_enable_elicitation INTEGER DEFAULT 0`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_agent_mode',
+    comment: 'P3-03: SDK Agent 执行模式',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_agent_mode TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_max_prompt_tokens',
+    comment: 'P3-04: SDK 最大提示词 token 数',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_max_prompt_tokens INTEGER`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_excluded_builtin_agents',
+    comment: 'P3-05: SDK 排除的内置代理',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_excluded_builtin_agents TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_enable_skills',
+    comment: 'P3-06: SDK 技能加载开关',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_enable_skills INTEGER DEFAULT 1`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_disabled_skills',
+    comment: 'P3-07: SDK 禁用的技能列表',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_disabled_skills TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_infinite_session_threshold',
+    comment: 'P3-08: SDK 上下文压缩阈值',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_infinite_session_threshold REAL`,
+  },
+  {
+    table: 'app_settings',
+    column: 'copilot_large_output_max_size',
+    comment: 'P3-09: SDK 大输出最大字节数',
+    sql: `ALTER TABLE app_settings ADD COLUMN copilot_large_output_max_size INTEGER`,
+  },
+  {
+    table: 'app_settings',
+    column: 'embedding_provider',
+    comment: 'RAG-FIX-01: 嵌入模型 provider',
+    sql: `ALTER TABLE app_settings ADD COLUMN embedding_provider TEXT DEFAULT 'ollama'`,
+  },
+  {
+    table: 'app_settings',
+    column: 'embedding_base_url',
+    comment: 'RAG-FIX-01: 嵌入模型 base URL',
+    sql: `ALTER TABLE app_settings ADD COLUMN embedding_base_url TEXT DEFAULT 'http://localhost:11434'`,
+  },
+  {
+    table: 'app_settings',
+    column: 'embedding_model',
+    comment: 'RAG-FIX-01: 嵌入模型名称',
+    sql: `ALTER TABLE app_settings ADD COLUMN embedding_model TEXT DEFAULT 'nomic-embed-text'`,
+  },
+  {
+    table: 'app_settings',
+    column: 'embedding_api_key',
+    comment: 'RAG-FIX-01: 嵌入模型 API 密钥',
+    sql: `ALTER TABLE app_settings ADD COLUMN embedding_api_key TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'embedding_dimensions',
+    comment: 'RAG-FIX-01: 嵌入向量维度',
+    sql: `ALTER TABLE app_settings ADD COLUMN embedding_dimensions INTEGER DEFAULT 768`,
+  },
+  {
+    table: 'kb_documents',
+    column: 'content_hash',
+    comment: 'RAG-FIX-02: 文档内容哈希（快速去重）',
+    sql: `ALTER TABLE kb_documents ADD COLUMN content_hash TEXT`,
+  },
+  {
+    table: 'conversations',
+    column: 'parent_id',
+    comment: 'P3-01: 对话分支父 ID',
+    sql: `ALTER TABLE conversations ADD COLUMN parent_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`,
+  },
+  {
+    table: 'conversations',
+    column: 'fork_index',
+    comment: 'P3-01: 对话分支索引',
+    sql: `ALTER TABLE conversations ADD COLUMN fork_index INTEGER DEFAULT 0`,
+  },
+  {
+    table: 'conversations',
+    column: 'is_forked',
+    comment: 'P3-01: 是否为分支会话',
+    sql: `ALTER TABLE conversations ADD COLUMN is_forked INTEGER DEFAULT 0 CHECK(is_forked IN (0, 1))`,
+  },
+] as const
+
+/**
+ * 分支相关的索引（幂等，IF NOT EXISTS）。
+ */
+const INDEX_MIGRATIONS: readonly string[] = [
+  `CREATE INDEX IF NOT EXISTS idx_conv_parent ON conversations(parent_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_conv_forked ON conversations(is_forked)`,
+] as const
+
 /**
  * 条件迁移：为已存在的数据库添加缺失的列或索引。
  * 所有操作都是幂等的。
+ *
+ * 采用数据驱动方式：遍历 COLUMN_MIGRATIONS 数组，
+ * 对每条记录通过 hasColumn 检查后执行对应的 ALTER TABLE。
  */
 function runConditionalMigrations(db: Database.Database): void {
-  // V1-01: 确保 app_settings 有 voice 列
-  if (!hasColumn(db, 'app_settings', 'voice')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN voice TEXT NOT NULL DEFAULT '{"tts":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"tts-1","voice":"alloy","speed":1.0,"format":"mp3","autoPlay":false},"stt":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"whisper-1","language":"","temperature":0.0},"mode":{"vadSilenceThreshold":1.5,"autoAwait":true}}'`
-    )
-  }
+  // 列迁移：幂等地添加缺失的列
+  COLUMN_MIGRATIONS.forEach((migration) => {
+    if (!hasColumn(db, migration.table, migration.column)) {
+      db.exec(migration.sql)
+    }
+  })
 
-  // WS-01: 确保 app_settings 有 workspace 列
-  if (!hasColumn(db, 'app_settings', 'workspace')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN workspace TEXT NOT NULL DEFAULT '{"path":null,"recentPaths":[],"autoRestore":true,"excludePatterns":["node_modules",".git","dist",".DS_Store"]}'`
-    )
-  }
-
-  // SDK-02: 确保 app_settings 有 engine_type 列
-  if (!hasColumn(db, 'app_settings', 'engine_type')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN engine_type TEXT NOT NULL DEFAULT 'builtin'`
-    )
-  }
-
-  // CE-05: 确保 app_settings 有 copilot_reasoning_effort 列
-  if (!hasColumn(db, 'app_settings', 'copilot_reasoning_effort')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_reasoning_effort TEXT`
-    )
-  }
-
-  // B5: 确保 app_settings 有 copilot_wire_api 列（'completions' | 'responses' | 'auto'）
-  // NULL 表示 'auto'（根据模型类型自动判断）
-  if (!hasColumn(db, 'app_settings', 'copilot_wire_api')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_wire_api TEXT`
-    )
-  }
-
-  // B9: 确保 app_settings 有 copilot_skill_directories 列（JSON 数组）
-  // NULL 表示未配置
-  if (!hasColumn(db, 'app_settings', 'copilot_skill_directories')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_skill_directories TEXT`
-    )
-  }
-
-  // B9: 确保 app_settings 有 copilot_enable_config_discovery 列（boolean 0/1）
-  if (!hasColumn(db, 'app_settings', 'copilot_enable_config_discovery')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_enable_config_discovery INTEGER DEFAULT 0`
-    )
-  }
-
-  // CE-06: 确保 conversations 有 sdk_session_id 列（用于 SDK session resume）
-  if (!hasColumn(db, 'conversations', 'sdk_session_id')) {
-    db.exec(
-      `ALTER TABLE conversations ADD COLUMN sdk_session_id TEXT DEFAULT NULL`
-    )
-  }
-
-  // P1-01: 确保 app_settings 有 copilot_context_tier 列（'default' | 'long_context'）
-  if (!hasColumn(db, 'app_settings', 'copilot_context_tier')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_context_tier TEXT`
-    )
-  }
-
-  // P1-02: 确保 app_settings 有 copilot_reasoning_summary 列（'none' | 'auto' | 'detailed'）
-  if (!hasColumn(db, 'app_settings', 'copilot_reasoning_summary')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_reasoning_summary TEXT`
-    )
-  }
-
-  // P1-03: 确保 app_settings 有 copilot_excluded_tools 列（JSON 数组）
-  if (!hasColumn(db, 'app_settings', 'copilot_excluded_tools')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_excluded_tools TEXT`
-    )
-  }
-
-  // P1-04: 确保 app_settings 有 copilot_enable_host_git_operations 列（boolean 0/1）
-  if (!hasColumn(db, 'app_settings', 'copilot_enable_host_git_operations')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_enable_host_git_operations INTEGER DEFAULT 1`
-    )
-  }
-
-  // P2-01: 确保 app_settings 有 copilot_tool_search_defer_threshold 列（INTEGER）
-  if (!hasColumn(db, 'app_settings', 'copilot_tool_search_defer_threshold')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_tool_search_defer_threshold INTEGER`
-    )
-  }
-
-  // P2-02: 确保 app_settings 有 copilot_default_agent_excluded_tools 列（JSON 数组）
-  if (!hasColumn(db, 'app_settings', 'copilot_default_agent_excluded_tools')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_default_agent_excluded_tools TEXT`
-    )
-  }
-
-  // P2-03: 确保 app_settings 有 copilot_plugin_directories 列（JSON 数组）
-  if (!hasColumn(db, 'app_settings', 'copilot_plugin_directories')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_plugin_directories TEXT`
-    )
-  }
-
-  // P2-04: 确保 app_settings 有 copilot_instruction_directories 列（JSON 数组）
-  if (!hasColumn(db, 'app_settings', 'copilot_instruction_directories')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_instruction_directories TEXT`
-    )
-  }
-
-  // P2-05: 确保 app_settings 有 copilot_enable_memory 列（boolean 0/1）
-  if (!hasColumn(db, 'app_settings', 'copilot_enable_memory')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_enable_memory INTEGER DEFAULT 0`
-    )
-  }
-
-  // P2-06: 确保 app_settings 有 copilot_skip_custom_instructions 列（boolean 0/1）
-  if (!hasColumn(db, 'app_settings', 'copilot_skip_custom_instructions')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_skip_custom_instructions INTEGER DEFAULT 0`
-    )
-  }
-
-  // P3-01: 确保 app_settings 有 copilot_enable_ask_user 列（boolean 0/1）
-  if (!hasColumn(db, 'app_settings', 'copilot_enable_ask_user')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_enable_ask_user INTEGER DEFAULT 0`
-    )
-  }
-
-  // P3-02: 确保 app_settings 有 copilot_enable_elicitation 列（boolean 0/1）
-  if (!hasColumn(db, 'app_settings', 'copilot_enable_elicitation')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_enable_elicitation INTEGER DEFAULT 0`
-    )
-  }
-
-  // P3-03: 确保 app_settings 有 copilot_agent_mode 列（TEXT: interactive/plan/autopilot/shell）
-  if (!hasColumn(db, 'app_settings', 'copilot_agent_mode')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_agent_mode TEXT`
-    )
-  }
-
-  // P3-04: 确保 app_settings 有 copilot_max_prompt_tokens 列（INTEGER）
-  if (!hasColumn(db, 'app_settings', 'copilot_max_prompt_tokens')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_max_prompt_tokens INTEGER`
-    )
-  }
-
-  // P3-05: 确保 app_settings 有 copilot_excluded_builtin_agents 列（JSON 数组）
-  if (!hasColumn(db, 'app_settings', 'copilot_excluded_builtin_agents')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_excluded_builtin_agents TEXT`
-    )
-  }
-
-  // P3-06: 确保 app_settings 有 copilot_enable_skills 列（boolean 0/1，默认 1）
-  if (!hasColumn(db, 'app_settings', 'copilot_enable_skills')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_enable_skills INTEGER DEFAULT 1`
-    )
-  }
-
-  // P3-07: 确保 app_settings 有 copilot_disabled_skills 列（JSON 数组）
-  if (!hasColumn(db, 'app_settings', 'copilot_disabled_skills')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_disabled_skills TEXT`
-    )
-  }
-
-  // P3-08: 确保 app_settings 有 copilot_infinite_session_threshold 列（REAL）
-  if (!hasColumn(db, 'app_settings', 'copilot_infinite_session_threshold')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_infinite_session_threshold REAL`
-    )
-  }
-
-  // P3-09: 确保 app_settings 有 copilot_large_output_max_size 列（INTEGER）
-  if (!hasColumn(db, 'app_settings', 'copilot_large_output_max_size')) {
-    db.exec(
-      `ALTER TABLE app_settings ADD COLUMN copilot_large_output_max_size INTEGER`
-    )
-  }
-
-  // RAG-FIX-01: 确保 app_settings 有嵌入模型配置列
-  if (!hasColumn(db, 'app_settings', 'embedding_provider')) {
-    db.exec(`ALTER TABLE app_settings ADD COLUMN embedding_provider TEXT DEFAULT 'ollama'`)
-  }
-  if (!hasColumn(db, 'app_settings', 'embedding_base_url')) {
-    db.exec(`ALTER TABLE app_settings ADD COLUMN embedding_base_url TEXT DEFAULT 'http://localhost:11434'`)
-  }
-  if (!hasColumn(db, 'app_settings', 'embedding_model')) {
-    db.exec(`ALTER TABLE app_settings ADD COLUMN embedding_model TEXT DEFAULT 'nomic-embed-text'`)
-  }
-  if (!hasColumn(db, 'app_settings', 'embedding_api_key')) {
-    db.exec(`ALTER TABLE app_settings ADD COLUMN embedding_api_key TEXT`)
-  }
-  if (!hasColumn(db, 'app_settings', 'embedding_dimensions')) {
-    db.exec(`ALTER TABLE app_settings ADD COLUMN embedding_dimensions INTEGER DEFAULT 768`)
-  }
-
-  // RAG-FIX-02: 确保 kb_documents 有 content_hash 列（用于快速去重）
-  if (!hasColumn(db, 'kb_documents', 'content_hash')) {
-    db.exec(`ALTER TABLE kb_documents ADD COLUMN content_hash TEXT`)
-  }
-
-  // P3-01: 确保 conversations 有 parent_id 列（对话分支）
-  if (!hasColumn(db, 'conversations', 'parent_id')) {
-    db.exec(`ALTER TABLE conversations ADD COLUMN parent_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`)
-  }
-  if (!hasColumn(db, 'conversations', 'fork_index')) {
-    db.exec(`ALTER TABLE conversations ADD COLUMN fork_index INTEGER DEFAULT 0`)
-  }
-  if (!hasColumn(db, 'conversations', 'is_forked')) {
-    db.exec(`ALTER TABLE conversations ADD COLUMN is_forked INTEGER DEFAULT 0 CHECK(is_forked IN (0, 1))`)
-  }
-  // 确保分支相关索引存在（幂等，IF NOT EXISTS）
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_conv_parent ON conversations(parent_id)`)
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_conv_forked ON conversations(is_forked)`)
+  // 索引迁移：幂等地创建缺失的索引
+  INDEX_MIGRATIONS.forEach((sql) => {
+    db.exec(sql)
+  })
 }
 
 /**
