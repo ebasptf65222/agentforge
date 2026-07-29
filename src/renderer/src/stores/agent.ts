@@ -9,7 +9,12 @@ import type {
   ExecutionStatus,
   ApprovalMode,
   StreamChunk,
+  AuditReport,
+  AuditInput,
+  UserInputRequest,
+  ElicitationRequest,
 } from '@shared/types'
+import { useContextUsageStore } from '@/stores/context-usage'
 
 export const useAgentStore = defineStore('agent', () => {
   // ─── State ───────────────────────────────────────────────────
@@ -26,14 +31,35 @@ export const useAgentStore = defineStore('agent', () => {
   /** Current pending approval request */
   const pendingApproval = ref<ApprovalRequest | null>(null)
 
+  /** Pending ask_user request (AI is asking the user a question) */
+  const pendingUserInput = ref<UserInputRequest | null>(null)
+
+  /** Pending elicitation request (AI is asking the user to fill a form) */
+  const pendingElicitation = ref<ElicitationRequest | null>(null)
+
   /** Streaming text content */
   const streamingContent = ref('')
+
+  /** Streaming thinking/reasoning content (from SDK reasoning_delta events) */
+  const streamingThinking = ref('')
 
   /** Last execution result */
   const lastResult = ref<ExecutionResult | null>(null)
 
   /** Error message if execution failed */
   const error = ref<string | null>(null)
+
+  /** Last audit report (persists after execution until next execution starts) */
+  const auditReport = ref<AuditReport | null>(null)
+
+  /** Whether audit is currently being generated */
+  const auditLoading = ref(false)
+
+  /** Last execution conversationId (not in ExecutionResult, needed for audit) */
+  const lastConversationId = ref<string | null>(null)
+
+  /** Last execution approvalMode (not in ExecutionResult, needed for audit) */
+  const lastApprovalMode = ref<ApprovalMode | null>(null)
 
   // ─── Getters ─────────────────────────────────────────────────
 
@@ -71,8 +97,15 @@ export const useAgentStore = defineStore('agent', () => {
     trajectories.value = []
     pendingApproval.value = null
     streamingContent.value = ''
+    streamingThinking.value = ''
     lastResult.value = null
     error.value = null
+    auditReport.value = null
+    auditLoading.value = false
+
+    // Store params needed for audit (not in ExecutionResult)
+    lastConversationId.value = params.conversationId
+    lastApprovalMode.value = params.approvalMode
 
     try {
       const result = await window.electron.agent.execute(params)
@@ -106,6 +139,41 @@ export const useAgentStore = defineStore('agent', () => {
 
   // ─── Event Handlers ──────────────────────────────────────────
 
+  /**
+   * Trigger audit evaluation after execution completes.
+   * Uses lastResult + trajectories to build AuditInput and calls the audit engine via IPC.
+   */
+  async function runAudit(): Promise<void> {
+    if (!lastResult.value || !lastConversationId.value || !lastApprovalMode.value) return
+
+    auditLoading.value = true
+    try {
+      const input: AuditInput = {
+        executionId: lastResult.value.executionId,
+        conversationId: lastConversationId.value,
+        trajectories: trajectories.value,
+        approvalMode: lastApprovalMode.value,
+        totalSteps: lastResult.value.totalSteps,
+        duration: lastResult.value.duration,
+        tokensUsed: lastResult.value.tokensUsed,
+        summary: lastResult.value.summary,
+      }
+
+      const report = await window.electron.audit.run(input)
+      auditReport.value = report
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      auditLoading.value = false
+    }
+  }
+
+  /** Handle audit report push event from main process */
+  function handleAuditReport(report: AuditReport): void {
+    auditReport.value = report
+    auditLoading.value = false
+  }
+
   /** Handle trajectory event */
   function handleTrajectory(trajectory: TAOTrajectory): void {
     // Update existing trajectory or add new one
@@ -126,18 +194,75 @@ export const useAgentStore = defineStore('agent', () => {
   function handleStreamChunk(chunk: StreamChunk): void {
     if (chunk.type === 'text' && chunk.content) {
       streamingContent.value += chunk.content
+    } else if (chunk.type === 'thinking' && chunk.content) {
+      streamingThinking.value += chunk.content
+    } else if (chunk.type === 'usage-info' && chunk.content) {
+      // B8: 更新上下文使用量进度条（SDK session.usage_info 事件）
+      try {
+        const usage = JSON.parse(chunk.content) as {
+          tokenLimit: number
+          currentTokens: number
+          messagesLength: number
+        }
+        useContextUsageStore().update(usage)
+      } catch {
+        // Ignore malformed usage-info payloads
+      }
+    } else if (chunk.type === 'ask-user' && chunk.content) {
+      // ask_user: AI 主动向用户提问
+      try {
+        pendingUserInput.value = JSON.parse(chunk.content) as UserInputRequest
+      } catch {
+        // Ignore malformed ask-user payloads
+      }
+    } else if (chunk.type === 'elicitation-request' && chunk.content) {
+      // elicitation: AI 请求用户填写表单
+      try {
+        pendingElicitation.value = JSON.parse(chunk.content) as ElicitationRequest
+      } catch {
+        // Ignore malformed elicitation payloads
+      }
     }
   }
 
-  /** Reset state */
+  /** Respond to an ask_user request */
+  async function respondUserInput(response: string): Promise<void> {
+    if (!pendingUserInput.value) return
+    const requestId = pendingUserInput.value.requestId
+    pendingUserInput.value = null
+    try {
+      await window.electron.agent.respondUserInput({ requestId, response })
+    } catch (error) {
+      console.error('Failed to respond to user input:', error)
+    }
+  }
+
+  /** Respond to an elicitation request */
+  async function respondElicitation(response: Record<string, unknown>): Promise<void> {
+    if (!pendingElicitation.value) return
+    const requestId = pendingElicitation.value.requestId
+    pendingElicitation.value = null
+    try {
+      await window.electron.agent.respondElicitation({ requestId, response })
+    } catch (error) {
+      console.error('Failed to respond to elicitation:', error)
+    }
+  }
+
+  /** Reset state (preserves auditReport so it remains visible after execution) */
   function reset(): void {
     status.value = 'idle'
     executionId.value = null
     trajectories.value = []
     pendingApproval.value = null
+    pendingUserInput.value = null
+    pendingElicitation.value = null
     streamingContent.value = ''
+    streamingThinking.value = ''
     lastResult.value = null
     error.value = null
+    lastConversationId.value = null
+    lastApprovalMode.value = null
   }
 
   return {
@@ -146,9 +271,14 @@ export const useAgentStore = defineStore('agent', () => {
     executionId,
     trajectories,
     pendingApproval,
+    pendingUserInput,
+    pendingElicitation,
     streamingContent,
+    streamingThinking,
     lastResult,
     error,
+    auditReport,
+    auditLoading,
     // Getters
     isRunning,
     isWaitingApproval,
@@ -159,10 +289,14 @@ export const useAgentStore = defineStore('agent', () => {
     execute,
     stop,
     respondApproval,
+    respondUserInput,
+    respondElicitation,
+    runAudit,
     // Handlers
     handleTrajectory,
     handleApprovalRequest,
     handleStreamChunk,
+    handleAuditReport,
     reset,
   }
 })

@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS conversations (
                  CHECK(approval_mode IN ('suggest', 'auto-edit', 'full-auto')),
   message_count  INTEGER NOT NULL DEFAULT 0,
   last_message_at INTEGER,
+  sdk_session_id TEXT DEFAULT NULL,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 );
@@ -293,3 +294,91 @@ CREATE INDEX IF NOT EXISTS idx_kg_relations_relation ON kg_relations(relation);
 
 INSERT OR IGNORE INTO schema_version (version, applied_at, description)
 VALUES (8, strftime('%s','now') * 1000, 'Add workspace column to app_settings for local file workspace');
+
+-- ─── 6.15 copilot reasoning effort (CE-05) ──────────────────
+-- Copilot SDK 推理强度配置，存储在 app_settings 的 copilot_reasoning_effort 列中
+-- 值为 'low' | 'medium' | 'high' | 'xhigh'，NULL 表示使用 SDK 默认值
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (9, strftime('%s','now') * 1000, 'Add copilot_reasoning_effort column to app_settings for SDK reasoning control');
+
+-- ─── 6.16 prompt_templates (PT-01) ────────────────────────────
+-- Prompt 模板库，保存和复用常用 prompt 模板
+-- variables 以 JSON 字符串数组存储（变量名列表）
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (10, strftime('%s','now') * 1000, 'Add prompt_templates table for Prompt Template Library');
+
+CREATE TABLE IF NOT EXISTS prompt_templates (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  content     TEXT NOT NULL,
+  category    TEXT NOT NULL DEFAULT 'general',
+  variables   TEXT NOT NULL DEFAULT '[]',  -- JSON array of variable names
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_prompt_templates_category ON prompt_templates(category);
+CREATE INDEX IF NOT EXISTS idx_prompt_templates_updated ON prompt_templates(updated_at DESC);
+
+-- ─── 6.17 conversations.sdk_session_id (CE-06) ────────────────
+-- 为 conversations 表添加 sdk_session_id 列，存储 SDK 分配的 sessionId
+-- 用于应用重启后通过 client.resumeSession 恢复之前的对话上下文
+-- 注意：CREATE TABLE IF NOT EXISTS 不会为已存在的表添加列，
+--       已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (11, strftime('%s','now') * 1000, 'Add sdk_session_id column to conversations for SDK session resume');
+
+-- ─── 6.18 copilot_wire_api (B5) ──────────────────────────────
+-- Copilot SDK wire API 模式配置，存储在 app_settings 的 copilot_wire_api 列中
+-- 值为 'completions' | 'responses'，NULL 表示 'auto'（根据模型类型自动判断）
+-- 'responses' 模式支持多轮状态、工具命名空间、推理支持（GPT-4o/o 系列推荐）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (12, strftime('%s','now') * 1000, 'Add copilot_wire_api column to app_settings for SDK Responses API mode control');
+
+-- ─── 6.19 copilot_skill_directories (B9) ──────────────────────
+-- Copilot SDK 技能目录路径列表（JSON 数组），SDK 会从这些目录加载 .md 技能文件
+-- NULL 表示未配置（不传入 skillDirectories）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (13, strftime('%s','now') * 1000, 'Add copilot_skill_directories column to app_settings for SDK skill directory loading');
+
+-- ─── 6.20 copilot_enable_config_discovery (B9) ────────────────
+-- 是否启用配置自动发现（.mcp.json、skill 目录等）
+-- 0 表示禁用（默认），1 表示启用
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (14, strftime('%s','now') * 1000, 'Add copilot_enable_config_discovery column to app_settings for SDK config auto-discovery');
+
+-- ─── 6.21 copilot_context_tier (P1-01) ────────────────────────
+-- SDK 上下文窗口层级：'default' 或 'long_context'
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (15, strftime('%s','now') * 1000, 'Add copilot_context_tier column to app_settings for SDK context tier');
+
+-- ─── 6.22 copilot_reasoning_summary (P1-02) ───────────────────
+-- SDK 推理摘要模式：'none' | 'auto' | 'detailed'
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (16, strftime('%s','now') * 1000, 'Add copilot_reasoning_summary column to app_settings for SDK reasoning summary');
+
+-- ─── 6.23 copilot_excluded_tools (P1-03) ──────────────────────
+-- SDK 排除的工具列表（JSON 数组）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (17, strftime('%s','now') * 1000, 'Add copilot_excluded_tools column to app_settings for SDK excluded tools');
+
+-- ─── 6.24 copilot_enable_host_git_operations (P1-04) ──────────
+-- SDK 是否启用主机 Git 操作：0 表示禁用，1 表示启用（默认）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (18, strftime('%s','now') * 1000, 'Add copilot_enable_host_git_operations column to app_settings for SDK host git operations');

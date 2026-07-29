@@ -120,6 +120,71 @@ function runConditionalMigrations(db: Database.Database): void {
       `ALTER TABLE app_settings ADD COLUMN engine_type TEXT NOT NULL DEFAULT 'builtin'`
     )
   }
+
+  // CE-05: 确保 app_settings 有 copilot_reasoning_effort 列
+  if (!hasColumn(db, 'app_settings', 'copilot_reasoning_effort')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_reasoning_effort TEXT`
+    )
+  }
+
+  // B5: 确保 app_settings 有 copilot_wire_api 列（'completions' | 'responses' | 'auto'）
+  // NULL 表示 'auto'（根据模型类型自动判断）
+  if (!hasColumn(db, 'app_settings', 'copilot_wire_api')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_wire_api TEXT`
+    )
+  }
+
+  // B9: 确保 app_settings 有 copilot_skill_directories 列（JSON 数组）
+  // NULL 表示未配置
+  if (!hasColumn(db, 'app_settings', 'copilot_skill_directories')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_skill_directories TEXT`
+    )
+  }
+
+  // B9: 确保 app_settings 有 copilot_enable_config_discovery 列（boolean 0/1）
+  if (!hasColumn(db, 'app_settings', 'copilot_enable_config_discovery')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_enable_config_discovery INTEGER DEFAULT 0`
+    )
+  }
+
+  // CE-06: 确保 conversations 有 sdk_session_id 列（用于 SDK session resume）
+  if (!hasColumn(db, 'conversations', 'sdk_session_id')) {
+    db.exec(
+      `ALTER TABLE conversations ADD COLUMN sdk_session_id TEXT DEFAULT NULL`
+    )
+  }
+
+  // P1-01: 确保 app_settings 有 copilot_context_tier 列（'default' | 'long_context'）
+  if (!hasColumn(db, 'app_settings', 'copilot_context_tier')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_context_tier TEXT`
+    )
+  }
+
+  // P1-02: 确保 app_settings 有 copilot_reasoning_summary 列（'none' | 'auto' | 'detailed'）
+  if (!hasColumn(db, 'app_settings', 'copilot_reasoning_summary')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_reasoning_summary TEXT`
+    )
+  }
+
+  // P1-03: 确保 app_settings 有 copilot_excluded_tools 列（JSON 数组）
+  if (!hasColumn(db, 'app_settings', 'copilot_excluded_tools')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_excluded_tools TEXT`
+    )
+  }
+
+  // P1-04: 确保 app_settings 有 copilot_enable_host_git_operations 列（boolean 0/1）
+  if (!hasColumn(db, 'app_settings', 'copilot_enable_host_git_operations')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_enable_host_git_operations INTEGER DEFAULT 1`
+    )
+  }
 }
 
 /**

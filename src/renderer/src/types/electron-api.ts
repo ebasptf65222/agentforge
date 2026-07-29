@@ -19,6 +19,7 @@ import type {
   Skill,
   SkillVariable,
   SkillTrigger,
+  PromptTemplate,
   KbDocument,
   SearchResult,
   ChunkingOptions,
@@ -33,6 +34,11 @@ import type {
   WorkspaceDirectoryEntry,
   WikiStatus,
   WikiPageSummary,
+  AuditReport,
+  AuditInput,
+  ActiveSessionInfo,
+  UserInputResponse,
+  ElicitationResponse,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -165,6 +171,12 @@ interface AgentAPI {
   execute(params: AgentExecuteParams): Promise<ExecutionResult>
   stop(): Promise<void>
   approve(params: AgentApproveParams): Promise<void>
+  /** B7: 查询当前活跃的 SDK 会话列表 */
+  listSessions(): Promise<ActiveSessionInfo[]>
+  /** ask_user: 响应 AI 主动提问 */
+  respondUserInput(params: UserInputResponse): Promise<void>
+  /** elicitation: 响应表单交互请求 */
+  respondElicitation(params: ElicitationResponse): Promise<void>
   onTrajectory(callback: (data: TAOTrajectory) => void): () => void
   onApprovalRequest(callback: (data: ApprovalRequest) => void): () => void
   onStreamChunk(callback: (data: StreamChunk) => void): () => void
@@ -359,6 +371,50 @@ interface WikiAPI {
   ingest(sourcePath: string): Promise<{ rawRelPath: string; fileName: string }>
 }
 
+/** Audit 命名空间（工作流审计） */
+interface AuditAPI {
+  /** 触发审计评估，返回审计报告 */
+  run(params: AuditInput): Promise<AuditReport>
+  /** 监听审计报告推送事件 */
+  onReport(callback: (report: AuditReport) => void): () => void
+}
+
+/** 创建 Prompt 模板参数 */
+interface CreatePromptTemplateParams {
+  title: string
+  content: string
+  category?: string
+  variables?: string[]
+}
+
+/** 更新 Prompt 模板参数 */
+interface UpdatePromptTemplateParams {
+  id: string
+  title?: string
+  content?: string
+  category?: string
+  variables?: string[]
+}
+
+/** Prompt 模板列表查询参数 */
+interface ListPromptTemplateParams {
+  category?: string
+}
+
+/** Prompt Template 命名空间（Prompt 模板库） */
+interface PromptTemplateAPI {
+  /** 获取所有模板，可选按分类过滤 */
+  list(params?: ListPromptTemplateParams): Promise<PromptTemplate[]>
+  /** 获取单个模板（不存在时返回 null） */
+  get(id: string): Promise<PromptTemplate | null>
+  /** 创建模板 */
+  create(params: CreatePromptTemplateParams): Promise<PromptTemplate>
+  /** 更新模板（仅更新提供的字段） */
+  update(id: string, data: Omit<UpdatePromptTemplateParams, 'id'>): Promise<void>
+  /** 删除模板 */
+  delete(id: string): Promise<void>
+}
+
 /** window.electron 完整类型 */
 interface ElectronAPI {
   chat: ChatAPI
@@ -374,6 +430,8 @@ interface ElectronAPI {
   window: WindowAPI
   workspace: WorkspaceAPI
   wiki: WikiAPI
+  audit: AuditAPI
+  promptTemplate: PromptTemplateAPI
 }
 
 export type {
@@ -411,4 +469,9 @@ export type {
   WindowAPI,
   WorkspaceAPI,
   ElectronAPI,
+  AuditAPI,
+  CreatePromptTemplateParams,
+  UpdatePromptTemplateParams,
+  ListPromptTemplateParams,
+  PromptTemplateAPI,
 }

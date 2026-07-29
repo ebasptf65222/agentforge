@@ -29,6 +29,7 @@ const BUILTIN_TOOL_RISK: Record<string, ToolRiskLevel> = {
   file_read: 'low',
   directory_list: 'low',
   file_write: 'medium',
+  terminal_exec: 'high',
   image_generate: 'medium',
   screenshot_ocr: 'medium',
   kb_index: 'medium',

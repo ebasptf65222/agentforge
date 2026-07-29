@@ -4,6 +4,7 @@
 
 import type Database from 'better-sqlite3'
 import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
+import type { ReasoningEffort, WireApiMode, ContextTier, ReasoningSummary } from '../../copilot/types'
 import { getDatabase } from '../index'
 import { AppError, ErrorCodes } from '../../utils/error'
 
@@ -25,6 +26,14 @@ interface AppSettingsRow {
   voice: string
   workspace: string
   engine_type: string
+  copilot_reasoning_effort: string | null
+  copilot_wire_api: string | null
+  copilot_skill_directories: string | null
+  copilot_enable_config_discovery: number
+  copilot_context_tier: string | null
+  copilot_reasoning_summary: string | null
+  copilot_excluded_tools: string | null
+  copilot_enable_host_git_operations: number
   window_bounds: string | null
   updated_at: number
 }
@@ -85,6 +94,11 @@ const DEFAULT_WORKSPACE_CONFIG: WorkspaceConfig = {
 const DEFAULT_ENGINE_TYPE: EngineType = 'builtin'
 
 /**
+ * 默认 wire API 模式（'auto' 表示根据模型类型自动判断）。
+ */
+const DEFAULT_COPILOT_WIRE_API: WireApiMode = 'auto'
+
+/**
  * 窗口边界类型（与 @shared/types AppSettings.windowBounds 一致）。
  */
 interface WindowBounds {
@@ -109,6 +123,14 @@ export interface UpdateSettingsParams {
   voice?: Partial<VoiceConfig> | VoiceConfig
   workspace?: Partial<WorkspaceConfig> | WorkspaceConfig
   engineType?: EngineType
+  copilotReasoningEffort?: ReasoningEffort | null
+  copilotWireApi?: WireApiMode | null
+  copilotSkillDirectories?: string[] | null
+  copilotEnableConfigDiscovery?: boolean
+  copilotContextTier?: ContextTier | null
+  copilotReasoningSummary?: ReasoningSummary | null
+  copilotExcludedTools?: string[] | null
+  copilotEnableHostGitOperations?: boolean
   windowBounds?: WindowBounds | null
 }
 
@@ -162,6 +184,18 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     voice,
     workspace,
     engineType: (row.engine_type || DEFAULT_ENGINE_TYPE) as EngineType,
+    copilotReasoningEffort: (row.copilot_reasoning_effort ?? undefined) as ReasoningEffort | undefined,
+    copilotWireApi: (row.copilot_wire_api ?? DEFAULT_COPILOT_WIRE_API) as WireApiMode,
+    copilotSkillDirectories: row.copilot_skill_directories
+      ? (JSON.parse(row.copilot_skill_directories) as string[])
+      : undefined,
+    copilotEnableConfigDiscovery: row.copilot_enable_config_discovery === 1,
+    copilotContextTier: (row.copilot_context_tier ?? undefined) as ContextTier | undefined,
+    copilotReasoningSummary: (row.copilot_reasoning_summary ?? undefined) as ReasoningSummary | undefined,
+    copilotExcludedTools: row.copilot_excluded_tools
+      ? (JSON.parse(row.copilot_excluded_tools) as string[])
+      : undefined,
+    copilotEnableHostGitOperations: row.copilot_enable_host_git_operations === 1,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -357,6 +391,55 @@ export function updateSettings(params: UpdateSettingsParams): void {
   if (params.engineType !== undefined) {
     setClauses.push('engine_type = ?')
     values.push(params.engineType)
+  }
+
+  if (params.copilotReasoningEffort !== undefined) {
+    setClauses.push('copilot_reasoning_effort = ?')
+    // null 表示清除设置（使用 SDK 默认）
+    values.push(params.copilotReasoningEffort === null ? null : params.copilotReasoningEffort)
+  }
+
+  if (params.copilotWireApi !== undefined) {
+    setClauses.push('copilot_wire_api = ?')
+    // null 表示清除设置（回退到 'auto' 自动判断）
+    values.push(params.copilotWireApi === null ? null : params.copilotWireApi)
+  }
+
+  if (params.copilotSkillDirectories !== undefined) {
+    setClauses.push('copilot_skill_directories = ?')
+    // null 表示清除配置；数组序列化为 JSON
+    values.push(
+      params.copilotSkillDirectories === null
+        ? null
+        : JSON.stringify(params.copilotSkillDirectories),
+    )
+  }
+
+  if (params.copilotEnableConfigDiscovery !== undefined) {
+    setClauses.push('copilot_enable_config_discovery = ?')
+    values.push(params.copilotEnableConfigDiscovery ? 1 : 0)
+  }
+
+  if (params.copilotContextTier !== undefined) {
+    setClauses.push('copilot_context_tier = ?')
+    values.push(params.copilotContextTier === null ? null : params.copilotContextTier)
+  }
+
+  if (params.copilotReasoningSummary !== undefined) {
+    setClauses.push('copilot_reasoning_summary = ?')
+    values.push(params.copilotReasoningSummary === null ? null : params.copilotReasoningSummary)
+  }
+
+  if (params.copilotExcludedTools !== undefined) {
+    setClauses.push('copilot_excluded_tools = ?')
+    values.push(
+      params.copilotExcludedTools === null ? null : JSON.stringify(params.copilotExcludedTools),
+    )
+  }
+
+  if (params.copilotEnableHostGitOperations !== undefined) {
+    setClauses.push('copilot_enable_host_git_operations = ?')
+    values.push(params.copilotEnableHostGitOperations ? 1 : 0)
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

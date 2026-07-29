@@ -33,6 +33,7 @@ import { getModelAdapter } from '../models/router'
 import type { AdapterMessage } from '../models/adapter'
 import { semanticSearch } from '../knowledge-base/search'
 import { getDatabase } from '../db'
+import { getSessionManager } from '../copilot/session-manager'
 
 // ─── 并发控制 ─────────────────────────────────────────────────────
 
@@ -405,7 +406,11 @@ export function handleDeleteConversation(params: unknown): void {
 
   assertNonEmptyString(p['id'], 'id')
 
-  deleteConversation(p['id'] as string)
+  const id = p['id'] as string
+  deleteConversation(id)
+
+  // 清理对应的 Copilot SDK 持久化会话
+  void getSessionManager().destroySession(id)
 }
 
 /**
@@ -451,6 +456,9 @@ export function handleClearConversation(params: unknown): void {
   db.prepare(
     'UPDATE conversations SET message_count = 0, last_message_at = NULL, updated_at = ? WHERE id = ?',
   ).run(Date.now(), id)
+
+  // 清理对应的 Copilot SDK 持久化会话（消息已清空，需重建上下文）
+  void getSessionManager().destroySession(id)
 }
 
 /**

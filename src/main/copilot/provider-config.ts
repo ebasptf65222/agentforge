@@ -2,10 +2,38 @@
 // Converts AgentForge's ModelConfig (from DB) to SDK's ProviderConfig format
 
 import type { ModelConfig } from '@shared/types'
-import type { SdkProviderConfig } from './types'
+import type { SdkProviderConfig, WireApiMode } from './types'
 import { mapProviderType } from './types'
 import { getModelConfigById } from '../db/repos/model-config'
+import { getSettings } from '../db/repos/app-settings'
 import { AppError, ErrorCodes } from '../utils/error'
+
+/**
+ * 判断模型是否应使用 Responses API。
+ * OpenAI 的 o1/o3/o4 系列和 GPT-4o 支持 Responses API（多轮状态、工具命名空间、推理）。
+ */
+function shouldUseResponsesApi(modelId: string): boolean {
+  const id = modelId.toLowerCase()
+  // OpenAI o 系列（推理模型）
+  if (id.includes('o1') || id.includes('o3') || id.includes('o4')) return true
+  // GPT-4o 系列
+  if (id.includes('gpt-4o')) return true
+  // 其他模型默认使用 completions
+  return false
+}
+
+/**
+ * 解析 wireApi 模式：优先使用用户手动配置，'auto' 时根据模型类型自动判断。
+ */
+function resolveWireApi(
+  modelId: string,
+  setting: WireApiMode | undefined,
+): 'completions' | 'responses' {
+  if (setting && setting !== 'auto') {
+    return setting
+  }
+  return shouldUseResponsesApi(modelId) ? 'responses' : 'completions'
+}
 
 /**
  * Build SDK ProviderConfig from AgentForge's ModelConfig.
@@ -26,6 +54,10 @@ export function buildProviderConfig(model: ModelConfig): SdkProviderConfig {
   if (model.maxTokens) {
     config.maxOutputTokens = model.maxTokens
   }
+
+  // B5: 设置 wire API 模式（Responses API 支持多轮状态、工具命名空间、推理）
+  // 优先使用用户在设置中手动指定的模式；'auto' 时根据模型类型自动判断
+  config.wireApi = resolveWireApi(model.modelId, getSettings().copilotWireApi)
 
   return config
 }

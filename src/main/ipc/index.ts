@@ -15,6 +15,8 @@ import { registerVoiceHandlers } from './voice'
 import { registerWindowHandlers } from './window'
 import { registerWorkspaceHandlers } from './workspace'
 import { registerWikiHandlers } from './wiki'
+import { registerAuditHandlers } from './audit'
+import { registerPromptTemplateHandlers } from './prompt-template'
 
 /**
  * 注册所有 IPC handlers。
@@ -60,4 +62,10 @@ export function registerIpcHandlers(): void {
 
   // ─── LLM Wiki 域 (Karpathy 模式) ─────────────────────────────
   registerWikiHandlers()
+
+  // ─── Audit 域 (工作流审计) ────────────────────────────────────
+  registerAuditHandlers()
+
+  // ─── Prompt Template 域 (Prompt 模板库) ──────────────────────
+  registerPromptTemplateHandlers()
 }

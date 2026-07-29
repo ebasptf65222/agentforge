@@ -109,6 +109,17 @@ const agent = {
   approve: (params: Record<string, unknown>): Promise<void> =>
     ipcRenderer.invoke('agent:approve', params),
 
+  // B7: 查询当前活跃的 SDK 会话列表
+  listSessions: (): Promise<unknown[]> => ipcRenderer.invoke('agent:list-sessions'),
+
+  // ask_user: 响应 AI 主动提问
+  respondUserInput: (params: Record<string, unknown>): Promise<void> =>
+    ipcRenderer.invoke('agent:respond-user-input', params),
+
+  // elicitation: 响应表单交互请求
+  respondElicitation: (params: Record<string, unknown>): Promise<void> =>
+    ipcRenderer.invoke('agent:respond-elicitation', params),
+
   onTrajectory: (callback: (data: unknown) => void): (() => void) =>
     onEvent('agent:trajectory', callback),
 
@@ -252,6 +263,33 @@ const wiki = {
     ipcRenderer.invoke('wiki:ingest', { sourcePath }),
 }
 
+// ─── Audit 命名空间 (工作流审计) ──────────────────────────────
+
+const audit = {
+  run: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('audit:run', params),
+
+  onReport: (callback: (data: unknown) => void): (() => void) =>
+    onEvent('audit:report', callback),
+}
+
+// ─── Prompt Template 命名空间 (Prompt 模板库) ─────────────────
+
+const promptTemplate = {
+  list: (params?: Record<string, unknown>): Promise<unknown[]> =>
+    ipcRenderer.invoke('prompt-template:list', params ?? {}),
+
+  get: (id: string): Promise<unknown> => ipcRenderer.invoke('prompt-template:get', { id }),
+
+  create: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('prompt-template:create', params),
+
+  update: (id: string, data: Record<string, unknown>): Promise<void> =>
+    ipcRenderer.invoke('prompt-template:update', { id, ...data }),
+
+  delete: (id: string): Promise<void> => ipcRenderer.invoke('prompt-template:delete', { id }),
+}
+
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
@@ -271,6 +309,8 @@ if (process.contextIsolated) {
       window: win,
       workspace,
       wiki,
+      audit,
+      promptTemplate,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)

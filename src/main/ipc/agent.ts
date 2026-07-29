@@ -3,7 +3,7 @@
 // agent:execute, agent:stop, agent:approve
 // 事件推送: agent:trajectory, agent:approval-request, agent:stream-chunk
 
-import { ipcMain, type IpcMainInvokeHandler } from 'electron'
+import { ipcMain, app, type IpcMainInvokeHandler } from 'electron'
 import type {
   AgentExecutionRequest,
   ExecutionResult,
@@ -16,13 +16,26 @@ import { assertNonEmptyString } from '../utils/assertions'
 import { getMainWindowWebContents } from '../utils/electron-helpers'
 import { getModelAdapter } from '../models/router'
 import { getSettings } from '../db/repos/app-settings'
-import { getConversationById, updateLastMessageAt } from '../db/repos/conversation'
-import { createMessage } from '../db/repos/message'
+import {
+  getConversationById,
+  updateLastMessageAt,
+  updateSdkSessionId,
+  updateConversationTitle,
+} from '../db/repos/conversation'
+import { createMessage, getMessagesByConversationId } from '../db/repos/message'
 import { getToolRegistry } from '../tools/registry'
 import { AgentExecutor, type AgentExecutorConfig } from '../agent/executor'
 import { CopilotAgentBridge } from '../copilot/agent-bridge'
+import type { SessionExtras } from '../copilot/types'
 import type { AgentEventCallbacks, RegisteredTool } from '../agent/types'
 import { resolveSkill, buildSkillExecutionContext, filterTools } from '../skills/skill-executor'
+import { loadProjectRules, formatRulesPrompt } from '../agent/project-rules'
+import {
+  manageContext,
+  getModelContextWindow,
+  chatMessagesToContext,
+} from '../agent/context-manager'
+import { getSessionManager } from '../copilot/session-manager'
 
 // ─── 并发控制 ─────────────────────────────────────────────────────
 
@@ -106,26 +119,38 @@ function getToolsMap(): Map<string, RegisteredTool> {
 /**
  * 使用 Copilot SDK 引擎执行 Agent 请求。
  *
- * Step 2 基础版：仅支持纯文本对话（BYOK + 流式输出），不含工具调用。
- * 工具桥接将在 Step 3 中实现。
+ * 增强版：支持 Skill 集成（prompt 注入 + 工具过滤）、workingDirectory、
+ * largeOutput、reasoningEffort 等 SDK 高级能力。
  */
 async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<ExecutionResult> {
   const callbacks: AgentEventCallbacks = {
     onTrajectory: (trajectory) => sendTrajectory(trajectory),
     onApprovalRequest: (approvalRequest) => sendApprovalRequest(approvalRequest),
-    onStreamChunk: (chunk) => sendStreamChunk(chunk),
+    onStreamChunk: (chunk) => {
+      // 标题自动生成：更新对话标题
+      if (chunk.type === 'title' && chunk.content) {
+        try {
+          updateConversationTitle(request.conversationId, chunk.content)
+        } catch {
+          // Ignore title update errors
+        }
+      }
+      sendStreamChunk(chunk)
+    },
   }
+
+  const settings = getSettings()
 
   const bridge = new CopilotAgentBridge({
     callbacks,
-    approvalTimeoutMs: getSettings().approvalTimeoutMs,
+    approvalTimeoutMs: settings.approvalTimeoutMs,
   })
   currentBridge = bridge
 
   let result: ExecutionResult
   try {
-    // 验证会话存在
-    getConversationById(request.conversationId)
+    // 验证会话存在，并读取 sdkSessionId（用于 resume）
+    const conversation = getConversationById(request.conversationId)
 
     // 保存用户消息
     createMessage({
@@ -134,8 +159,108 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
       content: request.userInput,
     })
 
-    // 执行 SDK Agent
-    result = await bridge.execute(request)
+    // ─── 构建 SessionExtras ────────────────────────────────────
+    const extras: SessionExtras = {}
+
+    // SDK 持久化会话模式：不再需要手动加载历史对话
+    // SDK 的 Infinite Sessions 机制自动管理上下文窗口和对话历史
+    // 传入 conversationId 以复用 SDK session
+    extras.conversationId = request.conversationId
+
+    // 1. 解析 Skill（用户指定或意图匹配）
+    //    SDK 引擎复用现有 skills/ 模块，使用当前会话模型做意图匹配
+    const skillResolution = await resolveSkill(
+      request.userInput,
+      request.skillName,
+      getModelAdapter(request.modelId),
+    )
+
+    if (skillResolution.skill !== null) {
+      const skill = skillResolution.skill
+
+      // Skill 指定模型时，覆盖 BYOK 配置
+      if (skill.modelId !== undefined) {
+        request.modelId = skill.modelId
+      }
+
+      // 构建执行上下文（替换变量、构建 prompt 段落）
+      // tools 参数传入空 Map — SDK 引擎的 prompt 构建不需要工具定义
+      const skillCtx = buildSkillExecutionContext(skill, new Map())
+
+      extras.systemMessageContent = skillCtx.skillPrompt
+      extras.availableTools = skill.allowedTools.length > 0 ? skill.allowedTools : undefined
+    }
+
+    // 2. 传入工作区路径（文件操作上下文）
+    if (settings.workspace.path) {
+      extras.workingDirectory = settings.workspace.path
+    }
+
+    // 3. 加载项目规则文件（AGENTS.md）
+    const projectRules = await loadProjectRules()
+    if (projectRules) {
+      const rulesPrompt = formatRulesPrompt(projectRules)
+      if (extras.systemMessageContent) {
+        extras.systemMessageContent += rulesPrompt
+      } else {
+        extras.systemMessageContent = rulesPrompt.trim()
+      }
+    }
+
+    // 4. 传入推理强度（如果设置中有配置）
+    if (settings.copilotReasoningEffort) {
+      extras.reasoningEffort = settings.copilotReasoningEffort
+    }
+
+    // 5. 传入 sdkSessionId（从数据库读取，用于 resume 已有 SDK session）
+    if (conversation.sdkSessionId) {
+      extras.sdkSessionId = conversation.sdkSessionId
+    }
+
+    // 6. 传入技能目录配置（从 app_settings 读取）
+    // SDK 会自动从这些目录加载技能文件（.md 格式的技能定义）
+    if (settings.copilotSkillDirectories && settings.copilotSkillDirectories.length > 0) {
+      extras.skillDirectories = settings.copilotSkillDirectories
+    }
+
+    // 7. 配置自动发现（从工作目录自动发现 .mcp.json 和 skill 目录）
+    if (settings.copilotEnableConfigDiscovery) {
+      extras.enableConfigDiscovery = true
+    }
+
+    // 8. 上下文层级
+    if (settings.copilotContextTier) {
+      extras.contextTier = settings.copilotContextTier
+    }
+
+    // 9. 推理摘要模式
+    if (settings.copilotReasoningSummary) {
+      extras.reasoningSummary = settings.copilotReasoningSummary
+    }
+
+    // 10. 排除的工具列表
+    if (settings.copilotExcludedTools && settings.copilotExcludedTools.length > 0) {
+      extras.excludedTools = settings.copilotExcludedTools
+    }
+
+    // 11. 主机 Git 操作
+    if (settings.copilotEnableHostGitOperations !== undefined) {
+      extras.enableHostGitOperations = settings.copilotEnableHostGitOperations
+    }
+
+    // 12. 客户端名称
+    extras.clientName = 'AgentForge'
+
+    // 执行 SDK Agent（传入 extras 配置）
+    result = await bridge.execute(request, extras)
+
+    // 如果是新 session，将 sdkSessionId 持久化到数据库（供下次 resume）
+    if (bridge.wasNewSession()) {
+      const sdkSessionId = bridge.getSdkSessionId()
+      if (sdkSessionId) {
+        updateSdkSessionId(request.conversationId, sdkSessionId)
+      }
+    }
 
     // 保存助手回复
     createMessage({
@@ -199,6 +324,7 @@ export async function handleExecute(
     approvalMode: p['approvalMode'] as ApprovalMode,
     maxSteps: (p['maxSteps'] as number) || 20,
     skillName: p['skillName'] as string | undefined,
+    attachments: Array.isArray(p['attachments']) ? p['attachments'] : undefined,
   }
 
   // 1. 并发控制 - OPT-02: 在任何 await 之前设置锁，防止竞态条件
@@ -215,6 +341,8 @@ export async function handleExecute(
   }
 
   // 内置引擎路径：使用 AgentExecutor
+  // 根据模型配置获取上下文窗口大小（替代硬编码的 4096）
+  const contextWindow = getModelContextWindow(request.modelId)
   const executorConfig: AgentExecutorConfig = {
     adapter: getModelAdapter(request.modelId),
     tools: getToolsMap(),
@@ -224,7 +352,7 @@ export async function handleExecute(
       onStreamChunk: (chunk) => sendStreamChunk(chunk),
     },
     approvalTimeoutMs: settings.approvalTimeoutMs,
-    maxContextLength: 4096,
+    maxContextLength: contextWindow,
     skillPrompt: undefined,
   }
 
@@ -238,36 +366,50 @@ export async function handleExecute(
     // 4. 验证会话存在
     getConversationById(request.conversationId)
 
-    // 5. 保存用户消息
+    // 5. 加载历史对话消息并进行上下文窗口管理
+    //    在保存当前用户消息之前加载，避免重复包含当前输入
+    const rawHistory = getMessagesByConversationId(request.conversationId)
+    const historyContext = chatMessagesToContext(rawHistory)
+    const contextResult = manageContext(historyContext, {
+      maxContextTokens: contextWindow,
+    })
+    executorConfig.historyMessages = contextResult.messages
+    if (contextResult.truncated) {
+      console.info(
+        `[Agent Builtin] Context truncated: ${contextResult.originalCount} -> ${contextResult.retainedCount} messages, ~${contextResult.estimatedTokens} tokens`,
+      )
+    }
+
+    // 6. 保存用户消息
     createMessage({
       conversationId: request.conversationId,
       role: 'user',
       content: request.userInput,
     })
 
-    // 6. 解析 Skill（用户指定或意图匹配）
+    // 7. 解析 Skill（用户指定或意图匹配）
     const skillResolution = await resolveSkill(request.userInput, request.skillName, executorConfig.adapter)
 
     if (skillResolution.skill !== null) {
       const skill = skillResolution.skill
 
-      // 6a. 如果 Skill 指定了 modelId，使用该模型
+      // 7a. 如果 Skill 指定了 modelId，使用该模型
       if (skill.modelId !== undefined) {
         executorConfig.adapter = getModelAdapter(skill.modelId)
       }
 
-      // 6b. 构建执行上下文（替换变量、过滤工具）
+      // 7b. 构建执行上下文（替换变量、过滤工具）
       const skillCtx = buildSkillExecutionContext(skill, executorConfig.tools)
       executorConfig.skillPrompt = skillCtx.skillPrompt
 
-      // 6c. 过滤工具列表
+      // 7c. 过滤工具列表
       executorConfig.tools = filterTools(executorConfig.tools, skill.allowedTools)
     }
 
-    // 7. 执行 Agent
+    // 8. 执行 Agent
     result = await executor.execute(request)
 
-    // 8. 保存助手回复
+    // 9. 保存助手回复
     createMessage({
       conversationId: request.conversationId,
       role: 'assistant',
@@ -337,6 +479,65 @@ export function handleApprove(params: unknown): void {
   }
 }
 
+/**
+ * agent:respond-user-input - 响应 AI 主动提问（ask_user）。
+ */
+export function handleRespondUserInput(params: unknown): void {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['requestId'], 'requestId')
+  if (typeof p['response'] !== 'string') {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      'Field "response" must be a string.',
+    )
+  }
+
+  if (currentBridge) {
+    const success = currentBridge.respondToUserInput(p['requestId'], p['response'] as string)
+    if (!success) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'No matching user input request found. It may have timed out or been cancelled.',
+      )
+    }
+  }
+}
+
+/**
+ * agent:respond-elicitation - 响应 elicitation 表单交互。
+ */
+export function handleRespondElicitation(params: unknown): void {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['requestId'], 'requestId')
+  if (typeof p['response'] !== 'object' || p['response'] === null) {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      'Field "response" must be an object.',
+    )
+  }
+
+  if (currentBridge) {
+    const success = currentBridge.respondToElicitation(
+      p['requestId'],
+      p['response'] as Record<string, unknown>,
+    )
+    if (!success) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'No matching elicitation request found. It may have timed out or been cancelled.',
+      )
+    }
+  }
+}
+
 // ─── 通道注册 ───────────────────────────────────────────────────
 
 interface ChannelRegistration {
@@ -357,6 +558,21 @@ const registrations: ChannelRegistration[] = [
     channel: 'agent:approve',
     handler: (_event, params: unknown) => handleApprove(params),
   },
+  // B7: 查询当前活跃的 SDK 会话列表（用于会话管理 UI）
+  {
+    channel: 'agent:list-sessions',
+    handler: () => getSessionManager().listActiveSessions(),
+  },
+  // ask_user: 响应 AI 主动提问
+  {
+    channel: 'agent:respond-user-input',
+    handler: (_event, params: unknown) => handleRespondUserInput(params),
+  },
+  // elicitation: 响应表单交互请求
+  {
+    channel: 'agent:respond-elicitation',
+    handler: (_event, params: unknown) => handleRespondElicitation(params),
+  },
 ]
 
 /**
@@ -367,5 +583,14 @@ export function registerAgentHandlers(): void {
   for (const { channel, handler } of registrations) {
     ipcMain.removeHandler(channel)
     ipcMain.handle(channel, handler)
+  }
+
+  // 应用退出时清理所有 SDK session
+  // 使用 before-quit 事件确保在窗口关闭前清理
+  if (!app._sessionCleanupRegistered) {
+    app.on('before-quit', () => {
+      void getSessionManager().destroyAllSessions()
+    })
+    app._sessionCleanupRegistered = true
   }
 }

@@ -51,6 +51,33 @@ describe('app-settings repository', () => {
     testDb.pragma('journal_mode = WAL')
     testDb.pragma('foreign_keys = ON')
     testDb.exec(schemaSql)
+    // schema.sql 使用 CREATE TABLE IF NOT EXISTS，对于新建库不会包含
+    // 后续迁移添加的列。手动补齐以模拟 runConditionalMigrations 的效果。
+    const cols = testDb.pragma('table_info(app_settings)') as Array<{ name: string }>
+    if (!cols.some((c) => c.name === 'copilot_reasoning_effort')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_reasoning_effort TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_wire_api')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_wire_api TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_skill_directories')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_skill_directories TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_enable_config_discovery')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_enable_config_discovery INTEGER DEFAULT 0')
+    }
+    if (!cols.some((c) => c.name === 'copilot_context_tier')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_context_tier TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_reasoning_summary')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_reasoning_summary TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_excluded_tools')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_excluded_tools TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_enable_host_git_operations')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_enable_host_git_operations INTEGER DEFAULT 1')
+    }
     vi.clearAllMocks()
   })
 
@@ -502,6 +529,65 @@ describe('app-settings repository', () => {
         autoRestore: true,
         excludePatterns: ['node_modules', '.git', 'dist', '.DS_Store'],
       })
+    })
+  })
+
+  // ─── copilotReasoningEffort 配置 (CE-05) ──────────────────────
+
+  describe('copilotReasoningEffort config', () => {
+    it('should return undefined by default when column is NULL', () => {
+      const settings = getSettings()
+      expect(settings.copilotReasoningEffort).toBeUndefined()
+    })
+
+    it('should update copilotReasoningEffort to "high"', () => {
+      updateSettings({ copilotReasoningEffort: 'high' })
+
+      const settings = getSettings()
+      expect(settings.copilotReasoningEffort).toBe('high')
+    })
+
+    it('should update copilotReasoningEffort to "xhigh"', () => {
+      updateSettings({ copilotReasoningEffort: 'xhigh' })
+
+      const settings = getSettings()
+      expect(settings.copilotReasoningEffort).toBe('xhigh')
+    })
+
+    it('should clear copilotReasoningEffort by setting to null', () => {
+      updateSettings({ copilotReasoningEffort: 'high' })
+      updateSettings({ copilotReasoningEffort: null })
+
+      const settings = getSettings()
+      expect(settings.copilotReasoningEffort).toBeUndefined()
+    })
+
+    it('should persist copilotReasoningEffort as raw TEXT in DB', () => {
+      updateSettings({ copilotReasoningEffort: 'medium' })
+
+      const row = testDb
+        .prepare('SELECT copilot_reasoning_effort FROM app_settings WHERE id = 1')
+        .get() as { copilot_reasoning_effort: string | null }
+      expect(row.copilot_reasoning_effort).toBe('medium')
+    })
+
+    it('should store NULL when copilotReasoningEffort is set to null', () => {
+      updateSettings({ copilotReasoningEffort: 'low' })
+      updateSettings({ copilotReasoningEffort: null })
+
+      const row = testDb
+        .prepare('SELECT copilot_reasoning_effort FROM app_settings WHERE id = 1')
+        .get() as { copilot_reasoning_effort: string | null }
+      expect(row.copilot_reasoning_effort).toBeNull()
+    })
+
+    it('should preserve copilotReasoningEffort when updating other settings', () => {
+      updateSettings({ copilotReasoningEffort: 'high' })
+      updateSettings({ theme: 'light' })
+
+      const settings = getSettings()
+      expect(settings.copilotReasoningEffort).toBe('high')
+      expect(settings.theme).toBe('light')
     })
   })
 })

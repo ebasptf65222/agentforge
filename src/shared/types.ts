@@ -29,7 +29,19 @@ type ToolRiskLevel = 'low' | 'medium' | 'high'
 type SkillTrigger = 'auto' | 'manual'
 
 /** 流式 chunk 类型 */
-type StreamChunkType = 'text' | 'thinking' | 'tool-call' | 'error'
+type StreamChunkType =
+  | 'text'
+  | 'thinking'
+  | 'tool-call'
+  | 'error'
+  | 'compaction'
+  | 'tool-start'
+  | 'tool-complete'
+  | 'tool-progress'
+  | 'title'
+  | 'usage-info'
+  | 'ask-user'
+  | 'elicitation-request'
 
 // ─── 5.2 核心实体接口 ────────────────────────────────────────────
 
@@ -45,6 +57,8 @@ interface Conversation {
   lastMessageAt: number | null
   createdAt: number
   updatedAt: number
+  /** SDK 分配的 sessionId（用于 resume，应用重启后恢复会话） */
+  sdkSessionId?: string
 }
 
 /** 消息 */
@@ -113,8 +127,32 @@ interface AppSettings {
   voice: VoiceConfig
   workspace: WorkspaceConfig
   engineType: EngineType
+  /** SDK 引擎推理强度（仅 copilot-sdk 引擎生效） */
+  copilotReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  /** SDK wire API 模式：'auto' 表示根据模型自动判断（GPT-4o/o 系列用 responses） */
+  copilotWireApi?: 'completions' | 'responses' | 'auto'
+  /** SDK 技能目录路径列表（SDK skillDirectories，加载 .md 技能文件） */
+  copilotSkillDirectories?: string[]
+  /** 是否启用配置自动发现（.mcp.json、skill 目录等） */
+  copilotEnableConfigDiscovery?: boolean
+  /** SDK 上下文窗口层级：'long_context' 固定使用长上下文模型 */
+  copilotContextTier?: 'default' | 'long_context'
+  /** SDK 推理摘要模式：'none' 可抑制摘要输出 */
+  copilotReasoningSummary?: 'none' | 'auto' | 'detailed'
+  /** SDK 排除的工具列表（与 availableTools 互补） */
+  copilotExcludedTools?: string[]
+  /** SDK 是否启用主机 Git 操作（分支、状态等上下文） */
+  copilotEnableHostGitOperations?: boolean
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
+}
+
+/** 活跃 SDK 会话信息（B7 会话列表查询） */
+interface ActiveSessionInfo {
+  conversationId: string
+  sdkSessionId?: string
+  lastUsedAt: number
+  isCompacting: boolean
 }
 
 /** 快捷键配置 */
@@ -160,6 +198,8 @@ interface AgentExecutionRequest {
   skillName?: string
   approvalMode: ApprovalMode
   maxSteps: number
+  /** 图片附件（dataUrl 格式），传给 SDK session.send */
+  attachments?: Array<{ dataUrl: string; name: string; size: number }>
 }
 
 /** Agent 执行结果 */
@@ -205,6 +245,44 @@ interface ApprovalResponse {
   step: number
   approved: boolean
   reason?: string
+}
+
+/** AI 主动提问请求（ask_user） */
+interface UserInputRequest {
+  /** 唯一请求 ID */
+  requestId: string
+  /** 关联的执行 ID */
+  executionId: string
+  /** AI 提出的问题 */
+  prompt: string
+}
+
+/** AI 主动提问响应 */
+interface UserInputResponse {
+  /** 对应的请求 ID */
+  requestId: string
+  /** 用户的回答 */
+  response: string
+}
+
+/** Elicitation 表单请求 */
+interface ElicitationRequest {
+  /** 唯一请求 ID */
+  requestId: string
+  /** 关联的执行 ID */
+  executionId: string
+  /** 表单提示消息 */
+  message: string
+  /** 表单字段定义 */
+  form: Record<string, unknown>
+}
+
+/** Elicitation 表单响应 */
+interface ElicitationResponse {
+  /** 对应的请求 ID */
+  requestId: string
+  /** 用户填写的表单数据 */
+  response: Record<string, unknown>
 }
 
 // ─── 5.5 工具与 MCP 类型 ───────────────────────────────────────────
@@ -285,6 +363,20 @@ interface SkillMatchResult {
   skillName: string | null
   confidence: number
   reason: string
+}
+
+// ─── 5.6.1 Prompt 模板库类型 (PT-01) ────────────────────────────
+
+/** Prompt 模板 */
+interface PromptTemplate {
+  id: string
+  title: string
+  content: string
+  category: string
+  /** 变量名列表（用于 {{变量名}} 插值） */
+  variables: string[]
+  createdAt: number
+  updatedAt: number
 }
 
 // ─── 5.6 语音类型 ────────────────────────────────────────────────
@@ -532,7 +624,81 @@ interface WikiStatus {
   recentLogs: string
 }
 
-// ─── 5.9 错误类型 ────────────────────────────────────────────────
+// ─── 5.9 工作流审计类型 ────────────────────────────────────────
+
+/** 审计维度 */
+type AuditDimension =
+  | 'task-understanding'
+  | 'controlled-execution'
+  | 'change-validation'
+  | 'reliable-delivery'
+  | 'learning-capture'
+
+/** 证据状态（简化版：Missing / Present / Exercised） */
+type EvidenceState = 'missing' | 'present' | 'exercised'
+
+/** 审计发现严重性 */
+type AuditSeverity = 'low' | 'medium' | 'high'
+
+/** 审计发现 */
+interface AuditFinding {
+  id: string
+  dimension: AuditDimension
+  checkId: string
+  severity: AuditSeverity
+  title: string
+  description: string
+  evidence: string
+  impact: string
+  repair: string
+  evidenceState: EvidenceState
+}
+
+/** 维度检查项 */
+interface DimensionCheck {
+  checkId: string
+  label: string
+  evidenceState: EvidenceState
+  description: string
+}
+
+/** 维度评分 */
+interface DimensionScore {
+  dimension: AuditDimension
+  score: number
+  evidenceState: EvidenceState
+  checks: DimensionCheck[]
+}
+
+/** 支持轨道 */
+type SupportTrack = 'bootstrap' | 'operationalize' | 'optimize' | 'undetermined'
+
+/** 审计报告 */
+interface AuditReport {
+  id: string
+  executionId: string
+  conversationId: string
+  timestamp: number
+  dimensions: DimensionScore[]
+  findings: AuditFinding[]
+  overallScore: number
+  supportTrack: SupportTrack
+  summary: string
+}
+
+/** 审计输入参数 */
+interface AuditInput {
+  executionId: string
+  conversationId: string
+  trajectories: TAOTrajectory[]
+  approvalMode: ApprovalMode
+  totalSteps: number
+  duration: number
+  tokensUsed: number
+  summary: string
+}
+
+// ─── 5.10 错误类型 ────────────────────────────────────────────────
 
 /** 应用统一错误 */
 class AppError extends Error {
@@ -577,6 +743,7 @@ export type {
   ModelConfig,
   ModelCapabilities,
   AppSettings,
+  ActiveSessionInfo,
   ShortcutConfig,
   StreamChunk,
   StreamEndMetadata,
@@ -587,6 +754,10 @@ export type {
   ToolAction,
   ApprovalRequest,
   ApprovalResponse,
+  UserInputRequest,
+  UserInputResponse,
+  ElicitationRequest,
+  ElicitationResponse,
   ToolDefinition,
   ToolExecutionResult,
   MCPServerConfig,
@@ -594,6 +765,7 @@ export type {
   Skill,
   SkillVariable,
   SkillMatchResult,
+  PromptTemplate,
   VoiceConfig,
   TtsConfig,
   SttConfig,
@@ -614,6 +786,15 @@ export type {
   KbStats,
   WikiPageSummary,
   WikiStatus,
+  AuditDimension,
+  EvidenceState,
+  AuditSeverity,
+  AuditFinding,
+  DimensionCheck,
+  DimensionScore,
+  SupportTrack,
+  AuditReport,
+  AuditInput,
 }
 
 export { AppError }

@@ -6,6 +6,7 @@ import { webSearchTool } from './web-search'
 import { webScrapeTool } from './web-scrape'
 import { fileReadTool } from './file-read'
 import { fileWriteTool } from './file-write'
+import { terminalExecTool } from './terminal-exec'
 import { directoryListTool } from './directory-list'
 import { kbSearchTool } from './kb-search'
 import { kgExtractTool } from './kg-extract'
@@ -25,6 +26,8 @@ export function initBuiltinTools(): void {
   registry.registerBuiltin(webScrapeTool)
   registry.registerBuiltin(fileReadTool)
   registry.registerBuiltin(fileWriteTool)
+  // 注册终端命令执行工具（高风险，需要审批）
+  registry.registerBuiltin(terminalExecTool)
   registry.registerBuiltin(directoryListTool)
   registry.registerBuiltin(kbSearchTool)
   registry.registerBuiltin(kgExtractTool)

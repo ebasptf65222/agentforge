@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // P1-14: MarkdownRenderer - renders markdown as HTML with code copy support
 
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { renderMarkdown, getHighlighter } from '@/utils/markdown'
+import { renderMermaid } from '@/utils/mermaid'
 
 const props = defineProps<{
   content: string
@@ -18,6 +19,8 @@ const ready = ref(false)
 async function initHighlighter(): Promise<void> {
   await getHighlighter()
   ready.value = true
+  // 渲染 mermaid 图表
+  await renderMermaidBlocks()
 }
 
 onMounted(() => {
@@ -33,6 +36,36 @@ const finalHtml = computed(() => {
     return renderMarkdown(props.content)
   }
   return renderedHtml.value
+})
+
+/**
+ * 异步渲染所有 mermaid 占位 div。
+ */
+async function renderMermaidBlocks(): Promise<void> {
+  if (!rootRef.value) return
+  const mermaidDivs = rootRef.value.querySelectorAll<HTMLElement>('.mermaid-block')
+  for (const div of mermaidDivs) {
+    const code = div.getAttribute('data-mermaid')
+    if (!code) continue
+    const loadingEl = div.querySelector('.mermaid-block__loading')
+    try {
+      const svg = await renderMermaid(decodeURIComponent(code))
+      if (loadingEl) {
+        loadingEl.outerHTML = `<div class="mermaid-block__svg">${svg}</div>`
+      }
+    } catch {
+      if (loadingEl) {
+        loadingEl.textContent = '图表渲染失败'
+      }
+    }
+  }
+}
+
+// 内容变化时重新渲染 mermaid
+watch(finalHtml, () => {
+  nextTick(() => {
+    renderMermaidBlocks()
+  })
 })
 
 // ─── Event delegation for copy buttons ─────────────────────────
@@ -201,5 +234,43 @@ onUnmounted(() => {
 }
 .markdown-renderer :deep(em) {
   font-style: italic;
+}
+.markdown-renderer :deep(.mermaid-block) {
+  margin: 8px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--af-code-border, #374151);
+}
+.markdown-renderer :deep(.mermaid-block__header) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background-color: var(--af-code-header-bg, #1a1a2e);
+  border-bottom: 1px solid var(--af-code-border, #374151);
+}
+.markdown-renderer :deep(.mermaid-block__loading) {
+  padding: 24px;
+  text-align: center;
+  color: var(--af-text-muted, #9ca3af);
+  font-size: 13px;
+}
+.markdown-renderer :deep(.mermaid-block__svg) {
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow-x: auto;
+}
+.markdown-renderer :deep(.mermaid-block__svg svg) {
+  max-width: 100%;
+  height: auto;
+}
+.markdown-renderer :deep(.mermaid-error) {
+  padding: 12px;
+  color: var(--af-error, #ef4444);
+  font-size: 13px;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 4px;
 }
 </style>

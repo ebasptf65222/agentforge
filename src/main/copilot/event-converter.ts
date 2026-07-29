@@ -24,6 +24,95 @@ export function convertReasoningDelta(deltaContent: string): StreamChunk {
 }
 
 /**
+ * Convert SDK session.compaction_start event to AgentForge StreamChunk.
+ * 前端可显示"正在压缩上下文..."。
+ */
+export function convertCompactionStart(content: string): StreamChunk {
+  return {
+    type: 'compaction',
+    content,
+  }
+}
+
+/**
+ * Convert SDK session.compaction_complete event to AgentForge StreamChunk.
+ * 包含压缩前后 token 数、移除的消息数等信息。
+ */
+export function convertCompactionComplete(content: string): StreamChunk {
+  return {
+    type: 'compaction',
+    content,
+  }
+}
+
+/**
+ * Convert SDK tool.execution_start event to AgentForge StreamChunk.
+ * content 为序列化的 { toolName, toolCallId, arguments } JSON。
+ */
+export function convertToolStart(content: string): StreamChunk {
+  return {
+    type: 'tool-start',
+    content,
+  }
+}
+
+/**
+ * Convert SDK tool.execution_complete event to AgentForge StreamChunk.
+ * content 为序列化的 { toolCallId, success, content } JSON。
+ */
+export function convertToolComplete(content: string): StreamChunk {
+  return {
+    type: 'tool-complete',
+    content,
+  }
+}
+
+/**
+ * Convert SDK tool.execution_progress event to AgentForge StreamChunk.
+ * content 为序列化的 { toolCallId, message } JSON。
+ */
+export function convertToolProgress(content: string): StreamChunk {
+  return {
+    type: 'tool-progress',
+    content,
+  }
+}
+
+/**
+ * Convert SDK session.title_changed event to AgentForge StreamChunk.
+ * content 为自动生成的会话标题。
+ */
+export function convertTitle(content: string): StreamChunk {
+  return {
+    type: 'title',
+    content,
+  }
+}
+
+/**
+ * Convert SDK session.usage_info event to AgentForge StreamChunk.
+ * content 为序列化的 { tokenLimit, currentTokens, messagesLength } JSON。
+ * 前端可显示上下文使用进度条。
+ */
+export function convertUsageInfo(content: string): StreamChunk {
+  return {
+    type: 'usage-info',
+    content,
+  }
+}
+
+/**
+ * Convert SDK session.error event to AgentForge StreamChunk.
+ * content 为序列化的 { errorType, message, statusCode? } JSON。
+ */
+export function convertSessionError(content: string): StreamChunk {
+  return {
+    type: 'error',
+    content,
+  }
+}
+
+/**
  * Build a TAOTrajectory from SDK tool execution events.
  * Used when a tool starts executing to create a trajectory entry.
  */

@@ -4,10 +4,13 @@
 import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue'
 import type { ChatMessage } from '@shared/types'
 import MessageItem from '@/components/MessageItem/MessageItem.vue'
+import ThinkingBlock from '@/components/Agent/ThinkingBlock.vue'
 
 const props = defineProps<{
   messages: ChatMessage[]
   streamingContent: string
+  /** Streaming thinking/reasoning content from SDK reasoning_delta events */
+  streamingThinking?: string
   isGenerating: boolean
 }>()
 

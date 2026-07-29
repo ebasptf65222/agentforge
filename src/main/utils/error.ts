@@ -127,6 +127,10 @@ export const ErrorCodes = {
   /** 目录非空 */
   DIRECTORY_NOT_EMPTY: 'DIRECTORY_NOT_EMPTY',
 
+  // ─── Prompt 模板相关（PT） ────────────────────────────────────
+  /** Prompt 模板不存在 */
+  PROMPT_TEMPLATE_NOT_FOUND: 'PROMPT_TEMPLATE_NOT_FOUND',
+
   // ─── 通用 ────────────────────────────────────────────────────
   /** 数据库错误 */
   DB_ERROR: 'DB_ERROR',

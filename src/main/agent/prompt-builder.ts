@@ -2,6 +2,7 @@
 // 与 Spec v0.2 §9.5 System Prompt 模板一致
 
 import type { ToolDefinition } from './types'
+import { formatRulesPrompt } from './project-rules'
 
 /**
  * 构建 Agent 执行的 System Prompt。
@@ -24,7 +25,7 @@ import type { ToolDefinition } from './types'
  * @param skillPrompt - 可选的 Skill 附加 prompt
  * @returns 完整的 System Prompt 字符串
  */
-export function buildSystemPrompt(tools: ToolDefinition[], skillPrompt?: string): string {
+export function buildSystemPrompt(tools: ToolDefinition[], skillPrompt?: string, projectRules?: string): string {
   const toolDefs = tools.map((tool) => {
     const schemaStr = JSON.stringify(tool.inputSchema, null, 2)
     return `### ${tool.name}\n${tool.description}\n参数 Schema:\n\`\`\`json\n${schemaStr}\n\`\`\``
@@ -35,6 +36,8 @@ export function buildSystemPrompt(tools: ToolDefinition[], skillPrompt?: string)
 
   const skillSection = skillPrompt ? `\n${skillPrompt}` : ''
 
+  const rulesSection = projectRules ? formatRulesPrompt(projectRules) : ''
+
   return `你是一个自主执行 Agent。你可以使用以下工具来完成任务：
 
 ${toolSection}
@@ -43,7 +46,7 @@ ${toolSection}
 1. 每次输出一个 Thought（推理过程）和一个 Action（工具调用）
 2. Action 格式为 JSON: {"type": "tool", "tool": "工具名", "arguments": {...}}
 3. 任务完成时输出: {"type": "finish", "summary": "总结"}
-4. 不要编造工具结果，等待系统返回 Observation${skillSection}`
+4. 不要编造工具结果，等待系统返回 Observation${skillSection}${rulesSection}`
 }
 
 /**

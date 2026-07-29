@@ -29,8 +29,10 @@ import type {
 } from './types'
 import type { ModelAdapter, AdapterMessage } from '../models/adapter'
 import { buildSystemPrompt, buildObservation } from './prompt-builder'
+import { loadProjectRules } from './project-rules'
 import { parseLLMOutput } from './parser'
-import { estimateTokens, truncateContext } from './tokenizer'
+import { estimateTokens } from './tokenizer'
+import { manageContext } from './context-manager'
 import { shouldRequireApproval, buildToolAction, ApprovalManager } from './approval'
 import { AppError, ErrorCodes, createError } from '../utils/error'
 import { generateId } from '../utils/id'
@@ -54,6 +56,8 @@ export interface AgentExecutorConfig {
   maxContextLength: number
   /** 可选的 Skill 附加 prompt（注入到 System Prompt 末尾） */
   skillPrompt?: string
+  /** 可选的历史对话消息（在 system prompt 之后、当前用户输入之前插入） */
+  historyMessages?: AgentContextMessage[]
 }
 
 /**
@@ -94,8 +98,15 @@ export class AgentExecutor {
 
     // 1. System Prompt
     const toolDefs = this.collectToolDefinitions()
-    const systemPrompt = buildSystemPrompt(toolDefs, this.config.skillPrompt)
+    const projectRules = await loadProjectRules()
+    const systemPrompt = buildSystemPrompt(toolDefs, this.config.skillPrompt, projectRules)
     context.push({ role: 'system', content: systemPrompt })
+
+    // 1b. 历史对话消息（在 system prompt 之后、当前用户输入之前）
+    // 已由 IPC handler 层通过 manageContext 截断处理
+    if (this.config.historyMessages && this.config.historyMessages.length > 0) {
+      context.push(...this.config.historyMessages)
+    }
 
     // 2. 用户输入
     context.push({ role: 'user', content: request.userInput })
@@ -111,8 +122,12 @@ export class AgentExecutor {
           break
         }
 
-        // 3. 上下文截断
-        const truncatedContext = truncateContext(context, this.config.maxContextLength)
+        // 3. 上下文窗口管理：截断过长的历史消息
+        const contextResult = manageContext(context, {
+          maxContextTokens: this.config.maxContextLength,
+          toolDefsReserve: this.collectToolDefinitions().length * 200, // 按工具数量估算工具定义 token
+        })
+        const truncatedContext = contextResult.messages
 
         // 4. 调用 LLM
         const adapterMessages: AdapterMessage[] = truncatedContext.map((msg) => ({
