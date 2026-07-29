@@ -57,6 +57,12 @@ export interface CustomAgentConfig {
   prompt: string
   /** 运行时是否可自动选择（默认 true） */
   infer?: boolean
+  /** 代理专属模型 ID（AgentForge 内部模型 ID，运行时解析为 provider+model） */
+  model?: string
+  /** 代理专属推理强度 */
+  reasoningEffort?: ReasoningEffort
+  /** 预加载技能到代理上下文 */
+  skills?: string[]
 }
 
 /** 斜杠命令配置 */
@@ -116,6 +122,28 @@ export interface SessionExtras {
   excludedTools?: string[]
   /** 是否启用主机 Git 操作（SDK enableHostGitOperations） */
   enableHostGitOperations?: boolean
+  /** 工具搜索配置（SDK toolSearch） */
+  toolSearch?: { enabled?: boolean; deferThreshold?: number }
+  /** 默认代理排除的工具列表（SDK defaultAgent.excludedTools） */
+  defaultAgentExcludedTools?: string[]
+  /** Open Plugins 目录路径列表（SDK pluginDirectories） */
+  pluginDirectories?: string[]
+  /** 自定义指令文件目录列表（SDK instructionDirectories） */
+  instructionDirectories?: string[]
+  /** 是否启用记忆功能（SDK memory.enabled） */
+  enableMemory?: boolean
+  /** 是否跳过自定义指令文件（SDK skipCustomInstructions） */
+  skipCustomInstructions?: boolean
+  /** Agent 执行模式（SDK agentMode：interactive/plan/autopilot/shell） */
+  agentMode?: 'interactive' | 'plan' | 'autopilot' | 'shell'
+  /** 最大提示词 token 数（触发上下文压缩的阈值，SDK maxPromptTokens） */
+  maxPromptTokens?: number
+  /** 排除的内置代理列表（SDK excludedBuiltinAgents，如 'code'、'debug'） */
+  excludedBuiltinAgents?: string[]
+  /** 上下文压缩阈值（0-1，SDK infiniteSessions.backgroundCompactionThreshold） */
+  infiniteSessionThreshold?: number
+  /** 大输出最大字节数（SDK largeOutput.maxSizeBytes，默认 51200） */
+  largeOutputMaxSize?: number
 }
 
 /**

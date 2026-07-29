@@ -23,7 +23,7 @@ import {
   convertSessionError,
   buildFinalTrajectory,
 } from './event-converter'
-import type { SessionExtras } from './types'
+import type { SessionExtras, SdkProviderConfig } from './types'
 import { getSessionManager } from './session-manager'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -170,6 +170,33 @@ export class CopilotAgentBridge {
           // 工具执行后：可以转换结果
           return { modifiedResult: ctx.toolResult }
         },
+        onPreMcpToolCall: (ctx: {
+          serverName: string
+          toolName: string
+          toolArgs: Record<string, unknown>
+        }) => {
+          // MCP 工具调用前：记录日志并允许执行
+          // 如需按 serverName 过滤 MCP 工具，可在此实现
+          console.log(
+            `[CopilotAgentBridge] Pre MCP tool call: ${ctx.serverName}.${ctx.toolName}`,
+          )
+          return { permissionDecision: 'allow' as const }
+        },
+        onPostToolUseFailure: (ctx: { toolName: string; error: Error }) => {
+          // 工具调用失败后：记录错误并通知前端
+          console.error(
+            `[CopilotAgentBridge] Tool use failure: ${ctx.toolName}, error: ${ctx.error.message}`,
+          )
+          this.callbacks.onStreamChunk({
+            type: 'error',
+            content: JSON.stringify({
+              phase: 'tool-use-failure',
+              toolName: ctx.toolName,
+              message: ctx.error.message,
+            }),
+          })
+          return { errorHandling: 'skip' as const }
+        },
         onUserPromptSubmitted: (ctx: { prompt: string }) => {
           // 用户提交消息前：可以修改 prompt 或注入上下文
           return { modifiedPrompt: ctx.prompt }
@@ -192,14 +219,37 @@ export class CopilotAgentBridge {
 
       // 4f. 自定义代理/子代理编排
       if (extras?.customAgents && extras.customAgents.length > 0) {
-        const agents = extras.customAgents.map((a) => ({
-          name: a.name,
-          displayName: a.displayName ?? a.name,
-          description: a.description ?? '',
-          tools: a.tools ?? null,
-          prompt: a.prompt,
-          infer: a.infer ?? true,
-        }))
+        const agents = extras.customAgents.map((a) => {
+          const agent: Record<string, unknown> = {
+            name: a.name,
+            displayName: a.displayName ?? a.name,
+            description: a.description ?? '',
+            tools: a.tools ?? null,
+            prompt: a.prompt,
+            infer: a.infer ?? true,
+          }
+          // 代理专属模型（运行时解析为 SDK provider+model）
+          if (a.model) {
+            try {
+              const providerConfig = buildProviderConfigById(a.model)
+              if (providerConfig) {
+                agent['model'] = providerConfig.model
+                agent['provider'] = providerConfig.provider
+              }
+            } catch {
+              // 模型解析失败，忽略（使用默认模型）
+            }
+          }
+          // 代理专属推理强度
+          if (a.reasoningEffort) {
+            agent['reasoningEffort'] = a.reasoningEffort
+          }
+          // 预加载技能
+          if (a.skills && a.skills.length > 0) {
+            agent['skills'] = a.skills
+          }
+          return agent
+        })
         sessionConfig['customAgents'] = agents
       }
 
@@ -314,6 +364,64 @@ export class CopilotAgentBridge {
       if (extras?.enableHostGitOperations !== undefined) {
         sessionConfig['enableHostGitOperations'] = extras.enableHostGitOperations
       }
+
+      // 4t. 工具搜索配置
+      if (extras?.toolSearch !== undefined) {
+        sessionConfig['toolSearch'] = extras.toolSearch
+      }
+
+      // 4u. 默认代理排除的工具
+      if (extras?.defaultAgentExcludedTools && extras.defaultAgentExcludedTools.length > 0) {
+        sessionConfig['defaultAgent'] = { excludedTools: extras.defaultAgentExcludedTools }
+      }
+
+      // 4v. Open Plugins 目录
+      if (extras?.pluginDirectories && extras.pluginDirectories.length > 0) {
+        sessionConfig['pluginDirectories'] = extras.pluginDirectories
+      }
+
+      // 4w. 自定义指令目录
+      if (extras?.instructionDirectories && extras.instructionDirectories.length > 0) {
+        sessionConfig['instructionDirectories'] = extras.instructionDirectories
+      }
+
+      // 4x. 记忆功能
+      if (extras?.enableMemory !== undefined) {
+        sessionConfig['memory'] = { enabled: extras.enableMemory }
+      }
+
+      // 4y. 跳过自定义指令
+      if (extras?.skipCustomInstructions !== undefined) {
+        sessionConfig['skipCustomInstructions'] = extras.skipCustomInstructions
+      }
+
+      // 4z. Agent 执行模式（plan/autopilot/shell）
+      if (extras?.agentMode) {
+        sessionConfig['agentMode'] = extras.agentMode
+      }
+
+      // 4aa. 最大提示词 token 数（压缩阈值）
+      if (extras?.maxPromptTokens !== undefined && extras.maxPromptTokens > 0) {
+        sessionConfig['maxPromptTokens'] = extras.maxPromptTokens
+      }
+
+      // 4ab. 排除的内置代理
+      if (extras?.excludedBuiltinAgents && extras.excludedBuiltinAgents.length > 0) {
+        sessionConfig['excludedBuiltinAgents'] = extras.excludedBuiltinAgents
+      }
+
+      // 4ac. 上下文压缩阈值（传递到 sessionConfig，由 session-manager 读取）
+      if (extras?.infiniteSessionThreshold !== undefined && extras.infiniteSessionThreshold > 0) {
+        sessionConfig['infiniteSessionThreshold'] = extras.infiniteSessionThreshold
+      }
+
+      // 4ad. 大输出最大字节数
+      if (extras?.largeOutputMaxSize !== undefined && extras.largeOutputMaxSize > 0) {
+        sessionConfig['largeOutputMaxSize'] = extras.largeOutputMaxSize
+      }
+
+      // 注：enableAskUser 和 enableElicitation 已在 4h/4i 中处理
+      // IPC 层只需设置 extras.enableAskUser / extras.enableElicitation 即可触发
 
       // 5. 通过 SessionManager 获取或恢复 session
       const conversationId = extras?.conversationId || request.conversationId
@@ -687,6 +795,32 @@ export class CopilotAgentBridge {
    */
   getSdkSessionId(): string | undefined {
     return this.sdkSessionId
+  }
+
+  /**
+   * 运行时切换模型（保持对话历史）。
+   * SDK 的 session.setModel() 允许在不重建 session 的情况下切换模型。
+   *
+   * @param modelId - 新的模型 ID（AgentForge 内部 ID）
+   * @param providerConfig - BYOK provider 配置
+   * @returns 是否切换成功
+   */
+  async setModel(modelId: string, providerConfig: { provider: SdkProviderConfig; model: string }): Promise<boolean> {
+    if (!this.session) {
+      console.warn('[CopilotAgentBridge] Cannot setModel: no active session')
+      return false
+    }
+    try {
+      this.session.setModel?.({
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+      })
+      console.info(`[CopilotAgentBridge] Model switched to: ${modelId}`)
+      return true
+    } catch (error) {
+      console.error(`[CopilotAgentBridge] Failed to switch model to ${modelId}:`, error)
+      return false
+    }
   }
 
   /**

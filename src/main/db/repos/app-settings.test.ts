@@ -78,6 +78,24 @@ describe('app-settings repository', () => {
     if (!cols.some((c) => c.name === 'copilot_enable_host_git_operations')) {
       testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_enable_host_git_operations INTEGER DEFAULT 1')
     }
+    if (!cols.some((c) => c.name === 'copilot_tool_search_defer_threshold')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_tool_search_defer_threshold INTEGER')
+    }
+    if (!cols.some((c) => c.name === 'copilot_default_agent_excluded_tools')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_default_agent_excluded_tools TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_plugin_directories')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_plugin_directories TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_instruction_directories')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_instruction_directories TEXT')
+    }
+    if (!cols.some((c) => c.name === 'copilot_enable_memory')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_enable_memory INTEGER DEFAULT 0')
+    }
+    if (!cols.some((c) => c.name === 'copilot_skip_custom_instructions')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_skip_custom_instructions INTEGER DEFAULT 0')
+    }
     vi.clearAllMocks()
   })
 

@@ -143,6 +143,36 @@ interface AppSettings {
   copilotExcludedTools?: string[]
   /** SDK 是否启用主机 Git 操作（分支、状态等上下文） */
   copilotEnableHostGitOperations?: boolean
+  /** SDK 工具搜索延迟加载阈值（0 表示使用 SDK 默认 30） */
+  copilotToolSearchDeferThreshold?: number
+  /** SDK 默认代理排除的工具列表 */
+  copilotDefaultAgentExcludedTools?: string[]
+  /** SDK Open Plugins 目录路径列表 */
+  copilotPluginDirectories?: string[]
+  /** SDK 自定义指令文件目录列表 */
+  copilotInstructionDirectories?: string[]
+  /** SDK 是否启用记忆功能 */
+  copilotEnableMemory?: boolean
+  /** SDK 是否跳过自定义指令文件（.github/copilot-instructions.md 等） */
+  copilotSkipCustomInstructions?: boolean
+  /** SDK 是否启用 ask_user 工具（AI 可主动向用户提问） */
+  copilotEnableAskUser?: boolean
+  /** SDK 是否启用 elicitation 表单交互 */
+  copilotEnableElicitation?: boolean
+  /** SDK Agent 执行模式（interactive/plan/autopilot/shell） */
+  copilotAgentMode?: 'interactive' | 'plan' | 'autopilot' | 'shell'
+  /** SDK 最大提示词 token 数（触发压缩阈值，null = 使用 SDK 默认） */
+  copilotMaxPromptTokens?: number
+  /** SDK 排除的内置代理列表 */
+  copilotExcludedBuiltinAgents?: string[]
+  /** SDK 是否启用技能加载（含内置技能和目录发现） */
+  copilotEnableSkills?: boolean
+  /** SDK 禁用的技能名称列表 */
+  copilotDisabledSkills?: string[]
+  /** SDK 上下文压缩阈值（0-1，默认 0.80） */
+  copilotInfiniteSessionThreshold?: number
+  /** SDK 大输出最大字节数（默认 51200） */
+  copilotLargeOutputMaxSize?: number
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }
@@ -200,6 +230,30 @@ interface AgentExecutionRequest {
   maxSteps: number
   /** 图片附件（dataUrl 格式），传给 SDK session.send */
   attachments?: Array<{ dataUrl: string; name: string; size: number }>
+  /** 自定义代理配置（per-conversation，传给 SDK customAgents） */
+  customAgents?: Array<{
+    name: string
+    displayName?: string
+    description?: string
+    tools?: string[] | null
+    prompt: string
+    infer?: boolean
+    model?: string
+    reasoningEffort?: string
+    skills?: string[]
+  }>
+  /** 预选激活的代理名称 */
+  activeAgent?: string
+  /** 自定义斜杠命令 */
+  commands?: Array<{ name: string; description?: string }>
+  /** 系统提示词模式 */
+  systemMessageMode?: 'append' | 'replace' | 'customize'
+  /** 系统提示词分区配置 */
+  systemMessageSections?: Record<string, {
+    action: 'replace' | 'remove' | 'append' | 'prepend' | 'transform'
+    content?: string
+    transformDescription?: string
+  }>
 }
 
 /** Agent 执行结果 */

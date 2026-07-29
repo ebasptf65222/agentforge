@@ -251,6 +251,117 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
     // 12. 客户端名称
     extras.clientName = 'AgentForge'
 
+    // 13. 工具搜索配置
+    if (settings.copilotToolSearchDeferThreshold !== undefined && settings.copilotToolSearchDeferThreshold > 0) {
+      extras.toolSearch = { deferThreshold: settings.copilotToolSearchDeferThreshold }
+    }
+
+    // 14. 默认代理排除的工具
+    if (settings.copilotDefaultAgentExcludedTools && settings.copilotDefaultAgentExcludedTools.length > 0) {
+      extras.defaultAgentExcludedTools = settings.copilotDefaultAgentExcludedTools
+    }
+
+    // 15. Open Plugins 目录
+    if (settings.copilotPluginDirectories && settings.copilotPluginDirectories.length > 0) {
+      extras.pluginDirectories = settings.copilotPluginDirectories
+    }
+
+    // 16. 自定义指令目录
+    if (settings.copilotInstructionDirectories && settings.copilotInstructionDirectories.length > 0) {
+      extras.instructionDirectories = settings.copilotInstructionDirectories
+    }
+
+    // 17. 记忆功能
+    if (settings.copilotEnableMemory) {
+      extras.enableMemory = true
+    }
+
+    // 18. 跳过自定义指令
+    if (settings.copilotSkipCustomInstructions) {
+      extras.skipCustomInstructions = true
+    }
+
+    // 19. ask_user 双向交互
+    if (settings.copilotEnableAskUser) {
+      extras.enableAskUser = true
+    }
+
+    // 20. elicitation 表单交互
+    if (settings.copilotEnableElicitation) {
+      extras.enableElicitation = true
+    }
+
+    // 21. Agent 执行模式
+    if (settings.copilotAgentMode) {
+      extras.agentMode = settings.copilotAgentMode
+    }
+
+    // 22. 最大提示词 token 数（压缩阈值）
+    if (settings.copilotMaxPromptTokens && settings.copilotMaxPromptTokens > 0) {
+      extras.maxPromptTokens = settings.copilotMaxPromptTokens
+    }
+
+    // 23. 排除的内置代理
+    if (settings.copilotExcludedBuiltinAgents && settings.copilotExcludedBuiltinAgents.length > 0) {
+      extras.excludedBuiltinAgents = settings.copilotExcludedBuiltinAgents
+    }
+
+    // 24. 技能加载开关
+    if (settings.copilotEnableSkills !== undefined) {
+      extras.enableSkills = settings.copilotEnableSkills
+    }
+
+    // 25. 禁用的技能列表
+    if (settings.copilotDisabledSkills && settings.copilotDisabledSkills.length > 0) {
+      extras.disabledSkills = settings.copilotDisabledSkills
+    }
+
+    // 26. 上下文压缩阈值
+    if (settings.copilotInfiniteSessionThreshold && settings.copilotInfiniteSessionThreshold > 0) {
+      extras.infiniteSessionThreshold = settings.copilotInfiniteSessionThreshold
+    }
+
+    // 27. 大输出最大字节数
+    if (settings.copilotLargeOutputMaxSize && settings.copilotLargeOutputMaxSize > 0) {
+      extras.largeOutputMaxSize = settings.copilotLargeOutputMaxSize
+    }
+
+    // 28. Per-conversation 配置（从请求参数传递）
+    // 自定义代理配置
+    if (request.customAgents && request.customAgents.length > 0) {
+      extras.customAgents = request.customAgents.map((a) => ({
+        name: a.name,
+        displayName: a.displayName,
+        description: a.description,
+        tools: a.tools ?? null,
+        prompt: a.prompt,
+        infer: a.infer ?? true,
+        model: a.model,
+        reasoningEffort: a.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined,
+        skills: a.skills,
+      }))
+    }
+
+    // 预选激活的代理
+    if (request.activeAgent) {
+      extras.activeAgent = request.activeAgent
+    }
+
+    // 自定义斜杠命令
+    if (request.commands && request.commands.length > 0) {
+      extras.commands = request.commands
+    }
+
+    // 系统提示词模式
+    if (request.systemMessageMode) {
+      extras.systemMessageMode = request.systemMessageMode
+    }
+
+    // 系统提示词分区配置
+    if (request.systemMessageSections) {
+      extras.systemMessageSections = request.systemMessageSections as SessionExtras['systemMessageSections']
+    }
+
     // 执行 SDK Agent（传入 extras 配置）
     result = await bridge.execute(request, extras)
 
@@ -325,6 +436,11 @@ export async function handleExecute(
     maxSteps: (p['maxSteps'] as number) || 20,
     skillName: p['skillName'] as string | undefined,
     attachments: Array.isArray(p['attachments']) ? p['attachments'] : undefined,
+    customAgents: Array.isArray(p['customAgents']) ? p['customAgents'] : undefined,
+    activeAgent: typeof p['activeAgent'] === 'string' ? p['activeAgent'] : undefined,
+    commands: Array.isArray(p['commands']) ? p['commands'] : undefined,
+    systemMessageMode: p['systemMessageMode'] as 'append' | 'replace' | 'customize' | undefined,
+    systemMessageSections: p['systemMessageSections'] as Record<string, unknown> | undefined,
   }
 
   // 1. 并发控制 - OPT-02: 在任何 await 之前设置锁，防止竞态条件
@@ -538,6 +654,40 @@ export function handleRespondElicitation(params: unknown): void {
   }
 }
 
+/**
+ * agent:switch-model - 运行时切换模型（保持对话历史）。
+ * 使用 SDK 的 session.setModel()，无需重建 session。
+ */
+async function handleSwitchModel(
+  _event: Electron.IpcMainInvokeEvent,
+  params: unknown,
+): Promise<boolean> {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Switch model params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['modelId'], 'modelId')
+
+  if (!currentBridge) {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      'No active agent session. Switch model can only be used during an active conversation.',
+    )
+  }
+
+  const { buildProviderConfigById } = await import('../copilot/provider-config')
+  const providerConfig = buildProviderConfigById(p['modelId'] as string)
+  if (!providerConfig) {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      `Model not found: ${p['modelId'] as string}`,
+    )
+  }
+
+  return currentBridge.setModel(p['modelId'] as string, providerConfig)
+}
+
 // ─── 通道注册 ───────────────────────────────────────────────────
 
 interface ChannelRegistration {
@@ -572,6 +722,11 @@ const registrations: ChannelRegistration[] = [
   {
     channel: 'agent:respond-elicitation',
     handler: (_event, params: unknown) => handleRespondElicitation(params),
+  },
+  // 运行时切换模型（保持对话历史）
+  {
+    channel: 'agent:switch-model',
+    handler: (event, params: unknown) => handleSwitchModel(event, params),
   },
 ]
 
