@@ -33,6 +33,8 @@ import type {
   WorkspaceDirectoryEntry,
   WikiStatus,
   WikiPageSummary,
+  AuditReport,
+  AuditInput,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -359,6 +361,14 @@ interface WikiAPI {
   ingest(sourcePath: string): Promise<{ rawRelPath: string; fileName: string }>
 }
 
+/** Audit 命名空间（工作流审计） */
+interface AuditAPI {
+  /** 触发审计评估，返回审计报告 */
+  run(params: AuditInput): Promise<AuditReport>
+  /** 监听审计报告推送事件 */
+  onReport(callback: (report: AuditReport) => void): () => void
+}
+
 /** window.electron 完整类型 */
 interface ElectronAPI {
   chat: ChatAPI
@@ -374,6 +384,7 @@ interface ElectronAPI {
   window: WindowAPI
   workspace: WorkspaceAPI
   wiki: WikiAPI
+  audit: AuditAPI
 }
 
 export type {
@@ -411,4 +422,5 @@ export type {
   WindowAPI,
   WorkspaceAPI,
   ElectronAPI,
+  AuditAPI,
 }

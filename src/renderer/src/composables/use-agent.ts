@@ -1,8 +1,9 @@
 // P2-09: useAgent composable
 // Sets up agent event listeners and wires them to AgentStore
+// WA-07: Added audit:report event listener
 
 import { onMounted, onUnmounted } from 'vue'
-import type { TAOTrajectory, ApprovalRequest, StreamChunk } from '@shared/types'
+import type { TAOTrajectory, ApprovalRequest, StreamChunk, AuditReport } from '@shared/types'
 import { useAgentStore } from '@/stores/agent'
 
 /**
@@ -15,6 +16,7 @@ export function useAgent(): void {
   let cleanupTrajectory: (() => void) | undefined
   let cleanupApproval: (() => void) | undefined
   let cleanupChunk: (() => void) | undefined
+  let cleanupAuditReport: (() => void) | undefined
 
   onMounted(() => {
     if (!window.electron?.agent) return
@@ -33,11 +35,19 @@ export function useAgent(): void {
     cleanupChunk = window.electron.agent.onStreamChunk((chunk: StreamChunk) => {
       agentStore.handleStreamChunk(chunk)
     })
+
+    // Audit report listener (WA-07)
+    if (window.electron?.audit) {
+      cleanupAuditReport = window.electron.audit.onReport((report: AuditReport) => {
+        agentStore.handleAuditReport(report)
+      })
+    }
   })
 
   onUnmounted(() => {
     cleanupTrajectory?.()
     cleanupApproval?.()
     cleanupChunk?.()
+    cleanupAuditReport?.()
   })
 }

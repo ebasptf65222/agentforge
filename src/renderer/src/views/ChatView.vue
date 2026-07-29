@@ -19,6 +19,7 @@ import FilePreview from '@/components/Sidebar/FilePreview.vue'
 import MessageList from '@/components/ChatPanel/MessageList.vue'
 import ChatInput from '@/components/ChatPanel/ChatInput.vue'
 import ExecutionPanel from '@/components/Agent/ExecutionPanel.vue'
+import AuditReportPanel from '@/components/Agent/AuditReportPanel.vue'
 import VoiceControlPanel from '@/components/VoiceControlPanel.vue'
 import { showToast } from '@/utils/toast'
 
@@ -156,7 +157,7 @@ async function handleSend(content: string, skillName?: string): Promise<void> {
   // 始终走 Agent 路径，让 AI 具备工具调用能力
   // 无论是否选择 Skill，都通过 ReAct 引擎执行
   try {
-    await agentStore.execute({
+    const result = await agentStore.execute({
       conversationId: conv.id,
       userInput: content,
       modelId: conv.modelId,
@@ -164,6 +165,10 @@ async function handleSend(content: string, skillName?: string): Promise<void> {
       maxSteps: 20,
       skillName: skillName ?? undefined,
     })
+    // Trigger audit after execution completes (WA-07)
+    if (result) {
+      await agentStore.runAudit()
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     showToast(`执行失败: ${message}`, 'error')
@@ -337,6 +342,7 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
         @send-prompt="handleSendPrompt"
       />
       <ExecutionPanel />
+      <AuditReportPanel />
       <ChatInput
         :disabled="!hasConversation"
         :is-generating="isGenerating"

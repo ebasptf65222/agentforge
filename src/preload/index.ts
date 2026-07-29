@@ -252,6 +252,16 @@ const wiki = {
     ipcRenderer.invoke('wiki:ingest', { sourcePath }),
 }
 
+// ─── Audit 命名空间 (工作流审计) ──────────────────────────────
+
+const audit = {
+  run: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('audit:run', params),
+
+  onReport: (callback: (data: unknown) => void): (() => void) =>
+    onEvent('audit:report', callback),
+}
+
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
@@ -271,6 +281,7 @@ if (process.contextIsolated) {
       window: win,
       workspace,
       wiki,
+      audit,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)
