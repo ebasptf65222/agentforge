@@ -84,3 +84,39 @@ export function wrapAllTools(
   }
   return wrapped
 }
+
+/**
+ * 将 RegisteredTool 转换为 WrappedTool（不含审批检查）。
+ *
+ * Phase 3: 用于 LangGraph interrupt() 审批模式。
+ * 审批由 StateGraph 的 tools 节点通过 interrupt() 处理，
+ * 而非嵌入在 tool.execute() 内部。
+ *
+ * @param tool - 注册的工具
+ * @returns 不含审批检查的 WrappedTool
+ */
+export function toWrappedTool(tool: RegisteredTool): WrappedTool {
+  return {
+    name: tool.definition.name,
+    description: tool.definition.description,
+    inputSchema: tool.definition.inputSchema,
+    execute: async (args: Record<string, unknown>): Promise<string> => {
+      const result: ToolExecutionResult = await tool.execute(args)
+      return result.content
+    },
+  }
+}
+
+/**
+ * 批量转换 RegisteredTool 为 WrappedTool（不含审批检查）。
+ *
+ * @param tools - 工具注册表
+ * @returns 不含审批检查的 WrappedTool 数组
+ */
+export function toWrappedTools(tools: Map<string, RegisteredTool>): WrappedTool[] {
+  const wrapped: WrappedTool[] = []
+  for (const tool of tools.values()) {
+    wrapped.push(toWrappedTool(tool))
+  }
+  return wrapped
+}

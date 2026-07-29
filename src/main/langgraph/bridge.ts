@@ -14,10 +14,10 @@
 import type { ExecutionResult } from '../../shared/types'
 import { ApprovalManager } from '../agent/approval'
 import { ModelWrapper } from './model-adapter'
-import { wrapAllTools } from './tool-adapter'
+import { toWrappedTools } from './tool-adapter'
 import { EventConverter } from './event-converter'
 import { executeWithStateGraph } from './state-graph'
-import { loadMcpToolsAsLangChain, convertAllLangChainTools, closeMcpClient } from './mcp-adapter'
+import { loadMcpToolsAsLangChain, convertAllLangChainToolsRaw, closeMcpClient } from './mcp-adapter'
 import { getCheckpointer } from './checkpointer'
 import { getMemoryStore } from './memory-store'
 import { createCodingNodeTool } from './coding-node'
@@ -32,10 +32,10 @@ import type { LangGraphBridgeConfig, LangGraphExecuteParams } from './types'
  * 通过 ModelWrapper + WrappedTool + EventConverter + StateGraph
  * 实现完整的 Agent 执行流程。
  *
- * Phase 2 增强：
+ * Phase 3 增强：
  * - 使用 LangGraph StateGraph 替代手动 ReAct 循环
  * - 使用 langchain-mcp-adapters 加载 MCP 工具
- * - 使用 MemorySaver checkpointer 支持中断恢复
+ * - 使用 SqliteSaver checkpointer 持久化图状态（崩溃恢复）
  * - 使用 MemoryStore 持久化跨对话上下文摘要
  * - 集成 Copilot SDK 编码节点支持复杂编码任务
  */
@@ -85,28 +85,16 @@ export class LangGraphAgentBridge {
     }
 
     // ─── 加载工具 ────────────────────────────────────────────
-    // 1. 内置工具（来自 ToolRegistry）
-    const builtinToolsArray = Array.from(params.tools.values())
-    const wrappedBuiltinTools = wrapAllTools(builtinToolsArray, {
-      approvalMode: params.request.approvalMode,
-      approvalManager: this.approvalManager,
-      approvalTimeoutMs: this.config.approvalTimeoutMs,
-      callbacks: this.config.callbacks,
-      executionId: params.request.conversationId,
-    })
+    // Phase 3: 使用 toWrappedTools（不含审批检查），
+    // 审批由 StateGraph 的 interrupt() 机制在图级别处理
+    const wrappedBuiltinTools = toWrappedTools(params.tools)
 
-    // 2. MCP 工具（通过 langchain-mcp-adapters）
+    // 2. MCP 工具（通过 langchain-mcp-adapters，不含审批检查）
     let wrappedMcpTools: typeof wrappedBuiltinTools = []
     try {
       const mcpLangChainTools = await loadMcpToolsAsLangChain()
       if (mcpLangChainTools.length > 0) {
-        wrappedMcpTools = convertAllLangChainTools(mcpLangChainTools, {
-          approvalMode: params.request.approvalMode,
-          approvalManager: this.approvalManager,
-          approvalTimeoutMs: this.config.approvalTimeoutMs,
-          callbacks: this.config.callbacks,
-          executionId: params.request.conversationId,
-        })
+        wrappedMcpTools = convertAllLangChainToolsRaw(mcpLangChainTools)
       }
     } catch (err) {
       console.error('[LangGraph Bridge] Failed to load MCP tools:', err)

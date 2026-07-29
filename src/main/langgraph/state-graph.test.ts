@@ -11,6 +11,18 @@ import type { AgentEventCallbacks } from '../agent/types'
 import type { AgentExecutionRequest, ApprovalMode } from '../../shared/types'
 import { ApprovalManager } from '../agent/approval'
 
+// ─── Mock: 审批函数 ─────────────────────────────────────────────
+// 测试中使用的 fake tool 名称不在内置风险映射表中，默认为 high，
+// 在 full-auto 模式下会触发 interrupt() 导致测试超时。
+// mock getToolRiskLevel 返回 'low' 使所有工具免审批，聚焦测试图逻辑。
+vi.mock('../agent/approval', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../agent/approval')>()
+  return {
+    ...actual,
+    getToolRiskLevel: vi.fn().mockReturnValue('low' as const),
+  }
+})
+
 // ─── Fake 工厂 ──────────────────────────────────────────────────
 
 function createMockCallbacks(): AgentEventCallbacks {

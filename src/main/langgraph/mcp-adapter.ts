@@ -193,6 +193,37 @@ export function convertAllLangChainTools(
   return tools.map((tool) => convertLangChainToolToWrapped(tool, options))
 }
 
+/**
+ * 将 LangChain DynamicStructuredTool 转换为 WrappedTool（不含审批检查）。
+ *
+ * Phase 3: 用于 LangGraph interrupt() 审批模式。
+ * 审批由 StateGraph 的 tools 节点通过 interrupt() 处理。
+ *
+ * @param tool - LangChain DynamicStructuredTool 实例
+ * @returns 不含审批检查的 WrappedTool 实例
+ */
+export function convertLangChainToolRaw(tool: DynamicStructuredTool): WrappedTool {
+  return {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.schema as Record<string, unknown>,
+    execute: async (args: Record<string, unknown>): Promise<string> => {
+      const result = await tool.invoke(args)
+      return typeof result === 'string' ? result : JSON.stringify(result)
+    },
+  }
+}
+
+/**
+ * 批量转换 LangChain 工具为 WrappedTool（不含审批检查）。
+ *
+ * @param tools - DynamicStructuredTool 数组
+ * @returns 不含审批检查的 WrappedTool 数组
+ */
+export function convertAllLangChainToolsRaw(tools: DynamicStructuredTool[]): WrappedTool[] {
+  return tools.map((tool) => convertLangChainToolRaw(tool))
+}
+
 // ─── 注册到 ToolRegistry（可选） ──────────────────────────────────
 
 /**

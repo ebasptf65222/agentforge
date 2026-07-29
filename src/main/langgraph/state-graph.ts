@@ -1,30 +1,32 @@
-// AgentForge LangGraph 引擎: 显式 StateGraph + 审批 Gate (P2-02)
+// AgentForge LangGraph 引擎: StateGraph + interrupt() 审批 Gate (P3-02)
 //
-// 使用 LangGraph 的 StateGraph 构建正式的 Agent 图：
-// - agent 节点：调用 LLM，解析输出（Action / Final Answer）
-// - tools 节点：执行工具，内嵌 ApprovalManager 审批检查
-// - 条件边：根据 LLM 输出路由到 tools 或 END
+// Phase 3: 使用 LangGraph 原生 interrupt() + Command resume 替代
+// Phase 2 的 ApprovalManager Promise 阻塞模式。
 //
-// 审批机制：
-// - 当工具需要审批时，tools 节点调用 ApprovalManager.requestApproval()
-// - ApprovalManager 通过 Promise 等待用户响应
-// - Bridge 层通过 respondApproval() 响应审批
-// - 这与 Phase 1 的审批机制完全一致，保证兼容性
+// 审批流程：
+// 1. tools 节点在执行工具前检查是否需要审批
+// 2. 如需审批，调用 interrupt(approvalRequest) 暂停图执行
+// 3. Checkpointer 持久化图状态到 SQLite
+// 4. executeWithStateGraph() 的 invoke 循环检测到 interrupt
+// 5. 通过 ApprovalManager 发送审批请求到前端，等待用户响应
+// 6. 用户响应后，调用 invoke(new Command({ resume: { approved, reason } }))
+// 7. interrupt() 返回 resume 值，tools 节点继续执行
 //
-// 与 Phase 1 的 createReactLoop 相比：
-// - 使用 StateGraph 替代手动循环
-// - 使用 MemorySaver checkpointer 支持状态持久化
-// - 使用条件边路由替代手动 if/else
-// - 保留 ApprovalManager 审批机制（interrupt() 留作 Phase 3 增强）
+// 优势（相比 Phase 2）：
+// - 图状态持久化：应用崩溃/重启后可恢复中断的审批
+// - 审批超时不再阻塞图执行线程
+// - 更清晰的关注分离：图级别处理审批，工具只负责执行
 
-import { StateGraph, START, END, Annotation } from '@langchain/langgraph'
+import { StateGraph, START, END, Annotation, interrupt, Command } from '@langchain/langgraph'
 import type { CompiledStateGraph } from '@langchain/langgraph'
-import type { MemorySaver } from '@langchain/langgraph'
+import type { BaseCheckpointSaver } from '@langchain/langgraph'
+import { isInterrupted, INTERRUPT } from '@langchain/langgraph'
 import type { ModelWrapper } from './model-adapter'
 import type { WrappedTool } from './tool-adapter'
 import type { EventConverter } from './event-converter'
 import type { AgentContextMessage } from '../agent/types'
-import type { AgentExecutionRequest, ExecutionResult, TAOTrajectory, ApprovalMode } from '../../shared/types'
+import type { AgentExecutionRequest, ExecutionResult, TAOTrajectory, ApprovalMode, ToolAction } from '../../shared/types'
+import { shouldRequireApproval, buildToolAction, getToolRiskLevel } from '../agent/approval'
 import type { ApprovalManager } from '../agent/approval'
 import type { AgentEventCallbacks } from '../agent/types'
 import { generateId } from '../utils/id'
@@ -40,17 +42,14 @@ const AgentState = Annotation.Root({
     reducer: (prev, next) => [...prev, ...next],
     default: () => [],
   }),
-  // 当前步骤数
   step: Annotation<number>({
     reducer: (prev, next) => prev + next,
     default: () => 0,
   }),
-  // 最终答案
   finalAnswer: Annotation<string | null>({
     reducer: (_, next) => next,
     default: () => null,
   }),
-  // 执行状态
   status: Annotation<'running' | 'completed' | 'cancelled' | 'failed'>({
     reducer: (_, next) => next,
     default: () => 'running',
@@ -58,6 +57,22 @@ const AgentState = Annotation.Root({
 })
 
 type AgentStateType = typeof AgentState.State
+
+// ─── 审批中断数据 ─────────────────────────────────────────────────
+
+/** interrupt() 传递的审批请求数据 */
+interface InterruptApprovalData {
+  toolName: string
+  args: Record<string, unknown>
+  riskLevel: ToolAction['riskLevel']
+  reason: string
+}
+
+/** Command resume 返回的审批响应 */
+interface ApprovalResumeValue {
+  approved: boolean
+  reason?: string
+}
 
 // ─── 输出解析 ─────────────────────────────────────────────────────
 
@@ -71,7 +86,6 @@ interface ParsedOutput {
 
 /**
  * 解析 LLM 输出，提取 Action 或 Final Answer。
- * 与 react-loop.ts 中的 parseOutput 一致。
  */
 function parseOutput(output: string): ParsedOutput {
   const finalMatch = output.match(/Final Answer:\s*([\s\S]*?)(?:$)/i)
@@ -96,7 +110,6 @@ function parseOutput(output: string): ParsedOutput {
     return { thought, actionType: 'tool', toolName, args }
   }
 
-  // 无法解析，视为完成
   return {
     thought: 'No clear action detected, providing response.',
     actionType: 'finish',
@@ -118,7 +131,7 @@ export interface StateGraphOptions {
   approvalManager: ApprovalManager
   approvalMode: ApprovalMode
   approvalTimeoutMs: number
-  checkpointer: MemorySaver
+  checkpointer: BaseCheckpointSaver
   threadId: string
   callbacks: AgentEventCallbacks
 }
@@ -128,11 +141,12 @@ export interface StateGraphOptions {
 /**
  * 构建并执行 StateGraph Agent。
  *
- * 1. 定义 agent 和 tools 两个节点
- * 2. agent 节点调用 LLM，解析输出
- * 3. tools 节点执行工具，内嵌 ApprovalManager 审批检查
- * 4. 条件边路由：finish → END, tool → tools, tools → agent
- * 5. 使用 MemorySaver checkpointer 支持状态持久化
+ * Phase 3 审批流程：
+ * 1. tools 节点检查审批 → interrupt() 暂停
+ * 2. invoke() 返回中断结果
+ * 3. ApprovalManager 发送审批请求到前端
+ * 4. 用户响应 → invoke(new Command({ resume })) 恢复
+ * 5. 循环直到图完成
  *
  * @param options - 图构建和执行选项
  * @returns ExecutionResult
@@ -144,15 +158,18 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
     eventConverter,
     request,
     abortSignal,
+    approvalManager,
+    approvalMode,
+    approvalTimeoutMs,
     checkpointer,
     threadId,
+    callbacks,
   } = options
 
   const executionId = generateId()
   const startTime = Date.now()
   const trajectories: TAOTrajectory[] = []
 
-  // 构建 System Prompt
   const systemPrompt = buildSystemPrompt(tools, options.skillPrompt)
   const initialMessages: AgentContextMessage[] = [
     { role: 'system', content: systemPrompt },
@@ -162,23 +179,17 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
 
   // ─── agent 节点 ───────────────────────────────────────────
   const agentNode = async (state: AgentStateType): Promise<Partial<AgentStateType>> => {
-    // 检查中断
     if (abortSignal.aborted) {
       return { status: 'cancelled' }
     }
 
-    // 检查步骤上限
     if (state.step >= options.maxSteps) {
       return { status: 'failed' }
     }
 
-    // 调用 LLM
     const llmOutput = await model.invoke(state.messages, abortSignal)
-
-    // 解析输出
     const parsed = parseOutput(llmOutput)
 
-    // 添加 assistant 消息到上下文
     const newMessages: AgentContextMessage[] = [
       { role: 'assistant', content: llmOutput },
     ]
@@ -200,16 +211,14 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
       }
     }
 
-    // 工具调用 - assistant 消息中包含 Action
     return {
       messages: newMessages,
       step: 1,
     }
   }
 
-  // ─── tools 节点 ───────────────────────────────────────────
+  // ─── tools 节点（含 interrupt() 审批 Gate） ────────────────
   const toolsNode = async (state: AgentStateType): Promise<Partial<AgentStateType>> => {
-    // 从最后一条 assistant 消息中解析工具调用
     const lastMessage = state.messages[state.messages.length - 1]
     if (!lastMessage || lastMessage.role !== 'assistant') {
       return { messages: [] }
@@ -240,10 +249,61 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
       }
     }
 
-    // 审批检查由 wrapAllTools/wrapTool 在 tool.execute() 内部处理，
-    // tools 节点只需调用 execute() 即可，无需重复审批逻辑。
+    // ─── Phase 3: interrupt() 审批 Gate ───────────────────
+    // 检查工具是否需要审批
+    const riskLevel = getToolRiskLevel(tool.name)
+    const toolAction = buildToolAction(tool.name, parsed.args, riskLevel)
+    const needsApproval = shouldRequireApproval(toolAction, approvalMode)
 
-    // 执行工具（内含审批检查）
+    if (needsApproval) {
+      // 调用 interrupt() 暂停图执行
+      // 图状态由 Checkpointer 持久化，可在任意时刻恢复
+      const approvalData: InterruptApprovalData = {
+        toolName: tool.name,
+        args: parsed.args,
+        riskLevel,
+        reason: `Tool "${tool.name}" requires approval (risk: ${riskLevel})`,
+      }
+
+      // interrupt() 暂停图执行，返回值为 Command resume 传入的数据
+      const approvalResult = interrupt<InterruptApprovalData, ApprovalResumeValue>(approvalData)
+
+      if (!approvalResult.approved) {
+        // 审批被拒绝，记录轨迹并返回拒绝消息
+        const trajectory = eventConverter.pushTrajectory({
+          thought: parsed.thought,
+          action: {
+            toolName: tool.name,
+            arguments: parsed.args,
+            riskLevel,
+            requiresApproval: true,
+          },
+          observation: `Tool execution was ${approvalResult.reason === 'TIMEOUT' ? 'timed out' : 'rejected'}.`,
+          status: 'error',
+        })
+        trajectories.push(trajectory)
+
+        return {
+          messages: [{ role: 'tool', content: `Tool execution was ${approvalResult.reason === 'TIMEOUT' ? 'timed out' : 'rejected'}.` }],
+        }
+      }
+
+      // 审批通过，继续执行工具
+      const trajectory = eventConverter.pushTrajectory({
+        thought: parsed.thought,
+        action: {
+          toolName: tool.name,
+          arguments: parsed.args,
+          riskLevel,
+          requiresApproval: true,
+        },
+        observation: '',
+        status: 'success',
+      })
+      trajectories.push(trajectory)
+    }
+
+    // 执行工具
     eventConverter.pushToolStart(tool.name, parsed.args)
 
     let resultContent: string
@@ -257,18 +317,28 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
       status = 'error'
     }
 
-    const trajectory = eventConverter.pushTrajectory({
-      thought: parsed.thought,
-      action: {
-        toolName: tool.name,
-        arguments: parsed.args,
-        riskLevel: 'high',
-        requiresApproval: false,
-      },
-      observation: resultContent,
-      status,
-    })
-    trajectories.push(trajectory)
+    // 如果没有审批（不需要审批的工具），也要记录轨迹
+    if (!needsApproval) {
+      const trajectory = eventConverter.pushTrajectory({
+        thought: parsed.thought,
+        action: {
+          toolName: tool.name,
+          arguments: parsed.args,
+          riskLevel,
+          requiresApproval: false,
+        },
+        observation: resultContent,
+        status,
+      })
+      trajectories.push(trajectory)
+    } else {
+      // 更新已有轨迹的 observation
+      const lastTraj = trajectories[trajectories.length - 1]
+      if (lastTraj) {
+        lastTraj.observation = resultContent
+        lastTraj.status = status
+      }
+    }
 
     return {
       messages: [{ role: 'tool', content: resultContent }],
@@ -277,18 +347,11 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
 
   // ─── 条件边 ───────────────────────────────────────────────
   const routeAfterAgent = (state: AgentStateType): 'tools' | typeof END => {
-    if (state.status === 'completed') {
-      return END
-    }
-    if (state.status === 'cancelled' || state.status === 'failed') {
-      return END
-    }
+    if (state.status === 'completed') return END
+    if (state.status === 'cancelled' || state.status === 'failed') return END
 
-    // 检查最后一条消息是否包含工具调用
     const lastMessage = state.messages[state.messages.length - 1]
-    if (!lastMessage || lastMessage.role !== 'assistant') {
-      return END
-    }
+    if (!lastMessage || lastMessage.role !== 'assistant') return END
 
     const parsed = parseOutput(lastMessage.content)
     return parsed.actionType === 'tool' ? 'tools' : END
@@ -306,31 +369,98 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
     checkpointer,
   })
 
-  // ─── 执行图 ───────────────────────────────────────────────
+  // ─── 执行图（含 interrupt/resume 循环） ────────────────────
   const config = {
     configurable: { thread_id: threadId },
     signal: abortSignal,
   }
 
-  let finalState: AgentStateType
+  let finalState: AgentStateType | undefined
   let graphStatus: 'running' | 'completed' | 'cancelled' | 'failed' = 'running'
+  let invokeInput: unknown = {
+    messages: initialMessages,
+    step: 0,
+    finalAnswer: null,
+    status: 'running' as const,
+  }
 
   try {
-    // 使用 invoke 直接运行图到完成。
-    // invoke 是 async 方法，内部 node 执行时若遇到 requestApproval() 阻塞，
-    // 事件循环仍可处理 respondApproval() 调用。
-    const result = await compiledGraph.invoke(
-      { messages: initialMessages, step: 0, finalAnswer: null, status: 'running' as const },
-      config,
-    )
-    finalState = result as AgentStateType
-    graphStatus = finalState.status
+    // Phase 3: interrupt/resume 循环
+    // 1. invoke() 运行图，如果遇到 interrupt() 则暂停并返回
+    // 2. 检测到 interrupt 后，通过 ApprovalManager 请求用户审批
+    // 3. 用户响应后，调用 invoke(new Command({ resume })) 恢复
+    // 4. 重复直到图完成
+    for (let loopCount = 0; loopCount < 100; loopCount++) {
+      if (abortSignal.aborted) {
+        graphStatus = 'cancelled'
+        break
+      }
+
+      const result = await compiledGraph.invoke(invokeInput, config)
+
+      // 检查是否被 interrupt 暂停
+      if (isInterrupted(result)) {
+        // 提取 interrupt 数据
+        const interrupts = result[INTERRUPT] as Array<{ value: InterruptApprovalData }>
+        const approvalData = interrupts[0]?.value
+
+        if (!approvalData) {
+          // 无法提取审批数据，终止执行
+          graphStatus = 'failed'
+          break
+        }
+
+        // 通过 ApprovalManager 发送审批请求到前端
+        const toolAction = buildToolAction(
+          approvalData.toolName,
+          approvalData.args,
+          approvalData.riskLevel,
+        )
+        const approvalRequest = {
+          executionId: request.conversationId,
+          step: Date.now(),
+          toolAction,
+          reason: approvalData.reason,
+        }
+
+        const response = await approvalManager.requestApproval(
+          approvalRequest,
+          approvalTimeoutMs,
+          callbacks.onApprovalRequest,
+        )
+
+        // 用 Command resume 恢复图执行
+        invokeInput = new Command({
+          resume: {
+            approved: response.approved,
+            reason: response.reason,
+          } satisfies ApprovalResumeValue,
+        })
+        continue
+      }
+
+      // 图正常完成
+      finalState = result as AgentStateType
+      graphStatus = finalState.status
+      break
+    }
   } catch (error) {
     if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('abort'))) {
       graphStatus = 'cancelled'
-      finalState = { messages: [], step: 0, finalAnswer: null, status: 'cancelled' }
     } else {
       throw error
+    }
+  }
+
+  // ─── finalState 兜底 ─────────────────────────────────────
+  // 当循环因 abort / interrupt 无数据 / 超出循环次数而 break 时，
+  // finalState 可能仍未赋值，需要构造一个兜底状态
+  if (!finalState) {
+    finalState = {
+      messages: [],
+      step: 0,
+      finalAnswer: null,
+      status: graphStatus,
     }
   }
 
@@ -357,7 +487,6 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
 
 /**
  * 构建 System Prompt
- * 与 react-loop.ts 中的 buildSystemPrompt 一致
  */
 function buildSystemPrompt(tools: WrappedTool[], skillPrompt?: string): string {
   const toolDefs = tools.map((t) => `- ${t.name}: ${t.description}`).join('\n')
