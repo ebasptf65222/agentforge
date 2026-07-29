@@ -1,20 +1,12 @@
+// AgentForge LangGraph 引擎: 工具适配层测试 (Phase 3)
+// 测试 toWrappedTool / toWrappedTools（不含审批检查版本）
+
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { wrapTool, wrapAllTools } from './tool-adapter'
-import type { ToolWrapOptions } from './tool-adapter'
+import { toWrappedTool, toWrappedTools } from './tool-adapter'
 import type { RegisteredTool } from '../tools/types'
-import type { AgentEventCallbacks } from '../agent/types'
-import { ApprovalManager } from '../agent/approval'
-import type { ApprovalResponse, ToolRiskLevel, ToolExecutionResult } from '@shared/types'
+import type { ToolExecutionResult, ToolRiskLevel } from '@shared/types'
 
 // ─── Fake 工厂 ──────────────────────────────────────────────────
-
-function createMockCallbacks(): AgentEventCallbacks {
-  return {
-    onTrajectory: vi.fn(),
-    onApprovalRequest: vi.fn(),
-    onStreamChunk: vi.fn(),
-  }
-}
 
 function createFakeTool(
   name: string,
@@ -38,60 +30,42 @@ function createFakeTool(
   }
 }
 
-function createAutoApproveManager(): ApprovalManager {
-  const manager = new ApprovalManager()
-  vi.spyOn(manager, 'requestApproval').mockImplementation(
-    async (request, _timeoutMs, onRequest) => {
-      onRequest(request)
-      // 自动批准
-      const response: ApprovalResponse = {
-        executionId: request.executionId,
-        step: request.step,
-        approved: true,
-        reason: 'auto-approved',
-      }
-      return response
-    },
-  )
-  return manager
-}
-
-function createAutoRejectManager(reason?: string): ApprovalManager {
-  const manager = new ApprovalManager()
-  vi.spyOn(manager, 'requestApproval').mockImplementation(
-    async (request, _timeoutMs, onRequest) => {
-      onRequest(request)
-      const response: ApprovalResponse = {
-        executionId: request.executionId,
-        step: request.step,
-        approved: false,
-        reason: reason ?? 'rejected',
-      }
-      return response
-    },
-  )
-  return manager
-}
-
-function createWrapOptions(overrides?: Partial<ToolWrapOptions>): ToolWrapOptions {
-  return {
-    approvalMode: 'full-auto',
-    approvalManager: createAutoApproveManager(),
-    approvalTimeoutMs: 5000,
-    callbacks: createMockCallbacks(),
-    executionId: 'exec-1',
-    ...overrides,
-  }
-}
-
 // ─── Tests ──────────────────────────────────────────────────────
 
-describe('wrapTool', () => {
-  let callbacks: AgentEventCallbacks
-
+describe('toWrappedTool', () => {
   beforeEach(() => {
-    callbacks = createMockCallbacks()
     vi.clearAllMocks()
+  })
+
+  describe('工具转换', () => {
+    it('应正确转换工具名称和描述', () => {
+      const tool = createFakeTool('file_read', 'low')
+      const wrapped = toWrappedTool(tool)
+
+      expect(wrapped.name).toBe('file_read')
+      expect(wrapped.description).toBe('Fake tool: file_read')
+    })
+
+    it('应保留 inputSchema', () => {
+      const tool = createFakeTool('web_search', 'low')
+      const wrapped = toWrappedTool(tool)
+
+      expect(wrapped.inputSchema).toEqual({ type: 'object', properties: {} })
+    })
+
+    it('应保留 riskLevel 字段', () => {
+      const tool = createFakeTool('terminal_exec', 'high')
+      const wrapped = toWrappedTool(tool)
+
+      expect(wrapped.riskLevel).toBe('high')
+    })
+
+    it('low 风险工具也应保留 riskLevel', () => {
+      const tool = createFakeTool('file_read', 'low')
+      const wrapped = toWrappedTool(tool)
+
+      expect(wrapped.riskLevel).toBe('low')
+    })
   })
 
   describe('工具执行', () => {
@@ -100,8 +74,7 @@ describe('wrapTool', () => {
         isError: false,
         content: 'file content here',
       })
-      const options = createWrapOptions({ callbacks })
-      const wrapped = wrapTool(tool, options)
+      const wrapped = toWrappedTool(tool)
 
       const result = await wrapped.execute({ path: '/test.txt' })
 
@@ -109,178 +82,46 @@ describe('wrapTool', () => {
       expect(tool.execute).toHaveBeenCalledWith({ path: '/test.txt' })
     })
 
-    it('应保留工具的 name、description 和 inputSchema', () => {
-      const tool = createFakeTool('web_search', 'low')
-      const wrapped = wrapTool(tool, createWrapOptions())
-
-      expect(wrapped.name).toBe('web_search')
-      expect(wrapped.description).toBe('Fake tool: web_search')
-      expect(wrapped.inputSchema).toEqual({ type: 'object', properties: {} })
-    })
-
     it('工具返回错误结果时仍应返回 content', async () => {
       const tool = createFakeTool('web_search', 'low', {
         isError: true,
         content: 'Network error',
       })
-      const wrapped = wrapTool(tool, createWrapOptions({ callbacks }))
+      const wrapped = toWrappedTool(tool)
 
       const result = await wrapped.execute({ query: 'test' })
 
       expect(result).toBe('Network error')
     })
-  })
 
-  describe('审批检查', () => {
-    it('不需要审批的工具应直接执行', async () => {
-      const tool = createFakeTool('file_read', 'low')
-      const approvalManager = createAutoApproveManager()
-      const requestApprovalSpy = vi.spyOn(approvalManager, 'requestApproval')
-      const options = createWrapOptions({
-        approvalMode: 'full-auto',
-        approvalManager,
-        callbacks,
+    it('工具执行抛错时应向上传播错误', async () => {
+      const tool = createFakeTool('error_tool', 'high', new Error('Tool execution failed'))
+      const wrapped = toWrappedTool(tool)
+
+      await expect(wrapped.execute({})).rejects.toThrow('Tool execution failed')
+    })
+
+    it('不含审批检查：high 风险工具也直接执行', async () => {
+      const tool = createFakeTool('terminal_exec', 'high', {
+        isError: false,
+        content: 'executed',
       })
-      const wrapped = wrapTool(tool, options)
+      const wrapped = toWrappedTool(tool)
 
-      await wrapped.execute({ path: '/test' })
+      const result = await wrapped.execute({ command: 'ls' })
 
-      // low 风险 + full-auto 模式 = 不需要审批
-      expect(requestApprovalSpy).not.toHaveBeenCalled()
+      expect(result).toBe('executed')
       expect(tool.execute).toHaveBeenCalled()
-    })
-
-    it('需要审批时应调用 approvalManager.requestApproval', async () => {
-      const tool = createFakeTool('file_write', 'medium')
-      const approvalManager = createAutoApproveManager()
-      const requestApprovalSpy = vi.spyOn(approvalManager, 'requestApproval')
-      const options = createWrapOptions({
-        approvalMode: 'suggest',
-        approvalManager,
-        callbacks,
-      })
-      const wrapped = wrapTool(tool, options)
-
-      await wrapped.execute({ content: 'data' })
-
-      expect(requestApprovalSpy).toHaveBeenCalledTimes(1)
-      const [request, timeoutMs, onRequest] = requestApprovalSpy.mock.calls[0]
-      expect(request.executionId).toBe('exec-1')
-      expect(request.toolAction.toolName).toBe('file_write')
-      expect(request.toolAction.riskLevel).toBe('medium')
-      expect(timeoutMs).toBe(5000)
-      expect(onRequest).toBe(callbacks.onApprovalRequest)
-    })
-
-    it('审批请求应通过 onApprovalRequest 回调推送', async () => {
-      const tool = createFakeTool('file_write', 'medium')
-      const options = createWrapOptions({
-        approvalMode: 'suggest',
-        callbacks,
-      })
-      const wrapped = wrapTool(tool, options)
-
-      await wrapped.execute({ content: 'data' })
-
-      expect(callbacks.onApprovalRequest).toHaveBeenCalledTimes(1)
-      const request = (callbacks.onApprovalRequest as ReturnType<typeof vi.fn>).mock.calls[0][0]
-      expect(request.toolAction.toolName).toBe('file_write')
-      expect(request.executionId).toBe('exec-1')
-    })
-
-    it('审批批准后应执行工具', async () => {
-      const tool = createFakeTool('file_write', 'medium', {
-        isError: false,
-        content: 'written',
-      })
-      const approvalManager = createAutoApproveManager()
-      const options = createWrapOptions({
-        approvalMode: 'suggest',
-        approvalManager,
-        callbacks,
-      })
-      const wrapped = wrapTool(tool, options)
-
-      const result = await wrapped.execute({ content: 'data' })
-
-      expect(result).toBe('written')
-      expect(tool.execute).toHaveBeenCalledWith({ content: 'data' })
-    })
-
-    it('审批拒绝时应返回拒绝消息', async () => {
-      const tool = createFakeTool('file_write', 'medium', {
-        isError: false,
-        content: 'written',
-      })
-      const approvalManager = createAutoRejectManager('denied by user')
-      const options = createWrapOptions({
-        approvalMode: 'suggest',
-        approvalManager,
-        callbacks,
-      })
-      const wrapped = wrapTool(tool, options)
-
-      const result = await wrapped.execute({ content: 'data' })
-
-      expect(result).toContain('rejected')
-      expect(tool.execute).not.toHaveBeenCalled()
-    })
-
-    it('审批超时应返回超时消息', async () => {
-      const tool = createFakeTool('file_write', 'medium', {
-        isError: false,
-        content: 'written',
-      })
-      const approvalManager = createAutoRejectManager('TIMEOUT')
-      const options = createWrapOptions({
-        approvalMode: 'suggest',
-        approvalManager,
-        callbacks,
-      })
-      const wrapped = wrapTool(tool, options)
-
-      const result = await wrapped.execute({ content: 'data' })
-
-      expect(result).toContain('timed out')
-      expect(tool.execute).not.toHaveBeenCalled()
-    })
-
-    it('high 风险工具在 full-auto 模式下仍需审批', async () => {
-      const tool = createFakeTool('terminal_exec', 'high')
-      const approvalManager = createAutoApproveManager()
-      const requestApprovalSpy = vi.spyOn(approvalManager, 'requestApproval')
-      const options = createWrapOptions({
-        approvalMode: 'full-auto',
-        approvalManager,
-        callbacks,
-      })
-      const wrapped = wrapTool(tool, options)
-
-      await wrapped.execute({ command: 'ls' })
-
-      expect(requestApprovalSpy).toHaveBeenCalledTimes(1)
-    })
-
-    it('low 风险工具在 suggest 模式下需审批', async () => {
-      const tool = createFakeTool('file_read', 'low')
-      const approvalManager = createAutoApproveManager()
-      const requestApprovalSpy = vi.spyOn(approvalManager, 'requestApproval')
-      const options = createWrapOptions({
-        approvalMode: 'suggest',
-        approvalManager,
-        callbacks,
-      })
-      const wrapped = wrapTool(tool, options)
-
-      await wrapped.execute({ path: '/test' })
-
-      expect(requestApprovalSpy).toHaveBeenCalledTimes(1)
     })
   })
 })
 
-describe('wrapAllTools', () => {
-  it('应批量包装所有工具', () => {
+describe('toWrappedTools', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('应批量转换所有工具', () => {
     const tool1 = createFakeTool('file_read', 'low')
     const tool2 = createFakeTool('file_write', 'medium')
     const tool3 = createFakeTool('web_search', 'low')
@@ -289,9 +130,8 @@ describe('wrapAllTools', () => {
       ['file_write', tool2],
       ['web_search', tool3],
     ])
-    const options = createWrapOptions()
 
-    const wrapped = wrapAllTools(tools, options)
+    const wrapped = toWrappedTools(tools)
 
     expect(wrapped).toHaveLength(3)
     const names = wrapped.map((t) => t.name)
@@ -300,10 +140,22 @@ describe('wrapAllTools', () => {
     expect(names).toContain('web_search')
   })
 
-  it('空工具映射应返回空数组', () => {
-    const options = createWrapOptions()
+  it('应保留所有工具的 riskLevel', () => {
+    const tool1 = createFakeTool('file_read', 'low')
+    const tool2 = createFakeTool('file_write', 'medium')
+    const tools = new Map<string, RegisteredTool>([
+      ['file_read', tool1],
+      ['file_write', tool2],
+    ])
 
-    const wrapped = wrapAllTools(new Map(), options)
+    const wrapped = toWrappedTools(tools)
+
+    expect(wrapped[0].riskLevel).toBe('low')
+    expect(wrapped[1].riskLevel).toBe('medium')
+  })
+
+  it('空工具映射应返回空数组', () => {
+    const wrapped = toWrappedTools(new Map())
 
     expect(wrapped).toHaveLength(0)
   })
@@ -321,9 +173,8 @@ describe('wrapAllTools', () => {
       ['file_read', tool1],
       ['web_search', tool2],
     ])
-    const options = createWrapOptions({ approvalMode: 'full-auto' })
 
-    const wrapped = wrapAllTools(tools, options)
+    const wrapped = toWrappedTools(tools)
     const results = await Promise.all([wrapped[0].execute({}), wrapped[1].execute({})])
 
     expect(results).toContain('content1')

@@ -11,7 +11,7 @@
 // - 将结果返回给 LangGraph ReAct 循环
 // - 复用现有 Copilot SDK 的所有配置（BYOK、MCP、Skills 等）
 
-import type { WrappedTool, ToolWrapOptions } from './tool-adapter'
+import type { WrappedTool } from './tool-adapter'
 import type { AgentEventCallbacks } from '../agent/types'
 import type { AgentExecutionRequest, ExecutionResult } from '../../shared/types'
 import type { ModelAdapter } from '../models/adapter'
@@ -111,24 +111,6 @@ export function createCodingNodeTool(options: CodingNodeOptions): WrappedTool {
       }
     },
   }
-}
-
-/**
- * 创建编码节点工具并包装审批检查。
- *
- * @param options - 编码节点选项
- * @param wrapOptions - 审批包装选项
- * @returns 包装后的 WrappedTool
- */
-export function createWrappedCodingNode(
-  options: CodingNodeOptions,
-  wrapOptions: ToolWrapOptions,
-): WrappedTool {
-  const tool = createCodingNodeTool(options)
-
-  // 编码节点本身不嵌入审批检查（Copilot SDK 内部已有审批机制）
-  // 直接返回工具，审批由 Copilot SDK 的 tool-bridge 处理
-  return tool
 }
 
 // ─── 编码节点管理 ─────────────────────────────────────────────────

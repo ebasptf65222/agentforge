@@ -8,17 +8,12 @@
 // - 不破坏现有 builtin / copilot-sdk 引擎的 MCP 管理
 // - LangGraph 引擎独占使用 langchain-mcp-adapters
 // - 支持 stdio 和 http 两种传输方式
-// - 工具加载后注入审批检查（复用 wrapTool）
+// - Phase 3: 审批由 StateGraph interrupt() 在图级别处理，工具不含审批检查
 
 import { MultiServerMCPClient, type Connection, type StdioConnection, type StreamableHTTPConnection } from 'langchain-mcp-adapters'
 import type { DynamicStructuredTool } from '@langchain/core/tools'
 import type { MCPServerConfig } from '../../shared/types'
-import type { RegisteredTool } from '../tools/types'
-import type { ToolDefinition, ToolExecutionResult } from '../../shared/types'
-import type { ApprovalMode, ApprovalRequest, ToolAction } from '../../shared/types'
-import type { AgentEventCallbacks } from '../agent/types'
-import { shouldRequireApproval, buildToolAction, type ApprovalManager } from '../agent/approval'
-import type { WrappedTool, ToolWrapOptions } from './tool-adapter'
+import type { WrappedTool } from './tool-adapter'
 import { getMcpServerManager } from '../mcp/manager'
 
 // ─── 配置转换 ─────────────────────────────────────────────────────
@@ -129,71 +124,6 @@ export async function closeMcpClient(): Promise<void> {
 // ─── DynamicStructuredTool → WrappedTool 转换 ─────────────────────
 
 /**
- * 将 LangChain DynamicStructuredTool 转换为 AgentForge WrappedTool。
- *
- * 保留工具名称、描述和输入 schema，
- * execute 方法注入审批检查（复用 wrapTool 的审批逻辑）。
- *
- * @param tool - LangChain DynamicStructuredTool 实例
- * @param options - 审批包装选项
- * @returns WrappedTool 实例
- */
-export function convertLangChainToolToWrapped(
-  tool: DynamicStructuredTool,
-  options: ToolWrapOptions,
-): WrappedTool {
-  return {
-    name: tool.name,
-    description: tool.description,
-    inputSchema: tool.schema as Record<string, unknown>,
-    execute: async (args: Record<string, unknown>): Promise<string> => {
-      // 审批检查（与 wrapTool 一致的逻辑）
-      const toolAction: ToolAction = buildToolAction(tool.name, args, 'high')
-      const needsApproval = shouldRequireApproval(toolAction, options.approvalMode)
-
-      if (needsApproval) {
-        const step = Date.now()
-        const approvalRequest: ApprovalRequest = {
-          executionId: options.executionId,
-          step,
-          toolAction,
-          reason: `MCP tool "${tool.name}" requires approval (risk: high)`,
-        }
-
-        const response = await options.approvalManager.requestApproval(
-          approvalRequest,
-          options.approvalTimeoutMs,
-          options.callbacks.onApprovalRequest,
-        )
-
-        if (!response.approved) {
-          return `Tool execution was ${response.reason === 'TIMEOUT' ? 'timed out' : 'rejected'}.`
-        }
-      }
-
-      // 调用 LangChain 工具的 invoke
-      const result = await tool.invoke(args)
-      // DynamicStructuredTool.invoke 返回 string（默认 content 模式）
-      return typeof result === 'string' ? result : JSON.stringify(result)
-    },
-  }
-}
-
-/**
- * 批量转换 LangChain 工具为 WrappedTool。
- *
- * @param tools - DynamicStructuredTool 数组
- * @param options - 审批包装选项
- * @returns WrappedTool 数组
- */
-export function convertAllLangChainTools(
-  tools: DynamicStructuredTool[],
-  options: ToolWrapOptions,
-): WrappedTool[] {
-  return tools.map((tool) => convertLangChainToolToWrapped(tool, options))
-}
-
-/**
  * 将 LangChain DynamicStructuredTool 转换为 WrappedTool（不含审批检查）。
  *
  * Phase 3: 用于 LangGraph interrupt() 审批模式。
@@ -222,47 +152,4 @@ export function convertLangChainToolRaw(tool: DynamicStructuredTool): WrappedToo
  */
 export function convertAllLangChainToolsRaw(tools: DynamicStructuredTool[]): WrappedTool[] {
   return tools.map((tool) => convertLangChainToolRaw(tool))
-}
-
-// ─── 注册到 ToolRegistry（可选） ──────────────────────────────────
-
-/**
- * 将 LangChain MCP 工具注册回 ToolRegistry，
- * 供其他引擎（builtin）也能发现这些工具。
- *
- * 注意：这是可选操作，仅在需要跨引擎共享工具时调用。
- * 默认 LangGraph 引擎不注册到 ToolRegistry，而是直接使用 WrappedTool[]。
- *
- * @param tools - DynamicStructuredTool 数组
- * @param serverName - MCP Server 名称（用于注销）
- */
-export function registerMcpToolsToRegistry(
-  tools: DynamicStructuredTool[],
-  serverName: string,
-): void {
-  // 延迟导入避免循环依赖
-  const { getToolRegistry } = require('../tools/registry')
-  const registry = getToolRegistry()
-
-  for (const tool of tools) {
-    const definition: ToolDefinition = {
-      name: tool.name,
-      description: tool.description ?? '',
-      inputSchema: tool.schema as Record<string, unknown>,
-      riskLevel: 'high',
-      source: 'mcp',
-    }
-
-    const executeFn = async (args: Record<string, unknown>): Promise<ToolExecutionResult> => {
-      const result = await tool.invoke(args)
-      const content = typeof result === 'string' ? result : JSON.stringify(result)
-      return {
-        isError: false,
-        content,
-        metadata: { serverName },
-      }
-    }
-
-    registry.registerMcp(serverName, definition, executeFn)
-  }
 }

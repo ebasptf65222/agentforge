@@ -252,7 +252,8 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
 
     // ─── Phase 3: interrupt() 审批 Gate ───────────────────
     // 检查工具是否需要审批
-    const riskLevel = getToolRiskLevel(tool.name)
+    // 优先使用工具定义中声明的 riskLevel，否则查内置映射表
+    const riskLevel = getToolRiskLevel(tool.name, tool.riskLevel)
     const toolAction = buildToolAction(tool.name, parsed.args, riskLevel)
     const needsApproval = shouldRequireApproval(toolAction, approvalMode)
 
@@ -501,13 +502,20 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
     if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('abort'))) {
       graphStatus = 'cancelled'
     } else {
-      throw error
+      // 非 Abort 错误：保留已收集的 trajectories，设为 failed 状态
+      console.error('[LangGraph StateGraph] Execution error:', error)
+      graphStatus = 'failed'
     }
   }
 
   // ─── finalState 兜底 ─────────────────────────────────────
   // 当循环因 abort / interrupt 无数据 / 超出循环次数而 break 时，
   // finalState 可能仍未赋值，需要构造一个兜底状态
+  // 如果循环耗尽仍未完成，graphStatus 可能为初始值 'running'，
+  // 这不是合法终态，应转为 'failed'
+  if (graphStatus === 'running') {
+    graphStatus = 'failed'
+  }
   if (!finalState) {
     finalState = {
       messages: [],

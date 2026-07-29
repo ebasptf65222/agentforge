@@ -1,88 +1,19 @@
 // LangGraph 引擎: 工具适配层
 // 将 AgentForge RegisteredTool 包装为 ReAct 循环可调用的 WrappedTool
-// 在 execute 前嵌入审批检查，复用现有 shouldRequireApproval + ApprovalManager
+// Phase 3: 审批由 StateGraph interrupt() 在图级别处理，工具仅负责执行
 
 import type { RegisteredTool } from '../tools/types'
-import type { AgentEventCallbacks } from '../agent/types'
-import type {
-  ToolExecutionResult,
-  ToolAction,
-  ApprovalMode,
-  ApprovalRequest,
-} from '../../shared/types'
-import { shouldRequireApproval, buildToolAction } from '../agent/approval'
-import type { ApprovalManager } from '../agent/approval'
-
-/** 工具包装选项 */
-export interface ToolWrapOptions {
-  approvalMode: ApprovalMode
-  approvalManager: ApprovalManager
-  approvalTimeoutMs: number
-  callbacks: AgentEventCallbacks
-  executionId: string
-}
+import type { ToolExecutionResult } from '../../shared/types'
+import type { ToolRiskLevel } from '../../shared/types'
 
 /** 包装后的工具 */
 export interface WrappedTool {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  /** 工具风险等级（Phase 3: 用于 StateGraph interrupt 审批决策） */
+  riskLevel?: ToolRiskLevel
   execute: (args: Record<string, unknown>) => Promise<string>
-}
-
-/**
- * 将单个 RegisteredTool 包装为 LangGraph 可用工具
- * 在执行前嵌入审批检查
- */
-export function wrapTool(tool: RegisteredTool, options: ToolWrapOptions): WrappedTool {
-  return {
-    name: tool.definition.name,
-    description: tool.definition.description,
-    inputSchema: tool.definition.inputSchema,
-    execute: async (args: Record<string, unknown>): Promise<string> => {
-      const toolAction: ToolAction = buildToolAction(
-        tool.definition.name,
-        args,
-        tool.definition.riskLevel,
-      )
-      const needsApproval = shouldRequireApproval(toolAction, options.approvalMode)
-
-      if (needsApproval) {
-        const step = Date.now() // 简化：用时间戳作为 step
-        const approvalRequest: ApprovalRequest = {
-          executionId: options.executionId,
-          step,
-          toolAction,
-          reason: `Tool "${tool.definition.name}" requires approval (risk: ${toolAction.riskLevel})`,
-        }
-
-        const response = await options.approvalManager.requestApproval(
-          approvalRequest,
-          options.approvalTimeoutMs,
-          options.callbacks.onApprovalRequest,
-        )
-
-        if (!response.approved) {
-          return `Tool execution was ${response.reason === 'TIMEOUT' ? 'timed out' : 'rejected'}.`
-        }
-      }
-
-      const result: ToolExecutionResult = await tool.execute(args)
-      return result.content
-    },
-  }
-}
-
-/** 批量包装所有工具 */
-export function wrapAllTools(
-  tools: Map<string, RegisteredTool>,
-  options: ToolWrapOptions,
-): WrappedTool[] {
-  const wrapped: WrappedTool[] = []
-  for (const tool of tools.values()) {
-    wrapped.push(wrapTool(tool, options))
-  }
-  return wrapped
 }
 
 /**
@@ -93,13 +24,14 @@ export function wrapAllTools(
  * 而非嵌入在 tool.execute() 内部。
  *
  * @param tool - 注册的工具
- * @returns 不含审批检查的 WrappedTool
+ * @returns 不含审批检查的 WrappedTool（保留 riskLevel）
  */
 export function toWrappedTool(tool: RegisteredTool): WrappedTool {
   return {
     name: tool.definition.name,
     description: tool.definition.description,
     inputSchema: tool.definition.inputSchema,
+    riskLevel: tool.definition.riskLevel,
     execute: async (args: Record<string, unknown>): Promise<string> => {
       const result: ToolExecutionResult = await tool.execute(args)
       return result.content

@@ -42,6 +42,7 @@ type StreamChunkType =
   | 'usage-info'
   | 'ask-user'
   | 'elicitation-request'
+  | 'node-update'
 
 // ─── 5.2 核心实体接口 ────────────────────────────────────────────
 

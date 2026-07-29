@@ -146,6 +146,8 @@ export class LangGraphAgentBridge {
     } finally {
       // 清理 MCP 连接
       await closeMcpClient()
+      // 清理 AbortController（避免执行完成后误调 cancel）
+      this.abortController = null
     }
 
     // ─── 保存对话上下文摘要 ──────────────────────────────────

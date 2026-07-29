@@ -161,6 +161,11 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
     const contextResult = manageContext(historyContext, {
       maxContextTokens: contextWindow,
     })
+    if (contextResult.truncated) {
+      console.info(
+        `[Agent LangGraph] Context truncated: ${contextResult.originalCount} -> ${contextResult.retainedCount} messages, ~${contextResult.estimatedTokens} tokens`,
+      )
+    }
 
     // 保存用户消息
     createMessage({
@@ -170,7 +175,7 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
     })
 
     // 解析 Skill
-    const adapter = getModelAdapter(request.modelId)
+    let adapter = getModelAdapter(request.modelId)
     const tools = getToolsMap()
     let skillPrompt: string | undefined
 
@@ -179,12 +184,14 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
       const skill = skillResolution.skill
       const skillCtx = buildSkillExecutionContext(skill, tools)
       skillPrompt = skillCtx.skillPrompt
-      // 过滤工具
-      const filteredTools = filterTools(tools, skill.allowedTools)
-      for (const [key, value] of filteredTools) {
-        tools.set(key, value)
+
+      // Skill 指定 modelId 时切换模型适配器
+      if (skill.modelId !== undefined) {
+        adapter = getModelAdapter(skill.modelId)
       }
-      // 清空原 map 再放入过滤后的
+
+      // 过滤工具（清除后重新填充，避免冗余操作）
+      const filteredTools = filterTools(tools, skill.allowedTools)
       tools.clear()
       for (const [key, value] of filteredTools) {
         tools.set(key, value)
