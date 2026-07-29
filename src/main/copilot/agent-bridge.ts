@@ -219,14 +219,37 @@ export class CopilotAgentBridge {
 
       // 4f. 自定义代理/子代理编排
       if (extras?.customAgents && extras.customAgents.length > 0) {
-        const agents = extras.customAgents.map((a) => ({
-          name: a.name,
-          displayName: a.displayName ?? a.name,
-          description: a.description ?? '',
-          tools: a.tools ?? null,
-          prompt: a.prompt,
-          infer: a.infer ?? true,
-        }))
+        const agents = extras.customAgents.map((a) => {
+          const agent: Record<string, unknown> = {
+            name: a.name,
+            displayName: a.displayName ?? a.name,
+            description: a.description ?? '',
+            tools: a.tools ?? null,
+            prompt: a.prompt,
+            infer: a.infer ?? true,
+          }
+          // 代理专属模型（运行时解析为 SDK provider+model）
+          if (a.model) {
+            try {
+              const providerConfig = buildProviderConfigById(a.model)
+              if (providerConfig) {
+                agent['model'] = providerConfig.model
+                agent['provider'] = providerConfig.provider
+              }
+            } catch {
+              // 模型解析失败，忽略（使用默认模型）
+            }
+          }
+          // 代理专属推理强度
+          if (a.reasoningEffort) {
+            agent['reasoningEffort'] = a.reasoningEffort
+          }
+          // 预加载技能
+          if (a.skills && a.skills.length > 0) {
+            agent['skills'] = a.skills
+          }
+          return agent
+        })
         sessionConfig['customAgents'] = agents
       }
 

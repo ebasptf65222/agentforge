@@ -230,6 +230,30 @@ interface AgentExecutionRequest {
   maxSteps: number
   /** 图片附件（dataUrl 格式），传给 SDK session.send */
   attachments?: Array<{ dataUrl: string; name: string; size: number }>
+  /** 自定义代理配置（per-conversation，传给 SDK customAgents） */
+  customAgents?: Array<{
+    name: string
+    displayName?: string
+    description?: string
+    tools?: string[] | null
+    prompt: string
+    infer?: boolean
+    model?: string
+    reasoningEffort?: string
+    skills?: string[]
+  }>
+  /** 预选激活的代理名称 */
+  activeAgent?: string
+  /** 自定义斜杠命令 */
+  commands?: Array<{ name: string; description?: string }>
+  /** 系统提示词模式 */
+  systemMessageMode?: 'append' | 'replace' | 'customize'
+  /** 系统提示词分区配置 */
+  systemMessageSections?: Record<string, {
+    action: 'replace' | 'remove' | 'append' | 'prepend' | 'transform'
+    content?: string
+    transformDescription?: string
+  }>
 }
 
 /** Agent 执行结果 */

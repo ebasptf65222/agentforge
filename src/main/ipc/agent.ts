@@ -326,6 +326,42 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
       extras.largeOutputMaxSize = settings.copilotLargeOutputMaxSize
     }
 
+    // 28. Per-conversation 配置（从请求参数传递）
+    // 自定义代理配置
+    if (request.customAgents && request.customAgents.length > 0) {
+      extras.customAgents = request.customAgents.map((a) => ({
+        name: a.name,
+        displayName: a.displayName,
+        description: a.description,
+        tools: a.tools ?? null,
+        prompt: a.prompt,
+        infer: a.infer ?? true,
+        model: a.model,
+        reasoningEffort: a.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined,
+        skills: a.skills,
+      }))
+    }
+
+    // 预选激活的代理
+    if (request.activeAgent) {
+      extras.activeAgent = request.activeAgent
+    }
+
+    // 自定义斜杠命令
+    if (request.commands && request.commands.length > 0) {
+      extras.commands = request.commands
+    }
+
+    // 系统提示词模式
+    if (request.systemMessageMode) {
+      extras.systemMessageMode = request.systemMessageMode
+    }
+
+    // 系统提示词分区配置
+    if (request.systemMessageSections) {
+      extras.systemMessageSections = request.systemMessageSections as SessionExtras['systemMessageSections']
+    }
+
     // 执行 SDK Agent（传入 extras 配置）
     result = await bridge.execute(request, extras)
 
@@ -400,6 +436,11 @@ export async function handleExecute(
     maxSteps: (p['maxSteps'] as number) || 20,
     skillName: p['skillName'] as string | undefined,
     attachments: Array.isArray(p['attachments']) ? p['attachments'] : undefined,
+    customAgents: Array.isArray(p['customAgents']) ? p['customAgents'] : undefined,
+    activeAgent: typeof p['activeAgent'] === 'string' ? p['activeAgent'] : undefined,
+    commands: Array.isArray(p['commands']) ? p['commands'] : undefined,
+    systemMessageMode: p['systemMessageMode'] as 'append' | 'replace' | 'customize' | undefined,
+    systemMessageSections: p['systemMessageSections'] as Record<string, unknown> | undefined,
   }
 
   // 1. 并发控制 - OPT-02: 在任何 await 之前设置锁，防止竞态条件

@@ -57,6 +57,12 @@ export interface CustomAgentConfig {
   prompt: string
   /** 运行时是否可自动选择（默认 true） */
   infer?: boolean
+  /** 代理专属模型 ID（AgentForge 内部模型 ID，运行时解析为 provider+model） */
+  model?: string
+  /** 代理专属推理强度 */
+  reasoningEffort?: ReasoningEffort
+  /** 预加载技能到代理上下文 */
+  skills?: string[]
 }
 
 /** 斜杠命令配置 */
