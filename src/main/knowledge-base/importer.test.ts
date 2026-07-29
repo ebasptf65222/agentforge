@@ -164,16 +164,15 @@ More text here for testing purposes.`
       expect(result.chunkCount).toBeGreaterThanOrEqual(1)
     })
 
-    it('should mark document as error when file does not exist', async () => {
+    it('should not create document record when file does not exist', async () => {
       const filePath = join(testFilesDir, 'nonexistent.md')
 
+      // 新行为：先解析文件再创建文档记录，文件不存在时不会创建残留记录
       await expect(importDocument(filePath, 'nonexistent.md', 'markdown')).rejects.toThrow(AppError)
 
-      // 文档记录应该存在但状态为 error
+      // 不应该创建任何文档记录
       const docs = listKbDocuments()
-      expect(docs).toHaveLength(1)
-      expect(docs[0].status).toBe('error')
-      expect(docs[0].errorMessage).toBeDefined()
+      expect(docs).toHaveLength(0)
     })
 
     it('should throw KB_INDEX_ERROR for invalid PDF content', async () => {

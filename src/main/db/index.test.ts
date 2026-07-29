@@ -42,9 +42,9 @@ describe('Database Initialization', () => {
 
   // ─── 验收标准 4: schema_version ──────────────────────────────
 
-  it('should create schema_version table with version=33', () => {
+  it('should create schema_version table with version=38', () => {
     initDatabase(dbPath)
-    expect(getSchemaVersion()).toBe(33)
+    expect(getSchemaVersion()).toBe(38)
   })
 
   // ─── 验收标准 5: conversations 外键 ───────────────────────────
@@ -203,7 +203,7 @@ describe('Database Initialization', () => {
 
   // ─── 辅助验证 ────────────────────────────────────────────────
 
-  it('should create 12 tables (5 P1 + mcp_servers + skills + kb_documents + kb_chunks + kg_entities + kg_relations + prompt_templates)', () => {
+  it('should create 15 tables (5 P1 + mcp_servers + skills + kb_documents + kb_chunks + kg_entities + kg_relations + prompt_templates + codebase_files + codebase_symbols + codebase_chunks)', () => {
     const db = initDatabase(dbPath)
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
@@ -211,6 +211,9 @@ describe('Database Initialization', () => {
     const tableNames = tables.map((t) => t.name).sort()
     expect(tableNames).toEqual([
       'app_settings',
+      'codebase_chunks',
+      'codebase_files',
+      'codebase_symbols',
       'conversations',
       'kb_chunks',
       'kb_documents',

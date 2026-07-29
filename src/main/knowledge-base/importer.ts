@@ -17,12 +17,15 @@ import { batchCreateKbChunks, deleteKbChunksByDocumentId, getKbChunksByDocumentI
 import { parseDocument } from './parser'
 import { chunkText } from './chunking'
 import { clearSearchCache } from './search'
+import { indexDocumentEmbeddings } from './indexing'
 import type { ChunkingOptions } from './chunking'
 
 /** 导入选项 */
 export interface ImportOptions {
   /** 分块策略选项 */
   chunking?: ChunkingOptions
+  /** 是否在导入后自动生成嵌入（默认 true） */
+  autoEmbed?: boolean
 }
 
 /** 导入结果 */
@@ -56,33 +59,24 @@ export async function importDocument(
   fileType: KbDocument['fileType'],
   options: ImportOptions = {},
 ): Promise<ImportResult> {
-  // 0. 解析文件内容，用于内容去重检查
+  // 0. 解析文件内容，计算内容哈希用于快速去重
   const parseResult = await parseDocument(filePath, fileType)
   const contentHash = createHash('sha256').update(parseResult.content).digest('hex')
 
-  // 检查是否有相同内容的文档已存在
+  // 快速去重：通过 content_hash 列直接比对（O(1) 查询，替代 O(N×M) 遍历）
   const existingDocs = listKbDocuments({ status: 'ready' })
   for (const doc of existingDocs) {
-    try {
-      const chunks = getKbChunksByDocumentId(doc.id)
-      const existingContent = chunks.map((c) => c.content).join('')
-      const existingHash = createHash('sha256').update(existingContent).digest('hex')
-      if (existingHash === contentHash) {
-        throw new AppError(
-          ErrorCodes.KB_DOCUMENT_DUPLICATE,
-          `Document with identical content already exists: "${doc.fileName}" (id: ${doc.id})`,
-          { filePath, fileName, existingDocId: doc.id },
-        )
-      }
-    } catch (error) {
-      if (error instanceof AppError) throw error
-      // 如果读取已有文档内容失败，跳过该文档的比对
-      continue
+    if (doc.contentHash === contentHash) {
+      throw new AppError(
+        ErrorCodes.KB_DOCUMENT_DUPLICATE,
+        `Document with identical content already exists: "${doc.fileName}" (id: ${doc.id})`,
+        { filePath, fileName, existingDocId: doc.id },
+      )
     }
   }
 
-  // 1. 创建文档记录
-  const doc = createKbDocument({ filePath, fileName, fileType })
+  // 1. 创建文档记录（含 content_hash）
+  const doc = createKbDocument({ filePath, fileName, fileType, contentHash })
 
   try {
     // 2. 文本分块（复用步骤 0 中已解析的内容）
@@ -93,7 +87,7 @@ export async function importDocument(
     }
     const chunks = chunkText(parseResult.content, chunkingOpts)
 
-    // 4. 存储分块
+    // 3. 存储分块
     if (chunks.length > 0) {
       batchCreateKbChunks({
         documentId: doc.id,
@@ -105,13 +99,26 @@ export async function importDocument(
       })
     }
 
-    // 5. 更新文档状态为 ready
+    // 4. 更新文档状态为 ready
     const totalTokens = chunks.reduce((sum, c) => sum + c.tokenCount, 0)
     updateKbDocument({
       id: doc.id,
       status: 'ready',
       chunkCount: chunks.length,
     })
+
+    // 5. 自动生成嵌入向量（除非显式禁用）
+    if (options.autoEmbed !== false) {
+      try {
+        await indexDocumentEmbeddings(doc.id)
+      } catch (embedError) {
+        // 嵌入失败不影响导入成功，但记录警告
+        console.warn(
+          `[importer] Auto-embed failed for document "${doc.fileName}":`,
+          embedError instanceof Error ? embedError.message : String(embedError),
+        )
+      }
+    }
 
     return {
       documentId: doc.id,
@@ -169,6 +176,9 @@ export async function reimportDocument(
     // 重新解析（异步）
     const parseResult = await parseDocument(doc.filePath, doc.fileType)
 
+    // 重新计算 content_hash
+    const contentHash = createHash('sha256').update(parseResult.content).digest('hex')
+
     // 重新分块
     const chunkingOpts: ChunkingOptions = options.chunking ?? {
       strategy: 'fixed',
@@ -194,7 +204,20 @@ export async function reimportDocument(
       id: doc.id,
       status: 'ready',
       chunkCount: chunks.length,
+      contentHash,
     })
+
+    // 自动生成嵌入向量
+    if (options.autoEmbed !== false) {
+      try {
+        await indexDocumentEmbeddings(doc.id)
+      } catch (embedError) {
+        console.warn(
+          `[importer] Auto-embed failed for reimported document "${doc.fileName}":`,
+          embedError instanceof Error ? embedError.message : String(embedError),
+        )
+      }
+    }
 
     return {
       documentId: doc.id,

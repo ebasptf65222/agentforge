@@ -39,6 +39,8 @@ import type {
   ActiveSessionInfo,
   UserInputResponse,
   ElicitationResponse,
+  Checkpoint,
+  CheckpointDiff,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -106,6 +108,18 @@ interface SelectDirParams {
   defaultPath?: string
 }
 
+/** Fork 会话参数 */
+interface ForkConversationParams {
+  sourceConversationId: string
+  messageCount?: number
+}
+
+/** 会话分支树返回 */
+interface ConversationTreeResult {
+  ancestors: Conversation[]
+  children: Conversation[]
+}
+
 /** Chat 命名空间 */
 interface ChatAPI {
   createConversation(params: CreateConversationParams): Promise<Conversation>
@@ -119,6 +133,10 @@ interface ChatAPI {
   onStreamChunk(callback: (chunk: StreamChunk) => void): () => void
   onStreamEnd(callback: (meta: StreamEndMetadata) => void): () => void
   onStreamError(callback: (error: StreamError) => void): () => void
+  /** P3-01: Fork 一个会话 */
+  forkConversation(sourceConversationId: string, messageCount?: number): Promise<Conversation>
+  /** P3-01: 获取会话分支树 */
+  getConversationTree(id: string): Promise<ConversationTreeResult>
 }
 
 /** Model 命名空间 */
@@ -214,6 +232,39 @@ interface McpServerInfo {
   tools: unknown[]
 }
 
+/** P3-02: MCP 市场分类 */
+type McpCategory = 'filesystem' | 'search' | 'database' | 'devtools' | 'productivity' | 'communication'
+
+/** P3-02: MCP 环境变量键定义 */
+interface McpEnvKey {
+  key: string
+  label: string
+  required: boolean
+  secret: boolean
+  placeholder?: string
+}
+
+/** P3-02: MCP 市场目录条目 */
+interface McpCatalogEntry {
+  id: string
+  name: string
+  description: string
+  category: McpCategory
+  transport: 'stdio' | 'http'
+  command?: string
+  args?: string[]
+  url?: string
+  envKeys?: McpEnvKey[]
+  icon: string
+  homepage?: string
+}
+
+/** P3-02: 安装结果 */
+interface McpInstallResult {
+  config: MCPServerConfig
+  entry: McpCatalogEntry
+}
+
 /** MCP 命名空间 */
 interface McpAPI {
   add(params: McpAddParams): Promise<MCPServerConfig>
@@ -222,6 +273,12 @@ interface McpAPI {
   list(): Promise<MCPServerConfig[]>
   getStatus(id: string): Promise<McpServerInfo>
   toggleEnable(id: string, enabled: boolean): Promise<void>
+  /** P3-02: 获取市场目录（可按分类或关键词过滤） */
+  catalogList(params?: { category?: McpCategory; query?: string }): Promise<McpCatalogEntry[]>
+  /** P3-02: 获取单个目录条目 */
+  catalogGet(id: string): Promise<McpCatalogEntry>
+  /** P3-02: 一键安装预置 MCP Server */
+  catalogInstall(id: string, env?: Record<string, string>): Promise<McpInstallResult>
 }
 
 /** 创建 Skill 参数 */
@@ -415,6 +472,87 @@ interface PromptTemplateAPI {
   delete(id: string): Promise<void>
 }
 
+/** Checkpoint 列表查询参数 */
+interface CheckpointListParams {
+  relativePath?: string
+  executionId?: string
+  limit?: number
+  offset?: number
+}
+
+/** Checkpoint 列表返回 */
+interface CheckpointListResult {
+  checkpoints: Checkpoint[]
+  count: number
+}
+
+/** Checkpoint 回滚参数 */
+interface CheckpointRollbackParams {
+  checkpointId: number
+}
+
+/** Checkpoint 回滚结果 */
+interface CheckpointRollbackResult {
+  success: boolean
+  relativePath: string
+  action: string
+  restored: boolean
+}
+
+/** Checkpoint Diff 参数 */
+interface CheckpointDiffParams {
+  checkpointId: number
+}
+
+/** Checkpoint 历史参数 */
+interface CheckpointHistoryParams {
+  relativePath: string
+  limit?: number
+}
+
+/** Checkpoint 历史返回 */
+interface CheckpointHistoryResult {
+  checkpoints: Checkpoint[]
+  relativePath: string
+}
+
+/** Checkpoint 清理参数 */
+interface CheckpointCleanupParams {
+  retentionDays?: number
+  keepPerFile?: number
+}
+
+/** Checkpoint 清理返回 */
+interface CheckpointCleanupResult {
+  deleted: number
+}
+
+/** Checkpoint 删除参数 */
+interface CheckpointDeleteParams {
+  checkpointId: number
+}
+
+/** Checkpoint 删除返回 */
+interface CheckpointDeleteResult {
+  deleted: boolean
+}
+
+/** Checkpoint 命名空间（快照与回滚） */
+interface CheckpointAPI {
+  /** 获取快照列表（可按路径/执行 ID 过滤） */
+  list(params?: CheckpointListParams): Promise<CheckpointListResult>
+  /** 回滚到指定快照 */
+  rollback(params: CheckpointRollbackParams): Promise<CheckpointRollbackResult>
+  /** 获取快照与当前文件的差异 */
+  diff(params: CheckpointDiffParams): Promise<CheckpointDiff>
+  /** 获取指定文件的快照历史 */
+  history(params: CheckpointHistoryParams): Promise<CheckpointHistoryResult>
+  /** 清理旧快照 */
+  cleanup(params?: CheckpointCleanupParams): Promise<CheckpointCleanupResult>
+  /** 删除指定快照 */
+  delete(params: CheckpointDeleteParams): Promise<CheckpointDeleteResult>
+}
+
 /** window.electron 完整类型 */
 interface ElectronAPI {
   chat: ChatAPI
@@ -432,6 +570,7 @@ interface ElectronAPI {
   wiki: WikiAPI
   audit: AuditAPI
   promptTemplate: PromptTemplateAPI
+  checkpoint: CheckpointAPI
 }
 
 export type {
@@ -455,6 +594,10 @@ export type {
   McpUpdateParams,
   McpServerInfo,
   McpAPI,
+  McpCategory,
+  McpEnvKey,
+  McpCatalogEntry,
+  McpInstallResult,
   CreateSkillParams,
   UpdateSkillParams,
   ListSkillParams,
@@ -474,4 +617,18 @@ export type {
   UpdatePromptTemplateParams,
   ListPromptTemplateParams,
   PromptTemplateAPI,
+  CheckpointAPI,
+  CheckpointListParams,
+  CheckpointListResult,
+  CheckpointRollbackParams,
+  CheckpointRollbackResult,
+  CheckpointDiffParams,
+  CheckpointHistoryParams,
+  CheckpointHistoryResult,
+  CheckpointCleanupParams,
+  CheckpointCleanupResult,
+  CheckpointDeleteParams,
+  CheckpointDeleteResult,
+  ForkConversationParams,
+  ConversationTreeResult,
 }

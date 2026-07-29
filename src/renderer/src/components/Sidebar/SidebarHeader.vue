@@ -3,7 +3,7 @@
 
 import { computed } from 'vue'
 import { NIcon } from 'naive-ui'
-import { BookOutlined, SettingsOutlined, AddOutlined, FolderOutlined } from '@vicons/material'
+import { BookOutlined, SettingsOutlined, AddOutlined, FolderOutlined, HistoryOutlined } from '@vicons/material'
 import AppButton from '@/components/common/AppButton.vue'
 
 const props = defineProps<{
@@ -16,6 +16,7 @@ const emit = defineEmits<{
   settings: []
   'open-kb': []
   'open-files': []
+  'open-checkpoints': []
 }>()
 
 const newChatLabel = computed(() => (props.collapsed ? '' : '新建对话'))
@@ -35,6 +36,17 @@ const newChatLabel = computed(() => (props.collapsed ? '' : '新建对话'))
         >
           <NIcon :size="16" aria-hidden="true">
             <FolderOutlined />
+          </NIcon>
+        </button>
+        <button
+          class="sidebar-header__icon-btn"
+          type="button"
+          title="文件快照"
+          aria-label="文件快照"
+          @click="emit('open-checkpoints')"
+        >
+          <NIcon :size="16" aria-hidden="true">
+            <HistoryOutlined />
           </NIcon>
         </button>
         <button
@@ -82,6 +94,17 @@ const newChatLabel = computed(() => (props.collapsed ? '' : '新建对话'))
       >
         <NIcon :size="16" aria-hidden="true">
           <FolderOutlined />
+        </NIcon>
+      </button>
+      <button
+        class="sidebar-header__icon-btn"
+        type="button"
+        title="文件快照"
+        aria-label="文件快照"
+        @click="emit('open-checkpoints')"
+      >
+        <NIcon :size="16" aria-hidden="true">
+          <HistoryOutlined />
         </NIcon>
       </button>
       <button

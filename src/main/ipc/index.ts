@@ -8,6 +8,7 @@ import { registerSettingsHandlers } from './settings'
 import { registerFileHandlers } from './file'
 import { registerSystemHandlers } from './system'
 import { registerMcpHandlers } from './mcp'
+import { registerMcpMarketplaceHandlers } from './mcp-marketplace'
 import { registerAgentHandlers } from './agent'
 import { registerSkillHandlers } from './skill'
 import { registerKbHandlers } from './knowledge-base'
@@ -17,6 +18,10 @@ import { registerWorkspaceHandlers } from './workspace'
 import { registerWikiHandlers } from './wiki'
 import { registerAuditHandlers } from './audit'
 import { registerPromptTemplateHandlers } from './prompt-template'
+import { registerCodebaseHandlers } from './codebase'
+import { registerGitHandlers } from './git'
+import { registerBrowserHandlers } from './browser'
+import { registerCheckpointHandlers } from './checkpoint'
 
 /**
  * 注册所有 IPC handlers。
@@ -41,6 +46,9 @@ export function registerIpcHandlers(): void {
 
   // ─── MCP 域 (P2-07/P2-08) ──────────────────────────────────────
   registerMcpHandlers()
+
+  // ─── MCP 市场域 (P3-02) ──────────────────────────────────────
+  registerMcpMarketplaceHandlers()
 
   // ─── Agent 域 (P2-04) ──────────────────────────────────────────
   registerAgentHandlers()
@@ -68,4 +76,16 @@ export function registerIpcHandlers(): void {
 
   // ─── Prompt Template 域 (Prompt 模板库) ──────────────────────
   registerPromptTemplateHandlers()
+
+  // ─── Codebase 域 (代码库索引) ────────────────────────────────
+  registerCodebaseHandlers()
+
+  // ─── Git 域 (Git 工作流) ────────────────────────────────────
+  registerGitHandlers()
+
+  // ─── Browser 域 (浏览器自动化) ──────────────────────────────
+  registerBrowserHandlers()
+
+  // ─── Checkpoint 域 (快照回滚) ──────────────────────────────
+  registerCheckpointHandlers()
 }

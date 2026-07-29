@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // McpConfig - MCP 服务器配置管理界面
 // 列表展示已添加的 MCP 服务器，支持添加/编辑/删除/启用禁用/状态刷新
+// P3-02: 新增市场标签页，支持浏览预置目录并一键安装
 
 import { ref, reactive, computed, onMounted, h } from 'vue'
 import {
@@ -16,14 +17,20 @@ import {
   NSelect,
   NSpace,
   NPopconfirm,
+  NTabs,
+  NTabPane,
   type DataTableColumns,
 } from 'naive-ui'
 import { AddOutlined, DeleteOutlined, RefreshOutlined, EditOutlined } from '@vicons/material'
 import type { MCPServerConfig } from '@shared/types'
 import type { McpAddParams, McpUpdateParams } from '@/types/electron-api'
 import { useMcpStore } from '@/stores/mcp'
+import McpMarketplace from './McpMarketplace.vue'
 
 const mcpStore = useMcpStore()
+
+// P3-02: 标签页切换
+const activeTab = ref<'servers' | 'marketplace'>('servers')
 
 onMounted(() => {
   void mcpStore.loadServers().then(() => {
@@ -279,33 +286,42 @@ const columns = computed<DataTableColumns<MCPServerConfig>>(() => [
 
 <template>
   <div class="mcp-config">
-    <!-- 操作栏 -->
-    <div class="mcp-config__toolbar">
-      <NSpace>
-        <NButton type="primary" size="small" @click="openAddModal">
-          <template #icon>
-            <NIcon><AddOutlined /></NIcon>
-          </template>
-          添加服务器
-        </NButton>
-        <NButton quaternary size="small" @click="handleRefresh">
-          <template #icon>
-            <NIcon><RefreshOutlined /></NIcon>
-          </template>
-          刷新
-        </NButton>
-      </NSpace>
-    </div>
+    <!-- P3-02: 标签页切换 - 服务器管理 / 市场 -->
+    <NTabs v-model:value="activeTab" type="line" animated size="small" class="mcp-config__tabs">
+      <NTabPane name="servers" tab="我的服务器">
+        <!-- 操作栏 -->
+        <div class="mcp-config__toolbar">
+          <NSpace>
+            <NButton type="primary" size="small" @click="openAddModal">
+              <template #icon>
+                <NIcon><AddOutlined /></NIcon>
+              </template>
+              添加服务器
+            </NButton>
+            <NButton quaternary size="small" @click="handleRefresh">
+              <template #icon>
+                <NIcon><RefreshOutlined /></NIcon>
+              </template>
+              刷新
+            </NButton>
+          </NSpace>
+        </div>
 
-    <!-- 服务器列表 -->
-    <NDataTable
-      :columns="columns"
-      :data="mcpStore.servers"
-      :loading="mcpStore.loading"
-      :bordered="false"
-      size="small"
-      :row-key="(row: MCPServerConfig) => row.id"
-    />
+        <!-- 服务器列表 -->
+        <NDataTable
+          :columns="columns"
+          :data="mcpStore.servers"
+          :loading="mcpStore.loading"
+          :bordered="false"
+          size="small"
+          :row-key="(row: MCPServerConfig) => row.id"
+        />
+      </NTabPane>
+
+      <NTabPane name="marketplace" tab="市场">
+        <McpMarketplace />
+      </NTabPane>
+    </NTabs>
 
     <!-- 添加/编辑服务器弹窗 -->
     <NModal
@@ -367,6 +383,12 @@ const columns = computed<DataTableColumns<MCPServerConfig>>(() => [
 <style scoped>
 .mcp-config {
   width: 100%;
+}
+
+.mcp-config__tabs {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .mcp-config__toolbar {

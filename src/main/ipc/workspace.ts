@@ -10,6 +10,7 @@ import type { FileTreeNode, WorkspaceDirectoryEntry } from '@shared/types'
 import { getSettings } from '../db/repos/app-settings'
 import { resolveWorkspacePath } from '../tools/path-guard'
 import { AppError, ErrorCodes } from '../utils/error'
+import { snapshotBeforeWrite, snapshotBeforeDelete } from '../checkpoint'
 
 /** 文件大小上限：1MB（读取） */
 const MAX_FILE_SIZE = 1024 * 1024
@@ -145,6 +146,13 @@ export async function handleWsWrite(relativePath: string, content: string): Prom
 
   const wsPath = getWorkspacePath()
   const absPath = resolveWorkspacePath(wsPath, relativePath)
+
+  // P2-02: 写入前自动创建快照（仅当文件已存在时）
+  try {
+    await snapshotBeforeWrite(relativePath, content)
+  } catch {
+    // 快照失败不应阻止写入，静默忽略
+  }
 
   // 自动创建父目录
   const parentDir = resolve(absPath, '..')
@@ -286,6 +294,15 @@ export async function handleWsDelete(relativePath: string): Promise<void> {
         `Directory is not empty: ${relativePath}. Use recursive delete or remove contents first.`,
         { path: relativePath, entryCount: entries.length },
       )
+    }
+  }
+
+  // P2-02: 删除前自动创建快照（仅当文件存在时）
+  if (stats.isFile()) {
+    try {
+      await snapshotBeforeDelete(relativePath)
+    } catch {
+      // 快照失败不应阻止删除，静默忽略
     }
   }
 

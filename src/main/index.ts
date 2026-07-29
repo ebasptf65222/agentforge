@@ -10,6 +10,8 @@ import {
 import { initDatabase, closeDatabase } from './db/index'
 import { registerIpcHandlers } from './ipc/index'
 import { initBuiltinTools } from './tools/registry-init'
+import { getSettings } from './db/repos/app-settings'
+import { setEmbeddingConfig } from './knowledge-base/embedding'
 
 // ─── 全局未捕获错误处理 ───────────────────────────────────────────────
 // 防止应用崩溃后静默退出，至少记录错误日志
@@ -48,6 +50,12 @@ registerCleanup(closeDatabase)
 registerCleanup(async () => {
   const { getMcpServerManager } = await import('./mcp/manager')
   await getMcpServerManager().closeAll()
+})
+
+// P2-01: 注册浏览器会话清理（关闭所有隐藏 BrowserWindow）
+registerCleanup(async () => {
+  const { closeAllSessions } = await import('./browser')
+  closeAllSessions()
 })
 
 // ─── CSP 策略（生产环境注入） ──────────────────────────────────────
@@ -242,6 +250,20 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     // 初始化数据库（P1-03）
     initDatabase()
+
+    // 从应用设置初始化嵌入模型配置（RAG-FIX-01）
+    try {
+      const settings = getSettings()
+      setEmbeddingConfig({
+        provider: settings.embeddingProvider ?? 'ollama',
+        baseUrl: settings.embeddingBaseUrl ?? 'http://localhost:11434',
+        model: settings.embeddingModel ?? 'nomic-embed-text',
+        apiKey: settings.embeddingApiKey,
+        dimensions: settings.embeddingDimensions ?? 768,
+      })
+    } catch {
+      // 设置读取失败时使用默认配置
+    }
 
     // 注册所有 IPC handlers（P1-06 起）
     registerIpcHandlers()

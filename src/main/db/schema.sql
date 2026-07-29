@@ -45,10 +45,16 @@ CREATE TABLE IF NOT EXISTS conversations (
   message_count  INTEGER NOT NULL DEFAULT 0,
   last_message_at INTEGER,
   sdk_session_id TEXT DEFAULT NULL,
+  -- P3-01: 对话分支支持
+  parent_id      TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+  fork_index     INTEGER DEFAULT 0,
+  is_forked      INTEGER DEFAULT 0 CHECK(is_forked IN (0, 1)),
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_conv_updated ON conversations(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conv_parent ON conversations(parent_id);
+CREATE INDEX IF NOT EXISTS idx_conv_forked ON conversations(is_forked);
 
 -- ─── 6.4 messages ─────────────────────────────────────────────
 
@@ -80,6 +86,11 @@ CREATE TABLE IF NOT EXISTS app_settings (
   voice                TEXT NOT NULL DEFAULT '{"tts":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"tts-1","voice":"alloy","speed":1.0,"format":"mp3","autoPlay":false},"stt":{"enabled":false,"provider":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"","model":"whisper-1","language":"","temperature":0.0},"mode":{"vadSilenceThreshold":1.5,"autoAwait":true}}',
   workspace            TEXT NOT NULL DEFAULT '{"path":null,"recentPaths":[],"autoRestore":true,"excludePatterns":["node_modules",".git","dist",".DS_Store"]}',
   engine_type           TEXT NOT NULL DEFAULT 'builtin',
+  embedding_provider    TEXT DEFAULT 'ollama',
+  embedding_base_url    TEXT DEFAULT 'http://localhost:11434',
+  embedding_model       TEXT DEFAULT 'nomic-embed-text',
+  embedding_api_key     TEXT,
+  embedding_dimensions  INTEGER DEFAULT 768,
   updated_at           INTEGER NOT NULL
 );
 INSERT OR IGNORE INTO app_settings (id, updated_at) VALUES (1, strftime('%s','now') * 1000);
@@ -221,6 +232,7 @@ CREATE TABLE IF NOT EXISTS kb_documents (
   status        TEXT NOT NULL DEFAULT 'indexing'
                 CHECK(status IN ('indexing', 'ready', 'error')),
   error_message TEXT,
+  content_hash  TEXT,
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL
 );
@@ -453,3 +465,106 @@ VALUES (32, strftime('%s','now') * 1000, 'Add copilot_infinite_session_threshold
 
 INSERT OR IGNORE INTO schema_version (version, applied_at, description)
 VALUES (33, strftime('%s','now') * 1000, 'Add copilot_large_output_max_size column for SDK largeOutput max size');
+
+-- ─── 6.34 嵌入模型配置 (RAG-FIX-01) ───────────────────────────
+-- 知识库嵌入模型配置，存储在 app_settings 表中
+-- embedding_provider: 'ollama' | 'openai'（默认 'ollama'）
+-- embedding_base_url: API 基础 URL
+-- embedding_model: 模型名称
+-- embedding_api_key: API 密钥（OpenAI 必需）
+-- embedding_dimensions: 向量维度（用于校验）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (34, strftime('%s','now') * 1000, 'Add embedding config columns to app_settings for RAG embedding model configuration');
+
+-- ─── 6.35 kb_documents.content_hash (RAG-FIX-02) ──────────────
+-- 为 kb_documents 表添加 content_hash 列（SHA-256），用于快速内容去重
+-- 避免每次导入都遍历所有文档分块重新拼接计算哈希
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (35, strftime('%s','now') * 1000, 'Add content_hash column to kb_documents for fast dedup');
+
+-- ─── 6.36 codebase_files (CB-01) ──────────────────────────────
+-- 代码库索引文件表，记录已扫描的源代码文件
+-- status: pending → indexing → ready / error
+-- language: 检测到的编程语言
+-- file_hash: SHA-256 文件内容哈希（用于增量扫描变更检测）
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (36, strftime('%s','now') * 1000, 'Add codebase_files table for codebase indexing');
+
+CREATE TABLE IF NOT EXISTS codebase_files (
+  id            TEXT PRIMARY KEY,
+  file_path     TEXT NOT NULL UNIQUE,
+  file_name     TEXT NOT NULL,
+  language      TEXT NOT NULL,
+  file_hash     TEXT NOT NULL,
+  line_count    INTEGER NOT NULL DEFAULT 0,
+  symbol_count  INTEGER NOT NULL DEFAULT 0,
+  chunk_count   INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'indexing', 'ready', 'error')),
+  error_message TEXT,
+  indexed_at    INTEGER,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cb_files_language ON codebase_files(language);
+CREATE INDEX IF NOT EXISTS idx_cb_files_status ON codebase_files(status);
+CREATE INDEX IF NOT EXISTS idx_cb_files_hash ON codebase_files(file_hash);
+
+-- ─── 6.37 codebase_symbols (CB-02) ───────────────────────────
+-- 代码符号表，存储从源码中提取的函数、类、接口等符号
+-- symbol_type: function | method | class | interface | type | variable | import | export
+-- visibility: public | private | protected | default
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (37, strftime('%s','now') * 1000, 'Add codebase_symbols table for code symbol indexing');
+
+CREATE TABLE IF NOT EXISTS codebase_symbols (
+  id            TEXT PRIMARY KEY,
+  file_id       TEXT NOT NULL REFERENCES codebase_files(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  qualified_name TEXT NOT NULL,
+  symbol_type   TEXT NOT NULL
+                CHECK(symbol_type IN ('function', 'method', 'class', 'interface', 'type', 'variable', 'import', 'export', 'constant', 'enum')),
+  visibility    TEXT DEFAULT 'default'
+                CHECK(visibility IN ('public', 'private', 'protected', 'default')),
+  signature     TEXT,
+  start_line    INTEGER NOT NULL,
+  end_line      INTEGER NOT NULL,
+  doc_comment   TEXT,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cb_symbols_file ON codebase_symbols(file_id);
+CREATE INDEX IF NOT EXISTS idx_cb_symbols_name ON codebase_symbols(name);
+CREATE INDEX IF NOT EXISTS idx_cb_symbols_type ON codebase_symbols(symbol_type);
+CREATE INDEX IF NOT EXISTS idx_cb_symbols_qualified ON codebase_symbols(qualified_name);
+
+-- ─── 6.38 codebase_chunks (CB-03) ────────────────────────────
+-- 代码分块表，存储代码片段及其向量嵌入（用于语义搜索）
+-- chunk_type: module | function | class | block | comment
+-- embedding: JSON 数格式的向量嵌入（nullable until embedded）
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (38, strftime('%s','now') * 1000, 'Add codebase_chunks table for code chunk embedding and search');
+
+CREATE TABLE IF NOT EXISTS codebase_chunks (
+  id            TEXT PRIMARY KEY,
+  file_id       TEXT NOT NULL REFERENCES codebase_files(id) ON DELETE CASCADE,
+  content       TEXT NOT NULL,
+  chunk_type    TEXT NOT NULL DEFAULT 'block'
+                CHECK(chunk_type IN ('module', 'function', 'class', 'block', 'comment')),
+  symbol_id     TEXT,
+  start_line    INTEGER NOT NULL,
+  end_line      INTEGER NOT NULL,
+  token_count   INTEGER NOT NULL DEFAULT 0,
+  chunk_index   INTEGER NOT NULL,
+  embedding     TEXT,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cb_chunks_file ON codebase_chunks(file_id);
+CREATE INDEX IF NOT EXISTS idx_cb_chunks_idx ON codebase_chunks(file_id, chunk_index);
+CREATE INDEX IF NOT EXISTS idx_cb_chunks_symbol ON codebase_chunks(symbol_id);

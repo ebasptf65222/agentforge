@@ -23,7 +23,7 @@ const searchQuery = ref('')
 /** Search keyword to tab mapping (OPT-UI-07) */
 const TAB_KEYWORDS: Record<SettingsTab, string[]> = {
   models: ['模型', 'model', 'api', '密钥', 'key', '温度', 'temperature'],
-  mcp: ['mcp', '服务器', 'server', '工具', 'tool'],
+  mcp: ['mcp', '服务器', 'server', '工具', 'tool', '市场', 'marketplace', '安装'],
   skills: ['skill', '技能', 'prompt', '变量'],
   voice: ['语音', 'voice', 'tts', 'stt', '录音', '播报', '语速'],
   workspace: ['工作区', 'workspace', '文件', '目录', 'folder'],

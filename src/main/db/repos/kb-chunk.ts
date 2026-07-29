@@ -206,6 +206,21 @@ export function deleteKbChunksByDocumentId(documentId: string): number {
 }
 
 /**
+ * 清除文档所有分块的嵌入向量（设为 NULL）。
+ * 用于重建索引前正确清除旧嵌入，而非用空数组代替。
+ *
+ * @param documentId - 文档 ID
+ * @returns 清除嵌入的分块数量
+ */
+export function clearKbChunkEmbeddings(documentId: string): number {
+  const db: Database.Database = getDatabase()
+  const result = db
+    .prepare('UPDATE kb_chunks SET embedding = NULL WHERE document_id = ?')
+    .run(documentId)
+  return result.changes
+}
+
+/**
  * 获取已生成嵌入的分块（支持分页）。
  * 用于语义搜索时加载向量数据。
  *

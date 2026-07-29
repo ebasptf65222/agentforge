@@ -59,7 +59,12 @@ describe('generateEmbedding', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
-    resetEmbeddingConfig()
+    // 使用不带 dimensions 的配置，避免维度校验与 mock 返回值冲突
+    setEmbeddingConfig({
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434',
+      model: 'nomic-embed-text',
+    })
     fetchSpy = vi.spyOn(globalThis, 'fetch')
   })
 
@@ -190,7 +195,12 @@ describe('generateEmbeddings', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
-    resetEmbeddingConfig()
+    // 使用不带 dimensions 的配置，避免维度校验与 mock 返回值冲突
+    setEmbeddingConfig({
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434',
+      model: 'nomic-embed-text',
+    })
     fetchSpy = vi.spyOn(globalThis, 'fetch')
   })
 
