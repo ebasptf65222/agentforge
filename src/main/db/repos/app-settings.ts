@@ -40,6 +40,15 @@ interface AppSettingsRow {
   copilot_instruction_directories: string | null
   copilot_enable_memory: number
   copilot_skip_custom_instructions: number
+  copilot_enable_ask_user: number
+  copilot_enable_elicitation: number
+  copilot_agent_mode: string | null
+  copilot_max_prompt_tokens: number | null
+  copilot_excluded_builtin_agents: string | null
+  copilot_enable_skills: number
+  copilot_disabled_skills: string | null
+  copilot_infinite_session_threshold: number | null
+  copilot_large_output_max_size: number | null
   window_bounds: string | null
   updated_at: number
 }
@@ -143,6 +152,15 @@ export interface UpdateSettingsParams {
   copilotInstructionDirectories?: string[] | null
   copilotEnableMemory?: boolean
   copilotSkipCustomInstructions?: boolean
+  copilotEnableAskUser?: boolean
+  copilotEnableElicitation?: boolean
+  copilotAgentMode?: string | null
+  copilotMaxPromptTokens?: number | null
+  copilotExcludedBuiltinAgents?: string[] | null
+  copilotEnableSkills?: boolean
+  copilotDisabledSkills?: string[] | null
+  copilotInfiniteSessionThreshold?: number | null
+  copilotLargeOutputMaxSize?: number | null
   windowBounds?: WindowBounds | null
 }
 
@@ -220,6 +238,19 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
       : undefined,
     copilotEnableMemory: row.copilot_enable_memory === 1,
     copilotSkipCustomInstructions: row.copilot_skip_custom_instructions === 1,
+    copilotEnableAskUser: row.copilot_enable_ask_user === 1,
+    copilotEnableElicitation: row.copilot_enable_elicitation === 1,
+    copilotAgentMode: (row.copilot_agent_mode ?? undefined) as AppSettings['copilotAgentMode'],
+    copilotMaxPromptTokens: row.copilot_max_prompt_tokens ?? undefined,
+    copilotExcludedBuiltinAgents: row.copilot_excluded_builtin_agents
+      ? (JSON.parse(row.copilot_excluded_builtin_agents) as string[])
+      : undefined,
+    copilotEnableSkills: row.copilot_enable_skills === 1,
+    copilotDisabledSkills: row.copilot_disabled_skills
+      ? (JSON.parse(row.copilot_disabled_skills) as string[])
+      : undefined,
+    copilotInfiniteSessionThreshold: row.copilot_infinite_session_threshold ?? undefined,
+    copilotLargeOutputMaxSize: row.copilot_large_output_max_size ?? undefined,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -504,6 +535,59 @@ export function updateSettings(params: UpdateSettingsParams): void {
   if (params.copilotSkipCustomInstructions !== undefined) {
     setClauses.push('copilot_skip_custom_instructions = ?')
     values.push(params.copilotSkipCustomInstructions ? 1 : 0)
+  }
+
+  if (params.copilotEnableAskUser !== undefined) {
+    setClauses.push('copilot_enable_ask_user = ?')
+    values.push(params.copilotEnableAskUser ? 1 : 0)
+  }
+
+  if (params.copilotEnableElicitation !== undefined) {
+    setClauses.push('copilot_enable_elicitation = ?')
+    values.push(params.copilotEnableElicitation ? 1 : 0)
+  }
+
+  if (params.copilotAgentMode !== undefined) {
+    setClauses.push('copilot_agent_mode = ?')
+    values.push(params.copilotAgentMode === null ? null : params.copilotAgentMode)
+  }
+
+  if (params.copilotMaxPromptTokens !== undefined) {
+    setClauses.push('copilot_max_prompt_tokens = ?')
+    values.push(params.copilotMaxPromptTokens === null ? null : params.copilotMaxPromptTokens)
+  }
+
+  if (params.copilotExcludedBuiltinAgents !== undefined) {
+    setClauses.push('copilot_excluded_builtin_agents = ?')
+    values.push(
+      params.copilotExcludedBuiltinAgents === null
+        ? null
+        : JSON.stringify(params.copilotExcludedBuiltinAgents),
+    )
+  }
+
+  if (params.copilotEnableSkills !== undefined) {
+    setClauses.push('copilot_enable_skills = ?')
+    values.push(params.copilotEnableSkills ? 1 : 0)
+  }
+
+  if (params.copilotDisabledSkills !== undefined) {
+    setClauses.push('copilot_disabled_skills = ?')
+    values.push(
+      params.copilotDisabledSkills === null
+        ? null
+        : JSON.stringify(params.copilotDisabledSkills),
+    )
+  }
+
+  if (params.copilotInfiniteSessionThreshold !== undefined) {
+    setClauses.push('copilot_infinite_session_threshold = ?')
+    values.push(params.copilotInfiniteSessionThreshold === null ? null : params.copilotInfiniteSessionThreshold)
+  }
+
+  if (params.copilotLargeOutputMaxSize !== undefined) {
+    setClauses.push('copilot_large_output_max_size = ?')
+    values.push(params.copilotLargeOutputMaxSize === null ? null : params.copilotLargeOutputMaxSize)
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

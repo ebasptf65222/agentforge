@@ -23,7 +23,7 @@ import {
   convertSessionError,
   buildFinalTrajectory,
 } from './event-converter'
-import type { SessionExtras } from './types'
+import type { SessionExtras, SdkProviderConfig } from './types'
 import { getSessionManager } from './session-manager'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -371,6 +371,34 @@ export class CopilotAgentBridge {
       if (extras?.skipCustomInstructions !== undefined) {
         sessionConfig['skipCustomInstructions'] = extras.skipCustomInstructions
       }
+
+      // 4z. Agent 执行模式（plan/autopilot/shell）
+      if (extras?.agentMode) {
+        sessionConfig['agentMode'] = extras.agentMode
+      }
+
+      // 4aa. 最大提示词 token 数（压缩阈值）
+      if (extras?.maxPromptTokens !== undefined && extras.maxPromptTokens > 0) {
+        sessionConfig['maxPromptTokens'] = extras.maxPromptTokens
+      }
+
+      // 4ab. 排除的内置代理
+      if (extras?.excludedBuiltinAgents && extras.excludedBuiltinAgents.length > 0) {
+        sessionConfig['excludedBuiltinAgents'] = extras.excludedBuiltinAgents
+      }
+
+      // 4ac. 上下文压缩阈值（传递到 sessionConfig，由 session-manager 读取）
+      if (extras?.infiniteSessionThreshold !== undefined && extras.infiniteSessionThreshold > 0) {
+        sessionConfig['infiniteSessionThreshold'] = extras.infiniteSessionThreshold
+      }
+
+      // 4ad. 大输出最大字节数
+      if (extras?.largeOutputMaxSize !== undefined && extras.largeOutputMaxSize > 0) {
+        sessionConfig['largeOutputMaxSize'] = extras.largeOutputMaxSize
+      }
+
+      // 注：enableAskUser 和 enableElicitation 已在 4h/4i 中处理
+      // IPC 层只需设置 extras.enableAskUser / extras.enableElicitation 即可触发
 
       // 5. 通过 SessionManager 获取或恢复 session
       const conversationId = extras?.conversationId || request.conversationId
@@ -744,6 +772,32 @@ export class CopilotAgentBridge {
    */
   getSdkSessionId(): string | undefined {
     return this.sdkSessionId
+  }
+
+  /**
+   * 运行时切换模型（保持对话历史）。
+   * SDK 的 session.setModel() 允许在不重建 session 的情况下切换模型。
+   *
+   * @param modelId - 新的模型 ID（AgentForge 内部 ID）
+   * @param providerConfig - BYOK provider 配置
+   * @returns 是否切换成功
+   */
+  async setModel(modelId: string, providerConfig: { provider: SdkProviderConfig; model: string }): Promise<boolean> {
+    if (!this.session) {
+      console.warn('[CopilotAgentBridge] Cannot setModel: no active session')
+      return false
+    }
+    try {
+      this.session.setModel?.({
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+      })
+      console.info(`[CopilotAgentBridge] Model switched to: ${modelId}`)
+      return true
+    } catch (error) {
+      console.error(`[CopilotAgentBridge] Failed to switch model to ${modelId}:`, error)
+      return false
+    }
   }
 
   /**

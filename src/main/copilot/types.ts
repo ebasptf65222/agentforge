@@ -128,6 +128,16 @@ export interface SessionExtras {
   enableMemory?: boolean
   /** 是否跳过自定义指令文件（SDK skipCustomInstructions） */
   skipCustomInstructions?: boolean
+  /** Agent 执行模式（SDK agentMode：interactive/plan/autopilot/shell） */
+  agentMode?: 'interactive' | 'plan' | 'autopilot' | 'shell'
+  /** 最大提示词 token 数（触发上下文压缩的阈值，SDK maxPromptTokens） */
+  maxPromptTokens?: number
+  /** 排除的内置代理列表（SDK excludedBuiltinAgents，如 'code'、'debug'） */
+  excludedBuiltinAgents?: string[]
+  /** 上下文压缩阈值（0-1，SDK infiniteSessions.backgroundCompactionThreshold） */
+  infiniteSessionThreshold?: number
+  /** 大输出最大字节数（SDK largeOutput.maxSizeBytes，默认 51200） */
+  largeOutputMaxSize?: number
 }
 
 /**

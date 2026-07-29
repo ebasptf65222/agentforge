@@ -155,6 +155,24 @@ interface AppSettings {
   copilotEnableMemory?: boolean
   /** SDK 是否跳过自定义指令文件（.github/copilot-instructions.md 等） */
   copilotSkipCustomInstructions?: boolean
+  /** SDK 是否启用 ask_user 工具（AI 可主动向用户提问） */
+  copilotEnableAskUser?: boolean
+  /** SDK 是否启用 elicitation 表单交互 */
+  copilotEnableElicitation?: boolean
+  /** SDK Agent 执行模式（interactive/plan/autopilot/shell） */
+  copilotAgentMode?: 'interactive' | 'plan' | 'autopilot' | 'shell'
+  /** SDK 最大提示词 token 数（触发压缩阈值，null = 使用 SDK 默认） */
+  copilotMaxPromptTokens?: number
+  /** SDK 排除的内置代理列表 */
+  copilotExcludedBuiltinAgents?: string[]
+  /** SDK 是否启用技能加载（含内置技能和目录发现） */
+  copilotEnableSkills?: boolean
+  /** SDK 禁用的技能名称列表 */
+  copilotDisabledSkills?: string[]
+  /** SDK 上下文压缩阈值（0-1，默认 0.80） */
+  copilotInfiniteSessionThreshold?: number
+  /** SDK 大输出最大字节数（默认 51200） */
+  copilotLargeOutputMaxSize?: number
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }

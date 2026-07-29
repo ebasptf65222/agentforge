@@ -80,6 +80,16 @@ const REASONING_SUMMARY_OPTIONS: ReadonlyArray<{
   { value: 'detailed', label: '详细' },
 ]
 
+const AGENT_MODE_OPTIONS: ReadonlyArray<{
+  value: string
+  label: string
+}> = [
+  { value: '', label: '交互模式（默认）' },
+  { value: 'plan', label: '计划模式' },
+  { value: 'autopilot', label: '自动模式' },
+  { value: 'shell', label: 'Shell 模式' },
+]
+
 // OPT2-10: 移除独立的 applyTheme 函数和 watch/matchMedia 监听器，
 // 避免 'theme-dark'/'theme-light' 类名与 useTheme 的 'dark'/'light' 冲突，
 // 同时修复 matchMedia 监听器在组件卸载后未移除的泄漏问题。
@@ -304,6 +314,106 @@ async function updateSkipCustomInstructions(value: boolean): Promise<void> {
   }
 }
 
+async function updateEnableAskUser(value: boolean): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotEnableAskUser', value)
+    showToast('ask_user 交互已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateEnableElicitation(value: boolean): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotEnableElicitation', value)
+    showToast('表单交互已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateAgentMode(value: string): Promise<void> {
+  const mode = value === '' ? null : value
+  try {
+    await settingsStore.updateSetting('copilotAgentMode', mode)
+    showToast('Agent 模式已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateMaxPromptTokens(value: string): Promise<void> {
+  const parsed = Number.parseInt(value, 10)
+  if (Number.isNaN(parsed)) return
+  const clamped = Math.min(1000000, Math.max(0, parsed))
+  try {
+    await settingsStore.updateSetting('copilotMaxPromptTokens', clamped > 0 ? clamped : null)
+    showToast('压缩阈值已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateExcludedBuiltinAgents(agents: string[]): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotExcludedBuiltinAgents', agents.length > 0 ? agents : null)
+    showToast('排除内置代理已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateEnableSkills(value: boolean): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotEnableSkills', value)
+    showToast('技能加载已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateDisabledSkills(skills: string[]): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotDisabledSkills', skills.length > 0 ? skills : null)
+    showToast('禁用技能已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateInfiniteSessionThreshold(value: string): Promise<void> {
+  const parsed = Number.parseFloat(value)
+  if (Number.isNaN(parsed)) return
+  const clamped = Math.min(0.99, Math.max(0.1, parsed))
+  try {
+    await settingsStore.updateSetting('copilotInfiniteSessionThreshold', clamped)
+    showToast('压缩阈值已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateLargeOutputMaxSize(value: string): Promise<void> {
+  const parsed = Number.parseInt(value, 10)
+  if (Number.isNaN(parsed)) return
+  const clamped = Math.min(1048576, Math.max(1024, parsed))
+  try {
+    await settingsStore.updateSetting('copilotLargeOutputMaxSize', clamped > 0 ? clamped : null)
+    showToast('大输出限制已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
 // ─── Helpers for template binding ─────────────────────────────
 
 /** Convert the stored approvalTimeoutMs (ms) to seconds for display. */
@@ -376,6 +486,31 @@ const toolSearchDeferThresholdValue = computed<number | null>({
     updateToolSearchDeferThreshold(String(v ?? 0))
   },
 })
+
+const maxPromptTokensValue = computed<number | null>({
+  get: () => settings.value?.copilotMaxPromptTokens ?? null,
+  set: (v: number | null) => {
+    updateMaxPromptTokens(String(v ?? 0))
+  },
+})
+
+const infiniteSessionThresholdValue = computed<number | null>({
+  get: () => settings.value?.copilotInfiniteSessionThreshold ?? null,
+  set: (v: number | null) => {
+    updateInfiniteSessionThreshold(String(v ?? 0.8))
+  },
+})
+
+const largeOutputMaxSizeValue = computed<number | null>({
+  get: () => settings.value?.copilotLargeOutputMaxSize ?? null,
+  set: (v: number | null) => {
+    updateLargeOutputMaxSize(String(v ?? 51200))
+  },
+})
+
+const agentModeOptions = computed<SelectOption[]>(() =>
+  AGENT_MODE_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
+)
 </script>
 
 <template>
@@ -653,6 +788,130 @@ const toolSearchDeferThresholdValue = computed<number | null>({
             :value="settings?.copilotSkipCustomInstructions ?? false"
             @update:value="(v: boolean) => updateSkipCustomInstructions(v)"
           />
+        </div>
+      </div>
+
+      <!-- ask_user 双向交互（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">AI 主动提问</span>
+          <span class="setting-row__desc">允许 AI 在需要时主动向用户提问（ask_user）</span>
+        </div>
+        <div class="setting-row__control">
+          <NSwitch
+            :value="settings?.copilotEnableAskUser ?? false"
+            @update:value="(v: boolean) => updateEnableAskUser(v)"
+          />
+        </div>
+      </div>
+
+      <!-- Elicitation 表单交互（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">表单交互</span>
+          <span class="setting-row__desc">允许 AI 通过表单收集结构化输入（elicitation）</span>
+        </div>
+        <div class="setting-row__control">
+          <NSwitch
+            :value="settings?.copilotEnableElicitation ?? false"
+            @update:value="(v: boolean) => updateEnableElicitation(v)"
+          />
+        </div>
+      </div>
+
+      <!-- Agent 执行模式（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">Agent 模式</span>
+          <span class="setting-row__desc">控制 Agent 的执行策略（计划模式先规划再执行，自动模式全自动）</span>
+        </div>
+        <div class="setting-row__control">
+          <NSelect
+            :value="settings?.copilotAgentMode ?? ''"
+            :options="agentModeOptions"
+            @update:value="(v) => updateAgentMode(v as string)"
+          />
+        </div>
+      </div>
+
+      <!-- 最大提示词 token 数（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">压缩阈值（Token）</span>
+          <span class="setting-row__desc">超过此 token 数时触发上下文压缩（0 = SDK 默认）</span>
+        </div>
+        <div class="setting-row__control">
+          <NInputNumber v-model:value="maxPromptTokensValue" :min="0" :max="1000000" />
+        </div>
+      </div>
+
+      <!-- 排除的内置代理（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">排除内置代理</span>
+          <span class="setting-row__desc">禁止使用 SDK 内置代理（如 code、debug 等）</span>
+        </div>
+        <div class="setting-row__control">
+          <NDynamicTags
+            :value="settings?.copilotExcludedBuiltinAgents ?? []"
+            type="error"
+            :max="20"
+            round
+            @update:value="(v: Array<string | number>) => updateExcludedBuiltinAgents(v.map(String))"
+          />
+        </div>
+      </div>
+
+      <!-- 技能加载开关（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">SDK 技能加载</span>
+          <span class="setting-row__desc">启用 SDK 内置技能和目录发现（关闭后仅使用项目内置 Skill）</span>
+        </div>
+        <div class="setting-row__control">
+          <NSwitch
+            :value="settings?.copilotEnableSkills ?? true"
+            @update:value="(v: boolean) => updateEnableSkills(v)"
+          />
+        </div>
+      </div>
+
+      <!-- 禁用的技能（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">禁用的技能</span>
+          <span class="setting-row__desc">按名称禁用特定 SDK 技能</span>
+        </div>
+        <div class="setting-row__control">
+          <NDynamicTags
+            :value="settings?.copilotDisabledSkills ?? []"
+            type="warning"
+            :max="50"
+            round
+            @update:value="(v: Array<string | number>) => updateDisabledSkills(v.map(String))"
+          />
+        </div>
+      </div>
+
+      <!-- 上下文压缩阈值（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">上下文压缩阈值</span>
+          <span class="setting-row__desc">上下文使用率达到此比例时开始后台压缩（0.1-0.99，默认 0.80）</span>
+        </div>
+        <div class="setting-row__control">
+          <NInputNumber v-model:value="infiniteSessionThresholdValue" :min="0.1" :max="0.99" :step="0.05" />
+        </div>
+      </div>
+
+      <!-- 大输出最大字节数（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">大输出限制（字节）</span>
+          <span class="setting-row__desc">工具输出超过此大小时自动截断存储（默认 51200 = 50KB）</span>
+        </div>
+        <div class="setting-row__control">
+          <NInputNumber v-model:value="largeOutputMaxSizeValue" :min="1024" :max="1048576" :step="1024" />
         </div>
       </div>
 

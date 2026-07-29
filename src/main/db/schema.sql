@@ -424,3 +424,32 @@ VALUES (23, strftime('%s','now') * 1000, 'Add copilot_enable_memory column to ap
 
 INSERT OR IGNORE INTO schema_version (version, applied_at, description)
 VALUES (24, strftime('%s','now') * 1000, 'Add copilot_skip_custom_instructions column to app_settings for SDK skip custom instructions');
+
+-- ─── Phase 3: 高级 SDK 配置项 ───────────────────────────────
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (25, strftime('%s','now') * 1000, 'Add copilot_enable_ask_user column for SDK ask_user tool');
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (26, strftime('%s','now') * 1000, 'Add copilot_enable_elicitation column for SDK elicitation forms');
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (27, strftime('%s','now') * 1000, 'Add copilot_agent_mode column for SDK agentMode (plan/autopilot/shell)');
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (28, strftime('%s','now') * 1000, 'Add copilot_max_prompt_tokens column for SDK maxPromptTokens compression threshold');
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (29, strftime('%s','now') * 1000, 'Add copilot_excluded_builtin_agents column for SDK excludedBuiltinAgents');
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (30, strftime('%s','now') * 1000, 'Add copilot_enable_skills column for SDK skill loading toggle');
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (31, strftime('%s','now') * 1000, 'Add copilot_disabled_skills column for SDK disabledSkills list');
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (32, strftime('%s','now') * 1000, 'Add copilot_infinite_session_threshold column for SDK compression threshold');
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (33, strftime('%s','now') * 1000, 'Add copilot_large_output_max_size column for SDK largeOutput max size');

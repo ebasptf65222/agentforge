@@ -83,19 +83,29 @@ export class CopilotSessionManager {
     await client.start()
 
     // 构建 session 配置，启用 infiniteSessions
+    // 如果 sessionConfig 中包含 infiniteSessionThreshold 或 largeOutputMaxSize，使用自定义值
+    const compactionThreshold = sessionConfig['infiniteSessionThreshold'] ?? 0.80
+    const largeOutputMaxSize = sessionConfig['largeOutputMaxSize']
+
     const fullConfig: Record<string, unknown> = {
       ...sessionConfig,
       // 启用无限会话：SDK 自动管理上下文窗口，通过后台压缩处理长对话
       infiniteSessions: {
         enabled: true,
-        // 上下文使用达 80% 时开始后台压缩
-        backgroundCompactionThreshold: 0.80,
+        // 上下文使用达指定阈值时开始后台压缩（默认 80%）
+        backgroundCompactionThreshold: compactionThreshold,
         // 上下文使用达 95% 时阻塞等待压缩完成
         bufferExhaustionThreshold: 0.95,
       },
       // 启用大输出处理
-      largeOutput: { enabled: true },
+      largeOutput: largeOutputMaxSize
+        ? { enabled: true, maxSizeBytes: largeOutputMaxSize }
+        : { enabled: true },
     }
+
+    // 清理自定义字段，不传递到 SDK
+    delete fullConfig['infiniteSessionThreshold']
+    delete fullConfig['largeOutputMaxSize']
 
     const session = await client.createSession(fullConfig)
     // 保存 SDK 分配的 sessionId，用于后续 resume
@@ -177,15 +187,24 @@ export class CopilotSessionManager {
         await client.start()
 
         // 构建 resume 配置（BYOK provider 必须重新提供，密钥不持久化）
+        const resumeCompactionThreshold = sessionConfig['infiniteSessionThreshold'] ?? 0.80
+        const resumeLargeOutputMaxSize = sessionConfig['largeOutputMaxSize']
+
         const resumeConfig: Record<string, unknown> = {
           ...sessionConfig,
           infiniteSessions: {
             enabled: true,
-            backgroundCompactionThreshold: 0.80,
+            backgroundCompactionThreshold: resumeCompactionThreshold,
             bufferExhaustionThreshold: 0.95,
           },
-          largeOutput: { enabled: true },
+          largeOutput: resumeLargeOutputMaxSize
+            ? { enabled: true, maxSizeBytes: resumeLargeOutputMaxSize }
+            : { enabled: true },
         }
+
+        // 清理自定义字段
+        delete resumeConfig['infiniteSessionThreshold']
+        delete resumeConfig['largeOutputMaxSize']
 
         const session = await client.resumeSession(sdkSessionId, resumeConfig)
 
