@@ -10,26 +10,17 @@
 //   包含 agent（调用 LLM）和 tools（执行工具）两个节点，
 //   审批通过 interrupt() 暂停/恢复。
 
-import type { WrappedTool } from './tool-adapter'
-import type { ModelWrapper } from './model-adapter'
-import type { EventConverter } from './event-converter'
-import type { AgentContextMessage } from '../agent/types'
-import type { AgentExecutionRequest } from '../../shared/types'
-
-/** StateGraph 构建选项（Phase 2 使用） */
-export interface GraphBuildOptions {
-  model: ModelWrapper
-  tools: WrappedTool[]
-  eventConverter: EventConverter
-  maxSteps: number
-  systemPrompt?: string
-  skillPrompt?: string
-  historyMessages: AgentContextMessage[]
-  request: AgentExecutionRequest
-}
-
-/**
- * Phase 1: 简单 ReAct 循环（不使用 StateGraph）。
- * Phase 2: 迁移到显式 StateGraph + interrupt。
- */
+// Phase 1: 简单 ReAct 循环（保留作为回退方案）
 export { createReactLoop } from './react-loop'
+
+// Phase 2: 显式 StateGraph + interrupt 审批 Gate
+export { executeWithStateGraph } from './state-graph'
+export type { StateGraphOptions } from './state-graph'
+
+// Phase 2: MCP 适配器迁移
+export {
+  loadMcpToolsAsLangChain,
+  convertAllLangChainTools,
+  closeMcpClient,
+  convertLangChainToolToWrapped,
+} from './mcp-adapter'
