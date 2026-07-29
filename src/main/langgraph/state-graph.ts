@@ -1,26 +1,27 @@
-// AgentForge LangGraph 引擎: StateGraph + interrupt() 审批 Gate (P3-02)
+// AgentForge LangGraph 引擎: StateGraph + stream() 实时事件流 (P3-03)
 //
-// Phase 3: 使用 LangGraph 原生 interrupt() + Command resume 替代
-// Phase 2 的 ApprovalManager Promise 阻塞模式。
+// Phase 3 增强：
+// - P3-01: SQLite Checkpointer 持久化图状态
+// - P3-02: interrupt() + Command resume 审批 Gate
+// - P3-03: 使用 stream() 替代 invoke()，实时推送节点级事件
 //
-// 审批流程：
+// stream() 优势（相比 invoke()）：
+// - 节点级实时事件：每个节点完成后立即推送更新，无需等待整图完成
+// - 更细粒度的 UI 反馈：前端可以实时显示当前执行到哪个节点
+// - 使用 getState() 检测中断：更可靠的 interrupt 检测机制
+//
+// 审批流程（P3-02 + P3-03）：
 // 1. tools 节点在执行工具前检查是否需要审批
 // 2. 如需审批，调用 interrupt(approvalRequest) 暂停图执行
 // 3. Checkpointer 持久化图状态到 SQLite
-// 4. executeWithStateGraph() 的 invoke 循环检测到 interrupt
+// 4. stream() 结束后，通过 getState() 检测到 interrupt
 // 5. 通过 ApprovalManager 发送审批请求到前端，等待用户响应
-// 6. 用户响应后，调用 invoke(new Command({ resume: { approved, reason } }))
+// 6. 用户响应后，调用 stream(new Command({ resume: { approved, reason } }))
 // 7. interrupt() 返回 resume 值，tools 节点继续执行
-//
-// 优势（相比 Phase 2）：
-// - 图状态持久化：应用崩溃/重启后可恢复中断的审批
-// - 审批超时不再阻塞图执行线程
-// - 更清晰的关注分离：图级别处理审批，工具只负责执行
 
 import { StateGraph, START, END, Annotation, interrupt, Command } from '@langchain/langgraph'
-import type { CompiledStateGraph } from '@langchain/langgraph'
+import type { CompiledStateGraph, StateSnapshot } from '@langchain/langgraph'
 import type { BaseCheckpointSaver } from '@langchain/langgraph'
-import { isInterrupted, INTERRUPT } from '@langchain/langgraph'
 import type { ModelWrapper } from './model-adapter'
 import type { WrappedTool } from './tool-adapter'
 import type { EventConverter } from './event-converter'
@@ -369,10 +370,20 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
     checkpointer,
   })
 
-  // ─── 执行图（含 interrupt/resume 循环） ────────────────────
+  // ─── 执行图（stream + interrupt/resume 循环） ──────────────
+  // P3-03: 使用 stream() 替代 invoke()，实时推送节点级事件
+  //
+  // stream() 多模式输出：
+  // - 'values': 每步完成后推送完整状态
+  // - 'updates': 节点级更新（含节点名称和状态增量）
+  //
+  // interrupt 检测：
+  // - stream() 结束后通过 getState() 获取图状态
+  // - 检查 stateSnapshot.tasks 中的 interrupts 数组
   const config = {
     configurable: { thread_id: threadId },
     signal: abortSignal,
+    streamMode: ['values', 'updates'] as const,
   }
 
   let finalState: AgentStateType | undefined
@@ -385,24 +396,54 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
   }
 
   try {
-    // Phase 3: interrupt/resume 循环
-    // 1. invoke() 运行图，如果遇到 interrupt() 则暂停并返回
-    // 2. 检测到 interrupt 后，通过 ApprovalManager 请求用户审批
-    // 3. 用户响应后，调用 invoke(new Command({ resume })) 恢复
-    // 4. 重复直到图完成
+    // Phase 3: stream + interrupt/resume 循环
+    // 1. stream() 运行图，实时推送节点级事件
+    // 2. stream() 结束后通过 getState() 检测 interrupt
+    // 3. 检测到 interrupt 后，通过 ApprovalManager 请求用户审批
+    // 4. 用户响应后，调用 stream(new Command({ resume })) 恢复
+    // 5. 重复直到图完成
     for (let loopCount = 0; loopCount < 100; loopCount++) {
       if (abortSignal.aborted) {
         graphStatus = 'cancelled'
         break
       }
 
-      const result = await compiledGraph.invoke(invokeInput, config)
+      // P3-03: 使用 stream() 替代 invoke()
+      // stream() 返回异步可迭代流，支持实时事件推送
+      const stream = await compiledGraph.stream(invokeInput, config)
 
-      // 检查是否被 interrupt 暂停
-      if (isInterrupted(result)) {
+      // 迭代流事件，实时推送到前端
+      for await (const chunk of stream) {
+        // 多 streamMode 下，chunk 是 [mode, data] 元组
+        const [mode, data] = chunk as [string, unknown]
+
+        if (mode === 'values') {
+          // 'values' 模式：每步完成后推送完整状态
+          const stateValue = data as AgentStateType
+          if (stateValue?.status && stateValue.status !== 'running') {
+            graphStatus = stateValue.status
+          }
+        } else if (mode === 'updates') {
+          // 'updates' 模式：节点级更新
+          // data 是 { [nodeName]: stateUpdate } 映射
+          const updates = data as Record<string, Partial<AgentStateType>>
+          for (const [nodeName, update] of Object.entries(updates)) {
+            eventConverter.pushNodeUpdate(nodeName, update as Record<string, unknown>)
+          }
+        }
+      }
+
+      // P3-03: stream() 结束后，通过 getState() 检查图状态和中断
+      const stateSnapshot: StateSnapshot = await compiledGraph.getState(config)
+
+      // 检查是否有 interrupt（审批请求）
+      const interruptTask = stateSnapshot.tasks.find(
+        (t) => t.interrupts && t.interrupts.length > 0,
+      )
+
+      if (interruptTask && interruptTask.interrupts.length > 0) {
         // 提取 interrupt 数据
-        const interrupts = result[INTERRUPT] as Array<{ value: InterruptApprovalData }>
-        const approvalData = interrupts[0]?.value
+        const approvalData = interruptTask.interrupts[0].value as InterruptApprovalData
 
         if (!approvalData) {
           // 无法提取审批数据，终止执行
@@ -439,10 +480,22 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
         continue
       }
 
-      // 图正常完成
-      finalState = result as AgentStateType
-      graphStatus = finalState.status
-      break
+      // 检查图是否完成（next 为空表示没有待执行的节点）
+      if (stateSnapshot.next.length === 0) {
+        // 图已完成
+        finalState = stateSnapshot.values as AgentStateType
+        if (finalState?.status) {
+          graphStatus = finalState.status
+        }
+        break
+      }
+
+      // 图未完成但也没有 interrupt（可能需要继续执行）
+      finalState = stateSnapshot.values as AgentStateType
+      if (finalState?.status && finalState.status !== 'running') {
+        graphStatus = finalState.status
+        break
+      }
     }
   } catch (error) {
     if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('abort'))) {

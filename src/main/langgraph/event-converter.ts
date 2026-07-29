@@ -32,6 +32,23 @@ export class EventConverter {
     this.callbacks.onStreamChunk({ type: 'tool-complete', content: result })
   }
 
+  /**
+   * 推送节点级更新事件（P3-03: stream() 实时事件流）。
+   *
+   * 当 StateGraph 使用 stream() 执行时，每个节点完成后会通过
+   * 'updates' streamMode 推送节点级更新。此方法将这些更新
+   * 转发为 AgentEventCallbacks 中的 onStreamChunk 事件。
+   *
+   * @param nodeName - 图节点名称（如 'agent'、'tools'）
+   * @param update - 节点返回的状态更新
+   */
+  pushNodeUpdate(nodeName: string, update: Record<string, unknown>): void {
+    this.callbacks.onStreamChunk({
+      type: 'node-update',
+      content: JSON.stringify({ node: nodeName, update }),
+    })
+  }
+
   /** 构建并推送轨迹 */
   pushTrajectory(params: {
     thought: string
