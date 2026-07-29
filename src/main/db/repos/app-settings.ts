@@ -34,6 +34,12 @@ interface AppSettingsRow {
   copilot_reasoning_summary: string | null
   copilot_excluded_tools: string | null
   copilot_enable_host_git_operations: number
+  copilot_tool_search_defer_threshold: number | null
+  copilot_default_agent_excluded_tools: string | null
+  copilot_plugin_directories: string | null
+  copilot_instruction_directories: string | null
+  copilot_enable_memory: number
+  copilot_skip_custom_instructions: number
   window_bounds: string | null
   updated_at: number
 }
@@ -131,6 +137,12 @@ export interface UpdateSettingsParams {
   copilotReasoningSummary?: ReasoningSummary | null
   copilotExcludedTools?: string[] | null
   copilotEnableHostGitOperations?: boolean
+  copilotToolSearchDeferThreshold?: number | null
+  copilotDefaultAgentExcludedTools?: string[] | null
+  copilotPluginDirectories?: string[] | null
+  copilotInstructionDirectories?: string[] | null
+  copilotEnableMemory?: boolean
+  copilotSkipCustomInstructions?: boolean
   windowBounds?: WindowBounds | null
 }
 
@@ -196,6 +208,18 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
       ? (JSON.parse(row.copilot_excluded_tools) as string[])
       : undefined,
     copilotEnableHostGitOperations: row.copilot_enable_host_git_operations === 1,
+    copilotToolSearchDeferThreshold: row.copilot_tool_search_defer_threshold ?? undefined,
+    copilotDefaultAgentExcludedTools: row.copilot_default_agent_excluded_tools
+      ? (JSON.parse(row.copilot_default_agent_excluded_tools) as string[])
+      : undefined,
+    copilotPluginDirectories: row.copilot_plugin_directories
+      ? (JSON.parse(row.copilot_plugin_directories) as string[])
+      : undefined,
+    copilotInstructionDirectories: row.copilot_instruction_directories
+      ? (JSON.parse(row.copilot_instruction_directories) as string[])
+      : undefined,
+    copilotEnableMemory: row.copilot_enable_memory === 1,
+    copilotSkipCustomInstructions: row.copilot_skip_custom_instructions === 1,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -440,6 +464,46 @@ export function updateSettings(params: UpdateSettingsParams): void {
   if (params.copilotEnableHostGitOperations !== undefined) {
     setClauses.push('copilot_enable_host_git_operations = ?')
     values.push(params.copilotEnableHostGitOperations ? 1 : 0)
+  }
+
+  if (params.copilotToolSearchDeferThreshold !== undefined) {
+    setClauses.push('copilot_tool_search_defer_threshold = ?')
+    values.push(params.copilotToolSearchDeferThreshold === null ? null : params.copilotToolSearchDeferThreshold)
+  }
+
+  if (params.copilotDefaultAgentExcludedTools !== undefined) {
+    setClauses.push('copilot_default_agent_excluded_tools = ?')
+    values.push(
+      params.copilotDefaultAgentExcludedTools === null
+        ? null
+        : JSON.stringify(params.copilotDefaultAgentExcludedTools),
+    )
+  }
+
+  if (params.copilotPluginDirectories !== undefined) {
+    setClauses.push('copilot_plugin_directories = ?')
+    values.push(
+      params.copilotPluginDirectories === null ? null : JSON.stringify(params.copilotPluginDirectories),
+    )
+  }
+
+  if (params.copilotInstructionDirectories !== undefined) {
+    setClauses.push('copilot_instruction_directories = ?')
+    values.push(
+      params.copilotInstructionDirectories === null
+        ? null
+        : JSON.stringify(params.copilotInstructionDirectories),
+    )
+  }
+
+  if (params.copilotEnableMemory !== undefined) {
+    setClauses.push('copilot_enable_memory = ?')
+    values.push(params.copilotEnableMemory ? 1 : 0)
+  }
+
+  if (params.copilotSkipCustomInstructions !== undefined) {
+    setClauses.push('copilot_skip_custom_instructions = ?')
+    values.push(params.copilotSkipCustomInstructions ? 1 : 0)
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

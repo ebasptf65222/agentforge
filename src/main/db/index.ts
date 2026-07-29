@@ -185,6 +185,48 @@ function runConditionalMigrations(db: Database.Database): void {
       `ALTER TABLE app_settings ADD COLUMN copilot_enable_host_git_operations INTEGER DEFAULT 1`
     )
   }
+
+  // P2-01: 确保 app_settings 有 copilot_tool_search_defer_threshold 列（INTEGER）
+  if (!hasColumn(db, 'app_settings', 'copilot_tool_search_defer_threshold')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_tool_search_defer_threshold INTEGER`
+    )
+  }
+
+  // P2-02: 确保 app_settings 有 copilot_default_agent_excluded_tools 列（JSON 数组）
+  if (!hasColumn(db, 'app_settings', 'copilot_default_agent_excluded_tools')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_default_agent_excluded_tools TEXT`
+    )
+  }
+
+  // P2-03: 确保 app_settings 有 copilot_plugin_directories 列（JSON 数组）
+  if (!hasColumn(db, 'app_settings', 'copilot_plugin_directories')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_plugin_directories TEXT`
+    )
+  }
+
+  // P2-04: 确保 app_settings 有 copilot_instruction_directories 列（JSON 数组）
+  if (!hasColumn(db, 'app_settings', 'copilot_instruction_directories')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_instruction_directories TEXT`
+    )
+  }
+
+  // P2-05: 确保 app_settings 有 copilot_enable_memory 列（boolean 0/1）
+  if (!hasColumn(db, 'app_settings', 'copilot_enable_memory')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_enable_memory INTEGER DEFAULT 0`
+    )
+  }
+
+  // P2-06: 确保 app_settings 有 copilot_skip_custom_instructions 列（boolean 0/1）
+  if (!hasColumn(db, 'app_settings', 'copilot_skip_custom_instructions')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_skip_custom_instructions INTEGER DEFAULT 0`
+    )
+  }
 }
 
 /**

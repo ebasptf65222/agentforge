@@ -251,6 +251,36 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
     // 12. 客户端名称
     extras.clientName = 'AgentForge'
 
+    // 13. 工具搜索配置
+    if (settings.copilotToolSearchDeferThreshold !== undefined && settings.copilotToolSearchDeferThreshold > 0) {
+      extras.toolSearch = { deferThreshold: settings.copilotToolSearchDeferThreshold }
+    }
+
+    // 14. 默认代理排除的工具
+    if (settings.copilotDefaultAgentExcludedTools && settings.copilotDefaultAgentExcludedTools.length > 0) {
+      extras.defaultAgentExcludedTools = settings.copilotDefaultAgentExcludedTools
+    }
+
+    // 15. Open Plugins 目录
+    if (settings.copilotPluginDirectories && settings.copilotPluginDirectories.length > 0) {
+      extras.pluginDirectories = settings.copilotPluginDirectories
+    }
+
+    // 16. 自定义指令目录
+    if (settings.copilotInstructionDirectories && settings.copilotInstructionDirectories.length > 0) {
+      extras.instructionDirectories = settings.copilotInstructionDirectories
+    }
+
+    // 17. 记忆功能
+    if (settings.copilotEnableMemory) {
+      extras.enableMemory = true
+    }
+
+    // 18. 跳过自定义指令
+    if (settings.copilotSkipCustomInstructions) {
+      extras.skipCustomInstructions = true
+    }
+
     // 执行 SDK Agent（传入 extras 配置）
     result = await bridge.execute(request, extras)
 

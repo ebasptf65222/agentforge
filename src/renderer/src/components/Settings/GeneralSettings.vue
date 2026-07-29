@@ -241,6 +241,69 @@ async function updateEnableHostGitOperations(value: boolean): Promise<void> {
   }
 }
 
+async function updateToolSearchDeferThreshold(value: string): Promise<void> {
+  const parsed = Number.parseInt(value, 10)
+  if (Number.isNaN(parsed)) return
+  const clamped = Math.min(200, Math.max(0, parsed))
+  try {
+    await settingsStore.updateSetting('copilotToolSearchDeferThreshold', clamped > 0 ? clamped : null)
+    showToast('工具搜索延迟阈值已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateDefaultAgentExcludedTools(tools: string[]): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotDefaultAgentExcludedTools', tools.length > 0 ? tools : null)
+    showToast('默认代理排除工具已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updatePluginDirectories(dirs: string[]): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotPluginDirectories', dirs.length > 0 ? dirs : null)
+    showToast('Plugin 目录已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateInstructionDirectories(dirs: string[]): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotInstructionDirectories', dirs.length > 0 ? dirs : null)
+    showToast('指令目录已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateEnableMemory(value: boolean): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotEnableMemory', value)
+    showToast('记忆功能已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
+async function updateSkipCustomInstructions(value: boolean): Promise<void> {
+  try {
+    await settingsStore.updateSetting('copilotSkipCustomInstructions', value)
+    showToast('自定义指令跳过设置已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
 // ─── Helpers for template binding ─────────────────────────────
 
 /** Convert the stored approvalTimeoutMs (ms) to seconds for display. */
@@ -304,6 +367,13 @@ const approvalTimeoutValue = computed<number | null>({
   set: (v: number | null) => {
     if (v === null) return
     updateApprovalTimeout(String(v))
+  },
+})
+
+const toolSearchDeferThresholdValue = computed<number | null>({
+  get: () => settings.value?.copilotToolSearchDeferThreshold ?? null,
+  set: (v: number | null) => {
+    updateToolSearchDeferThreshold(String(v ?? 0))
   },
 })
 </script>
@@ -492,6 +562,96 @@ const approvalTimeoutValue = computed<number | null>({
           <NSwitch
             :value="settings?.copilotEnableHostGitOperations ?? true"
             @update:value="(v: boolean) => updateEnableHostGitOperations(v)"
+          />
+        </div>
+      </div>
+
+      <!-- 工具搜索延迟阈值（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">工具搜索延迟阈值</span>
+          <span class="setting-row__desc">超过此数量的工具将延迟加载（0 = SDK 默认，最大 200）</span>
+        </div>
+        <div class="setting-row__control">
+          <NInputNumber v-model:value="toolSearchDeferThresholdValue" :min="0" :max="200" />
+        </div>
+      </div>
+
+      <!-- 默认代理排除工具（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">默认代理排除工具</span>
+          <span class="setting-row__desc">默认代理禁止使用这些工具（与全局排除列表不同）</span>
+        </div>
+        <div class="setting-row__control">
+          <NDynamicTags
+            :value="settings?.copilotDefaultAgentExcludedTools ?? []"
+            type="warning"
+            :max="50"
+            round
+            @update:value="(v: Array<string | number>) => updateDefaultAgentExcludedTools(v.map(String))"
+          />
+        </div>
+      </div>
+
+      <!-- Open Plugins 目录（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">Open Plugins 目录</span>
+          <span class="setting-row__desc">SDK 从这些目录加载 Open Plugins 格式的插件</span>
+        </div>
+        <div class="setting-row__control">
+          <NDynamicTags
+            :value="settings?.copilotPluginDirectories ?? []"
+            type="success"
+            :max="20"
+            round
+            @update:value="(v: Array<string | number>) => updatePluginDirectories(v.map(String))"
+          />
+        </div>
+      </div>
+
+      <!-- 自定义指令目录（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">自定义指令目录</span>
+          <span class="setting-row__desc">SDK 从这些目录加载 .github/copilot-instructions.md 等指令文件</span>
+        </div>
+        <div class="setting-row__control">
+          <NDynamicTags
+            :value="settings?.copilotInstructionDirectories ?? []"
+            type="info"
+            :max="20"
+            round
+            @update:value="(v: Array<string | number>) => updateInstructionDirectories(v.map(String))"
+          />
+        </div>
+      </div>
+
+      <!-- 记忆功能（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">记忆功能</span>
+          <span class="setting-row__desc">启用 SDK 记忆功能，AI 可跨对话记住重要信息</span>
+        </div>
+        <div class="setting-row__control">
+          <NSwitch
+            :value="settings?.copilotEnableMemory ?? false"
+            @update:value="(v: boolean) => updateEnableMemory(v)"
+          />
+        </div>
+      </div>
+
+      <!-- 跳过自定义指令（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">跳过自定义指令</span>
+          <span class="setting-row__desc">忽略 .github/copilot-instructions.md 等自动发现的指令文件</span>
+        </div>
+        <div class="setting-row__control">
+          <NSwitch
+            :value="settings?.copilotSkipCustomInstructions ?? false"
+            @update:value="(v: boolean) => updateSkipCustomInstructions(v)"
           />
         </div>
       </div>

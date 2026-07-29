@@ -116,6 +116,18 @@ export interface SessionExtras {
   excludedTools?: string[]
   /** 是否启用主机 Git 操作（SDK enableHostGitOperations） */
   enableHostGitOperations?: boolean
+  /** 工具搜索配置（SDK toolSearch） */
+  toolSearch?: { enabled?: boolean; deferThreshold?: number }
+  /** 默认代理排除的工具列表（SDK defaultAgent.excludedTools） */
+  defaultAgentExcludedTools?: string[]
+  /** Open Plugins 目录路径列表（SDK pluginDirectories） */
+  pluginDirectories?: string[]
+  /** 自定义指令文件目录列表（SDK instructionDirectories） */
+  instructionDirectories?: string[]
+  /** 是否启用记忆功能（SDK memory.enabled） */
+  enableMemory?: boolean
+  /** 是否跳过自定义指令文件（SDK skipCustomInstructions） */
+  skipCustomInstructions?: boolean
 }
 
 /**

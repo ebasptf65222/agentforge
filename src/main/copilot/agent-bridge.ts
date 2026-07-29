@@ -170,6 +170,33 @@ export class CopilotAgentBridge {
           // 工具执行后：可以转换结果
           return { modifiedResult: ctx.toolResult }
         },
+        onPreMcpToolCall: (ctx: {
+          serverName: string
+          toolName: string
+          toolArgs: Record<string, unknown>
+        }) => {
+          // MCP 工具调用前：记录日志并允许执行
+          // 如需按 serverName 过滤 MCP 工具，可在此实现
+          console.log(
+            `[CopilotAgentBridge] Pre MCP tool call: ${ctx.serverName}.${ctx.toolName}`,
+          )
+          return { permissionDecision: 'allow' as const }
+        },
+        onPostToolUseFailure: (ctx: { toolName: string; error: Error }) => {
+          // 工具调用失败后：记录错误并通知前端
+          console.error(
+            `[CopilotAgentBridge] Tool use failure: ${ctx.toolName}, error: ${ctx.error.message}`,
+          )
+          this.callbacks.onStreamChunk({
+            type: 'error',
+            content: JSON.stringify({
+              phase: 'tool-use-failure',
+              toolName: ctx.toolName,
+              message: ctx.error.message,
+            }),
+          })
+          return { errorHandling: 'skip' as const }
+        },
         onUserPromptSubmitted: (ctx: { prompt: string }) => {
           // 用户提交消息前：可以修改 prompt 或注入上下文
           return { modifiedPrompt: ctx.prompt }
@@ -313,6 +340,36 @@ export class CopilotAgentBridge {
       // 4s. 主机 Git 操作
       if (extras?.enableHostGitOperations !== undefined) {
         sessionConfig['enableHostGitOperations'] = extras.enableHostGitOperations
+      }
+
+      // 4t. 工具搜索配置
+      if (extras?.toolSearch !== undefined) {
+        sessionConfig['toolSearch'] = extras.toolSearch
+      }
+
+      // 4u. 默认代理排除的工具
+      if (extras?.defaultAgentExcludedTools && extras.defaultAgentExcludedTools.length > 0) {
+        sessionConfig['defaultAgent'] = { excludedTools: extras.defaultAgentExcludedTools }
+      }
+
+      // 4v. Open Plugins 目录
+      if (extras?.pluginDirectories && extras.pluginDirectories.length > 0) {
+        sessionConfig['pluginDirectories'] = extras.pluginDirectories
+      }
+
+      // 4w. 自定义指令目录
+      if (extras?.instructionDirectories && extras.instructionDirectories.length > 0) {
+        sessionConfig['instructionDirectories'] = extras.instructionDirectories
+      }
+
+      // 4x. 记忆功能
+      if (extras?.enableMemory !== undefined) {
+        sessionConfig['memory'] = { enabled: extras.enableMemory }
+      }
+
+      // 4y. 跳过自定义指令
+      if (extras?.skipCustomInstructions !== undefined) {
+        sessionConfig['skipCustomInstructions'] = extras.skipCustomInstructions
       }
 
       // 5. 通过 SessionManager 获取或恢复 session

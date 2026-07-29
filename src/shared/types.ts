@@ -143,6 +143,18 @@ interface AppSettings {
   copilotExcludedTools?: string[]
   /** SDK 是否启用主机 Git 操作（分支、状态等上下文） */
   copilotEnableHostGitOperations?: boolean
+  /** SDK 工具搜索延迟加载阈值（0 表示使用 SDK 默认 30） */
+  copilotToolSearchDeferThreshold?: number
+  /** SDK 默认代理排除的工具列表 */
+  copilotDefaultAgentExcludedTools?: string[]
+  /** SDK Open Plugins 目录路径列表 */
+  copilotPluginDirectories?: string[]
+  /** SDK 自定义指令文件目录列表 */
+  copilotInstructionDirectories?: string[]
+  /** SDK 是否启用记忆功能 */
+  copilotEnableMemory?: boolean
+  /** SDK 是否跳过自定义指令文件（.github/copilot-instructions.md 等） */
+  copilotSkipCustomInstructions?: boolean
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }

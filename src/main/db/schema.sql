@@ -382,3 +382,45 @@ VALUES (17, strftime('%s','now') * 1000, 'Add copilot_excluded_tools column to a
 
 INSERT OR IGNORE INTO schema_version (version, applied_at, description)
 VALUES (18, strftime('%s','now') * 1000, 'Add copilot_enable_host_git_operations column to app_settings for SDK host git operations');
+
+-- ─── 6.25 copilot_tool_search_defer_threshold (P2-01) ─────────
+-- SDK 工具搜索延迟加载阈值（0 表示使用 SDK 默认 30）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (19, strftime('%s','now') * 1000, 'Add copilot_tool_search_defer_threshold column to app_settings for SDK tool search config');
+
+-- ─── 6.26 copilot_default_agent_excluded_tools (P2-02) ────────
+-- SDK 默认代理排除的工具列表（JSON 数组）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (20, strftime('%s','now') * 1000, 'Add copilot_default_agent_excluded_tools column to app_settings for SDK default agent config');
+
+-- ─── 6.27 copilot_plugin_directories (P2-03) ──────────────────
+-- SDK Open Plugins 目录路径列表（JSON 数组）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (21, strftime('%s','now') * 1000, 'Add copilot_plugin_directories column to app_settings for SDK plugin directories');
+
+-- ─── 6.28 copilot_instruction_directories (P2-04) ─────────────
+-- SDK 自定义指令文件目录列表（JSON 数组）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (22, strftime('%s','now') * 1000, 'Add copilot_instruction_directories column to app_settings for SDK instruction directories');
+
+-- ─── 6.29 copilot_enable_memory (P2-05) ───────────────────────
+-- SDK 是否启用记忆功能：0 表示禁用，1 表示启用
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (23, strftime('%s','now') * 1000, 'Add copilot_enable_memory column to app_settings for SDK memory feature');
+
+-- ─── 6.30 copilot_skip_custom_instructions (P2-06) ────────────
+-- SDK 是否跳过自定义指令文件：0 表示不跳过（默认），1 表示跳过
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (24, strftime('%s','now') * 1000, 'Add copilot_skip_custom_instructions column to app_settings for SDK skip custom instructions');
