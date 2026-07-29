@@ -21,6 +21,7 @@ import { createMessage } from '../db/repos/message'
 import { getToolRegistry } from '../tools/registry'
 import { AgentExecutor, type AgentExecutorConfig } from '../agent/executor'
 import { CopilotAgentBridge } from '../copilot/agent-bridge'
+import type { SessionExtras } from '../copilot/types'
 import type { AgentEventCallbacks, RegisteredTool } from '../agent/types'
 import { resolveSkill, buildSkillExecutionContext, filterTools } from '../skills/skill-executor'
 
@@ -106,8 +107,8 @@ function getToolsMap(): Map<string, RegisteredTool> {
 /**
  * 使用 Copilot SDK 引擎执行 Agent 请求。
  *
- * Step 2 基础版：仅支持纯文本对话（BYOK + 流式输出），不含工具调用。
- * 工具桥接将在 Step 3 中实现。
+ * 增强版：支持 Skill 集成（prompt 注入 + 工具过滤）、workingDirectory、
+ * largeOutput、reasoningEffort 等 SDK 高级能力。
  */
 async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<ExecutionResult> {
   const callbacks: AgentEventCallbacks = {
@@ -116,9 +117,11 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
     onStreamChunk: (chunk) => sendStreamChunk(chunk),
   }
 
+  const settings = getSettings()
+
   const bridge = new CopilotAgentBridge({
     callbacks,
-    approvalTimeoutMs: getSettings().approvalTimeoutMs,
+    approvalTimeoutMs: settings.approvalTimeoutMs,
   })
   currentBridge = bridge
 
@@ -134,8 +137,45 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
       content: request.userInput,
     })
 
-    // 执行 SDK Agent
-    result = await bridge.execute(request)
+    // ─── 构建 SessionExtras ────────────────────────────────────
+    const extras: SessionExtras = {}
+
+    // 1. 解析 Skill（用户指定或意图匹配）
+    //    SDK 引擎复用现有 skills/ 模块，使用当前会话模型做意图匹配
+    const skillResolution = await resolveSkill(
+      request.userInput,
+      request.skillName,
+      getModelAdapter(request.modelId),
+    )
+
+    if (skillResolution.skill !== null) {
+      const skill = skillResolution.skill
+
+      // Skill 指定模型时，覆盖 BYOK 配置
+      if (skill.modelId !== undefined) {
+        request.modelId = skill.modelId
+      }
+
+      // 构建执行上下文（替换变量、构建 prompt 段落）
+      // tools 参数传入空 Map — SDK 引擎的 prompt 构建不需要工具定义
+      const skillCtx = buildSkillExecutionContext(skill, new Map())
+
+      extras.systemMessageContent = skillCtx.skillPrompt
+      extras.availableTools = skill.allowedTools.length > 0 ? skill.allowedTools : undefined
+    }
+
+    // 2. 传入工作区路径（文件操作上下文）
+    if (settings.workspace.path) {
+      extras.workingDirectory = settings.workspace.path
+    }
+
+    // 3. 传入推理强度（如果设置中有配置）
+    if (settings.copilotReasoningEffort) {
+      extras.reasoningEffort = settings.copilotReasoningEffort
+    }
+
+    // 执行 SDK Agent（传入 extras 配置）
+    result = await bridge.execute(request, extras)
 
     // 保存助手回复
     createMessage({

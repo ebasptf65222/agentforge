@@ -42,9 +42,9 @@ describe('Database Initialization', () => {
 
   // ─── 验收标准 4: schema_version ──────────────────────────────
 
-  it('should create schema_version table with version=8', () => {
+  it('should create schema_version table with version=9', () => {
     initDatabase(dbPath)
-    expect(getSchemaVersion()).toBe(8)
+    expect(getSchemaVersion()).toBe(9)
   })
 
   // ─── 验收标准 5: conversations 外键 ───────────────────────────

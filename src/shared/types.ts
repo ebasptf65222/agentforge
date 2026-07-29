@@ -113,6 +113,8 @@ interface AppSettings {
   voice: VoiceConfig
   workspace: WorkspaceConfig
   engineType: EngineType
+  /** SDK 引擎推理强度（仅 copilot-sdk 引擎生效） */
+  copilotReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }
@@ -532,7 +534,81 @@ interface WikiStatus {
   recentLogs: string
 }
 
-// ─── 5.9 错误类型 ────────────────────────────────────────────────
+// ─── 5.9 工作流审计类型 ────────────────────────────────────────
+
+/** 审计维度 */
+type AuditDimension =
+  | 'task-understanding'
+  | 'controlled-execution'
+  | 'change-validation'
+  | 'reliable-delivery'
+  | 'learning-capture'
+
+/** 证据状态（简化版：Missing / Present / Exercised） */
+type EvidenceState = 'missing' | 'present' | 'exercised'
+
+/** 审计发现严重性 */
+type AuditSeverity = 'low' | 'medium' | 'high'
+
+/** 审计发现 */
+interface AuditFinding {
+  id: string
+  dimension: AuditDimension
+  checkId: string
+  severity: AuditSeverity
+  title: string
+  description: string
+  evidence: string
+  impact: string
+  repair: string
+  evidenceState: EvidenceState
+}
+
+/** 维度检查项 */
+interface DimensionCheck {
+  checkId: string
+  label: string
+  evidenceState: EvidenceState
+  description: string
+}
+
+/** 维度评分 */
+interface DimensionScore {
+  dimension: AuditDimension
+  score: number
+  evidenceState: EvidenceState
+  checks: DimensionCheck[]
+}
+
+/** 支持轨道 */
+type SupportTrack = 'bootstrap' | 'operationalize' | 'optimize' | 'undetermined'
+
+/** 审计报告 */
+interface AuditReport {
+  id: string
+  executionId: string
+  conversationId: string
+  timestamp: number
+  dimensions: DimensionScore[]
+  findings: AuditFinding[]
+  overallScore: number
+  supportTrack: SupportTrack
+  summary: string
+}
+
+/** 审计输入参数 */
+interface AuditInput {
+  executionId: string
+  conversationId: string
+  trajectories: TAOTrajectory[]
+  approvalMode: ApprovalMode
+  totalSteps: number
+  duration: number
+  tokensUsed: number
+  summary: string
+}
+
+// ─── 5.10 错误类型 ────────────────────────────────────────────────
 
 /** 应用统一错误 */
 class AppError extends Error {
@@ -614,6 +690,15 @@ export type {
   KbStats,
   WikiPageSummary,
   WikiStatus,
+  AuditDimension,
+  EvidenceState,
+  AuditSeverity,
+  AuditFinding,
+  DimensionCheck,
+  DimensionScore,
+  SupportTrack,
+  AuditReport,
+  AuditInput,
 }
 
 export { AppError }

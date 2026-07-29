@@ -42,6 +42,17 @@ const ENGINE_OPTIONS: ReadonlyArray<{ value: EngineType; label: string; desc: st
   { value: 'copilot-sdk', label: 'Copilot SDK', desc: 'GitHub Copilot SDK 驱动' },
 ]
 
+const REASONING_EFFORT_OPTIONS: ReadonlyArray<{
+  value: string
+  label: string
+}> = [
+  { value: '', label: '默认' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+  { value: 'xhigh', label: '极高' },
+]
+
 // OPT2-10: 移除独立的 applyTheme 函数和 watch/matchMedia 监听器，
 // 避免 'theme-dark'/'theme-light' 类名与 useTheme 的 'dark'/'light' 冲突，
 // 同时修复 matchMedia 监听器在组件卸载后未移除的泄漏问题。
@@ -117,6 +128,18 @@ async function updateApprovalTimeout(value: string): Promise<void> {
   }
 }
 
+async function updateReasoningEffort(value: string): Promise<void> {
+  // Empty string maps to null (use SDK default)
+  const effort = value === '' ? null : value
+  try {
+    await settingsStore.updateSetting('copilotReasoningEffort', effort)
+    showToast('推理强度已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
 // ─── Helpers for template binding ─────────────────────────────
 
 /** Convert the stored approvalTimeoutMs (ms) to seconds for display. */
@@ -138,6 +161,14 @@ const modelOptions = computed<SelectOption[]>(() => [
   { label: '未设置', value: '' },
   ...modelStore.models.map((m) => ({ label: `${m.name} (${m.modelId})`, value: m.id })),
 ])
+
+/** Reasoning effort options for NSelect. */
+const reasoningEffortOptions = computed<SelectOption[]>(() =>
+  REASONING_EFFORT_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
+)
+
+/** Whether Copilot SDK engine is selected (controls reasoning effort visibility). */
+const isCopilotEngine = computed(() => settings.value?.engineType === 'copilot-sdk')
 
 // ─── NInputNumber writable adapters ───────────────────────────
 // NInputNumber uses v-model:value (number | null). These computeds bridge
@@ -224,6 +255,21 @@ const approvalTimeoutValue = computed<number | null>({
               {{ opt.label }}
             </NRadioButton>
           </NRadioGroup>
+        </div>
+      </div>
+
+      <!-- 推理强度（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">推理强度</span>
+          <span class="setting-row__desc">控制 Copilot SDK 的推理深度，影响响应速度和质量</span>
+        </div>
+        <div class="setting-row__control">
+          <NSelect
+            :value="settings?.copilotReasoningEffort ?? ''"
+            :options="reasoningEffortOptions"
+            @update:value="(v) => updateReasoningEffort(v as string)"
+          />
         </div>
       </div>
 

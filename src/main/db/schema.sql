@@ -293,3 +293,10 @@ CREATE INDEX IF NOT EXISTS idx_kg_relations_relation ON kg_relations(relation);
 
 INSERT OR IGNORE INTO schema_version (version, applied_at, description)
 VALUES (8, strftime('%s','now') * 1000, 'Add workspace column to app_settings for local file workspace');
+
+-- ─── 6.15 copilot reasoning effort (CE-05) ──────────────────
+-- Copilot SDK 推理强度配置，存储在 app_settings 的 copilot_reasoning_effort 列中
+-- 值为 'low' | 'medium' | 'high' | 'xhigh'，NULL 表示使用 SDK 默认值
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (9, strftime('%s','now') * 1000, 'Add copilot_reasoning_effort column to app_settings for SDK reasoning control');

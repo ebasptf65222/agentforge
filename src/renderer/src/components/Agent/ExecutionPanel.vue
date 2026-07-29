@@ -138,6 +138,14 @@ function handleReject(reason?: string): void {
       </div>
     </div>
 
+    <!-- Streaming thinking (SDK reasoning_delta) -->
+    <div v-if="agentStore.streamingThinking && agentStore.isRunning" class="streaming-thinking">
+      <ThinkingBlock
+        :thought="agentStore.streamingThinking"
+        :is-streaming="true"
+      />
+    </div>
+
     <!-- Approval card -->
     <ApprovalCard
       v-if="agentStore.pendingApproval"

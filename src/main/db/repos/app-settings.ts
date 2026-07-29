@@ -4,6 +4,7 @@
 
 import type Database from 'better-sqlite3'
 import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
+import type { ReasoningEffort } from '../../copilot/types'
 import { getDatabase } from '../index'
 import { AppError, ErrorCodes } from '../../utils/error'
 
@@ -25,6 +26,7 @@ interface AppSettingsRow {
   voice: string
   workspace: string
   engine_type: string
+  copilot_reasoning_effort: string | null
   window_bounds: string | null
   updated_at: number
 }
@@ -109,6 +111,7 @@ export interface UpdateSettingsParams {
   voice?: Partial<VoiceConfig> | VoiceConfig
   workspace?: Partial<WorkspaceConfig> | WorkspaceConfig
   engineType?: EngineType
+  copilotReasoningEffort?: ReasoningEffort | null
   windowBounds?: WindowBounds | null
 }
 
@@ -162,6 +165,7 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     voice,
     workspace,
     engineType: (row.engine_type || DEFAULT_ENGINE_TYPE) as EngineType,
+    copilotReasoningEffort: (row.copilot_reasoning_effort ?? undefined) as ReasoningEffort | undefined,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -357,6 +361,12 @@ export function updateSettings(params: UpdateSettingsParams): void {
   if (params.engineType !== undefined) {
     setClauses.push('engine_type = ?')
     values.push(params.engineType)
+  }
+
+  if (params.copilotReasoningEffort !== undefined) {
+    setClauses.push('copilot_reasoning_effort = ?')
+    // null 表示清除设置（使用 SDK 默认）
+    values.push(params.copilotReasoningEffort === null ? null : params.copilotReasoningEffort)
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

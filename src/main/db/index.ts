@@ -120,6 +120,13 @@ function runConditionalMigrations(db: Database.Database): void {
       `ALTER TABLE app_settings ADD COLUMN engine_type TEXT NOT NULL DEFAULT 'builtin'`
     )
   }
+
+  // CE-05: 确保 app_settings 有 copilot_reasoning_effort 列
+  if (!hasColumn(db, 'app_settings', 'copilot_reasoning_effort')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_reasoning_effort TEXT`
+    )
+  }
 }
 
 /**

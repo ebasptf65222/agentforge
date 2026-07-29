@@ -19,6 +19,7 @@ import {
   convertReasoningDelta,
   buildFinalTrajectory,
 } from './event-converter'
+import type { SessionExtras } from './types'
 
 /**
  * Bridges Copilot SDK sessions to AgentForge's IPC event system.
@@ -139,8 +140,14 @@ export class CopilotAgentBridge {
 
   /**
    * Execute an agent request using Copilot SDK with BYOK streaming and tools.
+   *
+   * @param request - Agent execution request
+   * @param extras - Optional session extras (Skill prompt, tool filter, working dir, reasoning)
    */
-  async execute(request: AgentExecutionRequest): Promise<ExecutionResult> {
+  async execute(
+    request: AgentExecutionRequest,
+    extras?: SessionExtras,
+  ): Promise<ExecutionResult> {
     this.startTime = Date.now()
     this.stepCounter = 0
     this.cancelled = false
@@ -180,31 +187,56 @@ export class CopilotAgentBridge {
       // 4. Build MCP servers config from database (SDK manages connections)
       const mcpServers = buildMcpServersConfig()
 
-      // 5. Create session with BYOK config, streaming, bridged tools, and MCP servers
-      const session: SdkSession = await this.client.createSession({
+      // 5. Build session config with BYOK, streaming, tools, MCP, and extras
+      const sessionConfig: Record<string, unknown> = {
         model,
         provider,
         streaming: true,
         tools,
         mcpServers,
-      } as Record<string, unknown>)
+        // 启用大输出处理，防止工具输出撑爆上下文
+        largeOutput: { enabled: true },
+      }
+
+      // 5a. 注入 Skill 系统提示词
+      if (extras?.systemMessageContent) {
+        sessionConfig['systemMessage'] = { content: extras.systemMessageContent }
+      }
+
+      // 5b. 工具过滤（Skill allowedTools）
+      if (extras?.availableTools && extras.availableTools.length > 0) {
+        sessionConfig['availableTools'] = extras.availableTools
+      }
+
+      // 5c. 工作目录（文件操作上下文）
+      if (extras?.workingDirectory) {
+        sessionConfig['workingDirectory'] = extras.workingDirectory
+      }
+
+      // 5d. 推理强度
+      if (extras?.reasoningEffort) {
+        sessionConfig['reasoningEffort'] = extras.reasoningEffort
+      }
+
+      // 6. Create session with full config
+      const session: SdkSession = await this.client.createSession(sessionConfig)
       this.session = session
 
-      // 6. Subscribe to SDK streaming events
+      // 7. Subscribe to SDK streaming events
       this.subscribeToEvents(session)
 
-      // 7. Set up completion promise (resolves on session.idle)
+      // 8. Set up completion promise (resolves on session.idle)
       const idlePromise = new Promise<void>((resolve) => {
         this.idleResolve = resolve
       })
 
-      // 8. Send user message (non-blocking, events stream via callbacks)
+      // 9. Send user message (non-blocking, events stream via callbacks)
       await session.send({ prompt: request.userInput })
 
-      // 9. Wait for session to become idle (completion signal)
+      // 10. Wait for session to become idle (completion signal)
       await idlePromise
 
-      // 10. Build and return execution result
+      // 11. Build and return execution result
       const status = this.cancelled ? 'cancelled' : 'completed'
       const summary = this.accumulatedContent || 'No response generated.'
 
