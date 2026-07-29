@@ -16,7 +16,12 @@ import { assertNonEmptyString } from '../utils/assertions'
 import { getMainWindowWebContents } from '../utils/electron-helpers'
 import { getModelAdapter } from '../models/router'
 import { getSettings } from '../db/repos/app-settings'
-import { getConversationById, updateLastMessageAt } from '../db/repos/conversation'
+import {
+  getConversationById,
+  updateLastMessageAt,
+  updateSdkSessionId,
+  updateConversationTitle,
+} from '../db/repos/conversation'
 import { createMessage, getMessagesByConversationId } from '../db/repos/message'
 import { getToolRegistry } from '../tools/registry'
 import { AgentExecutor, type AgentExecutorConfig } from '../agent/executor'
@@ -121,7 +126,17 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
   const callbacks: AgentEventCallbacks = {
     onTrajectory: (trajectory) => sendTrajectory(trajectory),
     onApprovalRequest: (approvalRequest) => sendApprovalRequest(approvalRequest),
-    onStreamChunk: (chunk) => sendStreamChunk(chunk),
+    onStreamChunk: (chunk) => {
+      // 标题自动生成：更新对话标题
+      if (chunk.type === 'title' && chunk.content) {
+        try {
+          updateConversationTitle(request.conversationId, chunk.content)
+        } catch {
+          // Ignore title update errors
+        }
+      }
+      sendStreamChunk(chunk)
+    },
   }
 
   const settings = getSettings()
@@ -134,8 +149,8 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
 
   let result: ExecutionResult
   try {
-    // 验证会话存在
-    getConversationById(request.conversationId)
+    // 验证会话存在，并读取 sdkSessionId（用于 resume）
+    const conversation = getConversationById(request.conversationId)
 
     // 保存用户消息
     createMessage({
@@ -197,8 +212,21 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
       extras.reasoningEffort = settings.copilotReasoningEffort
     }
 
+    // 5. 传入 sdkSessionId（从数据库读取，用于 resume 已有 SDK session）
+    if (conversation.sdkSessionId) {
+      extras.sdkSessionId = conversation.sdkSessionId
+    }
+
     // 执行 SDK Agent（传入 extras 配置）
     result = await bridge.execute(request, extras)
+
+    // 如果是新 session，将 sdkSessionId 持久化到数据库（供下次 resume）
+    if (bridge.wasNewSession()) {
+      const sdkSessionId = bridge.getSdkSessionId()
+      if (sdkSessionId) {
+        updateSdkSessionId(request.conversationId, sdkSessionId)
+      }
+    }
 
     // 保存助手回复
     createMessage({
@@ -262,6 +290,7 @@ export async function handleExecute(
     approvalMode: p['approvalMode'] as ApprovalMode,
     maxSteps: (p['maxSteps'] as number) || 20,
     skillName: p['skillName'] as string | undefined,
+    attachments: Array.isArray(p['attachments']) ? p['attachments'] : undefined,
   }
 
   // 1. 并发控制 - OPT-02: 在任何 await 之前设置锁，防止竞态条件
@@ -416,6 +445,65 @@ export function handleApprove(params: unknown): void {
   }
 }
 
+/**
+ * agent:respond-user-input - 响应 AI 主动提问（ask_user）。
+ */
+export function handleRespondUserInput(params: unknown): void {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['requestId'], 'requestId')
+  if (typeof p['response'] !== 'string') {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      'Field "response" must be a string.',
+    )
+  }
+
+  if (currentBridge) {
+    const success = currentBridge.respondToUserInput(p['requestId'], p['response'] as string)
+    if (!success) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'No matching user input request found. It may have timed out or been cancelled.',
+      )
+    }
+  }
+}
+
+/**
+ * agent:respond-elicitation - 响应 elicitation 表单交互。
+ */
+export function handleRespondElicitation(params: unknown): void {
+  if (params === null || typeof params !== 'object') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Params must be an object.')
+  }
+  const p = params as Record<string, unknown>
+
+  assertNonEmptyString(p['requestId'], 'requestId')
+  if (typeof p['response'] !== 'object' || p['response'] === null) {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      'Field "response" must be an object.',
+    )
+  }
+
+  if (currentBridge) {
+    const success = currentBridge.respondToElicitation(
+      p['requestId'],
+      p['response'] as Record<string, unknown>,
+    )
+    if (!success) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'No matching elicitation request found. It may have timed out or been cancelled.',
+      )
+    }
+  }
+}
+
 // ─── 通道注册 ───────────────────────────────────────────────────
 
 interface ChannelRegistration {
@@ -435,6 +523,21 @@ const registrations: ChannelRegistration[] = [
   {
     channel: 'agent:approve',
     handler: (_event, params: unknown) => handleApprove(params),
+  },
+  // B7: 查询当前活跃的 SDK 会话列表（用于会话管理 UI）
+  {
+    channel: 'agent:list-sessions',
+    handler: () => getSessionManager().listActiveSessions(),
+  },
+  // ask_user: 响应 AI 主动提问
+  {
+    channel: 'agent:respond-user-input',
+    handler: (_event, params: unknown) => handleRespondUserInput(params),
+  },
+  // elicitation: 响应表单交互请求
+  {
+    channel: 'agent:respond-elicitation',
+    handler: (_event, params: unknown) => handleRespondElicitation(params),
   },
 ]
 

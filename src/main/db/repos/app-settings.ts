@@ -4,7 +4,7 @@
 
 import type Database from 'better-sqlite3'
 import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
-import type { ReasoningEffort } from '../../copilot/types'
+import type { ReasoningEffort, WireApiMode } from '../../copilot/types'
 import { getDatabase } from '../index'
 import { AppError, ErrorCodes } from '../../utils/error'
 
@@ -27,6 +27,7 @@ interface AppSettingsRow {
   workspace: string
   engine_type: string
   copilot_reasoning_effort: string | null
+  copilot_wire_api: string | null
   window_bounds: string | null
   updated_at: number
 }
@@ -87,6 +88,11 @@ const DEFAULT_WORKSPACE_CONFIG: WorkspaceConfig = {
 const DEFAULT_ENGINE_TYPE: EngineType = 'builtin'
 
 /**
+ * 默认 wire API 模式（'auto' 表示根据模型类型自动判断）。
+ */
+const DEFAULT_COPILOT_WIRE_API: WireApiMode = 'auto'
+
+/**
  * 窗口边界类型（与 @shared/types AppSettings.windowBounds 一致）。
  */
 interface WindowBounds {
@@ -112,6 +118,7 @@ export interface UpdateSettingsParams {
   workspace?: Partial<WorkspaceConfig> | WorkspaceConfig
   engineType?: EngineType
   copilotReasoningEffort?: ReasoningEffort | null
+  copilotWireApi?: WireApiMode | null
   windowBounds?: WindowBounds | null
 }
 
@@ -166,6 +173,7 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     workspace,
     engineType: (row.engine_type || DEFAULT_ENGINE_TYPE) as EngineType,
     copilotReasoningEffort: (row.copilot_reasoning_effort ?? undefined) as ReasoningEffort | undefined,
+    copilotWireApi: (row.copilot_wire_api ?? DEFAULT_COPILOT_WIRE_API) as WireApiMode,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -367,6 +375,12 @@ export function updateSettings(params: UpdateSettingsParams): void {
     setClauses.push('copilot_reasoning_effort = ?')
     // null 表示清除设置（使用 SDK 默认）
     values.push(params.copilotReasoningEffort === null ? null : params.copilotReasoningEffort)
+  }
+
+  if (params.copilotWireApi !== undefined) {
+    setClauses.push('copilot_wire_api = ?')
+    // null 表示清除设置（回退到 'auto' 自动判断）
+    values.push(params.copilotWireApi === null ? null : params.copilotWireApi)
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

@@ -127,6 +127,21 @@ function runConditionalMigrations(db: Database.Database): void {
       `ALTER TABLE app_settings ADD COLUMN copilot_reasoning_effort TEXT`
     )
   }
+
+  // B5: 确保 app_settings 有 copilot_wire_api 列（'completions' | 'responses' | 'auto'）
+  // NULL 表示 'auto'（根据模型类型自动判断）
+  if (!hasColumn(db, 'app_settings', 'copilot_wire_api')) {
+    db.exec(
+      `ALTER TABLE app_settings ADD COLUMN copilot_wire_api TEXT`
+    )
+  }
+
+  // CE-06: 确保 conversations 有 sdk_session_id 列（用于 SDK session resume）
+  if (!hasColumn(db, 'conversations', 'sdk_session_id')) {
+    db.exec(
+      `ALTER TABLE conversations ADD COLUMN sdk_session_id TEXT DEFAULT NULL`
+    )
+  }
 }
 
 /**

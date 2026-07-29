@@ -29,7 +29,19 @@ type ToolRiskLevel = 'low' | 'medium' | 'high'
 type SkillTrigger = 'auto' | 'manual'
 
 /** 流式 chunk 类型 */
-type StreamChunkType = 'text' | 'thinking' | 'tool-call' | 'error'
+type StreamChunkType =
+  | 'text'
+  | 'thinking'
+  | 'tool-call'
+  | 'error'
+  | 'compaction'
+  | 'tool-start'
+  | 'tool-complete'
+  | 'tool-progress'
+  | 'title'
+  | 'usage-info'
+  | 'ask-user'
+  | 'elicitation-request'
 
 // ─── 5.2 核心实体接口 ────────────────────────────────────────────
 
@@ -45,6 +57,8 @@ interface Conversation {
   lastMessageAt: number | null
   createdAt: number
   updatedAt: number
+  /** SDK 分配的 sessionId（用于 resume，应用重启后恢复会话） */
+  sdkSessionId?: string
 }
 
 /** 消息 */
@@ -115,8 +129,18 @@ interface AppSettings {
   engineType: EngineType
   /** SDK 引擎推理强度（仅 copilot-sdk 引擎生效） */
   copilotReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  /** SDK wire API 模式：'auto' 表示根据模型自动判断（GPT-4o/o 系列用 responses） */
+  copilotWireApi?: 'completions' | 'responses' | 'auto'
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
+}
+
+/** 活跃 SDK 会话信息（B7 会话列表查询） */
+interface ActiveSessionInfo {
+  conversationId: string
+  sdkSessionId?: string
+  lastUsedAt: number
+  isCompacting: boolean
 }
 
 /** 快捷键配置 */
@@ -162,6 +186,8 @@ interface AgentExecutionRequest {
   skillName?: string
   approvalMode: ApprovalMode
   maxSteps: number
+  /** 图片附件（dataUrl 格式），传给 SDK session.send */
+  attachments?: Array<{ dataUrl: string; name: string; size: number }>
 }
 
 /** Agent 执行结果 */
@@ -207,6 +233,44 @@ interface ApprovalResponse {
   step: number
   approved: boolean
   reason?: string
+}
+
+/** AI 主动提问请求（ask_user） */
+interface UserInputRequest {
+  /** 唯一请求 ID */
+  requestId: string
+  /** 关联的执行 ID */
+  executionId: string
+  /** AI 提出的问题 */
+  prompt: string
+}
+
+/** AI 主动提问响应 */
+interface UserInputResponse {
+  /** 对应的请求 ID */
+  requestId: string
+  /** 用户的回答 */
+  response: string
+}
+
+/** Elicitation 表单请求 */
+interface ElicitationRequest {
+  /** 唯一请求 ID */
+  requestId: string
+  /** 关联的执行 ID */
+  executionId: string
+  /** 表单提示消息 */
+  message: string
+  /** 表单字段定义 */
+  form: Record<string, unknown>
+}
+
+/** Elicitation 表单响应 */
+interface ElicitationResponse {
+  /** 对应的请求 ID */
+  requestId: string
+  /** 用户填写的表单数据 */
+  response: Record<string, unknown>
 }
 
 // ─── 5.5 工具与 MCP 类型 ───────────────────────────────────────────
@@ -667,6 +731,7 @@ export type {
   ModelConfig,
   ModelCapabilities,
   AppSettings,
+  ActiveSessionInfo,
   ShortcutConfig,
   StreamChunk,
   StreamEndMetadata,
@@ -677,6 +742,10 @@ export type {
   ToolAction,
   ApprovalRequest,
   ApprovalResponse,
+  UserInputRequest,
+  UserInputResponse,
+  ElicitationRequest,
+  ElicitationResponse,
   ToolDefinition,
   ToolExecutionResult,
   MCPServerConfig,

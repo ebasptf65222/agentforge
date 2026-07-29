@@ -11,7 +11,10 @@ import type {
   StreamChunk,
   AuditReport,
   AuditInput,
+  UserInputRequest,
+  ElicitationRequest,
 } from '@shared/types'
+import { useContextUsageStore } from '@/stores/context-usage'
 
 export const useAgentStore = defineStore('agent', () => {
   // ─── State ───────────────────────────────────────────────────
@@ -27,6 +30,12 @@ export const useAgentStore = defineStore('agent', () => {
 
   /** Current pending approval request */
   const pendingApproval = ref<ApprovalRequest | null>(null)
+
+  /** Pending ask_user request (AI is asking the user a question) */
+  const pendingUserInput = ref<UserInputRequest | null>(null)
+
+  /** Pending elicitation request (AI is asking the user to fill a form) */
+  const pendingElicitation = ref<ElicitationRequest | null>(null)
 
   /** Streaming text content */
   const streamingContent = ref('')
@@ -187,6 +196,56 @@ export const useAgentStore = defineStore('agent', () => {
       streamingContent.value += chunk.content
     } else if (chunk.type === 'thinking' && chunk.content) {
       streamingThinking.value += chunk.content
+    } else if (chunk.type === 'usage-info' && chunk.content) {
+      // B8: 更新上下文使用量进度条（SDK session.usage_info 事件）
+      try {
+        const usage = JSON.parse(chunk.content) as {
+          tokenLimit: number
+          currentTokens: number
+          messagesLength: number
+        }
+        useContextUsageStore().update(usage)
+      } catch {
+        // Ignore malformed usage-info payloads
+      }
+    } else if (chunk.type === 'ask-user' && chunk.content) {
+      // ask_user: AI 主动向用户提问
+      try {
+        pendingUserInput.value = JSON.parse(chunk.content) as UserInputRequest
+      } catch {
+        // Ignore malformed ask-user payloads
+      }
+    } else if (chunk.type === 'elicitation-request' && chunk.content) {
+      // elicitation: AI 请求用户填写表单
+      try {
+        pendingElicitation.value = JSON.parse(chunk.content) as ElicitationRequest
+      } catch {
+        // Ignore malformed elicitation payloads
+      }
+    }
+  }
+
+  /** Respond to an ask_user request */
+  async function respondUserInput(response: string): Promise<void> {
+    if (!pendingUserInput.value) return
+    const requestId = pendingUserInput.value.requestId
+    pendingUserInput.value = null
+    try {
+      await window.electron.agent.respondUserInput({ requestId, response })
+    } catch (error) {
+      console.error('Failed to respond to user input:', error)
+    }
+  }
+
+  /** Respond to an elicitation request */
+  async function respondElicitation(response: Record<string, unknown>): Promise<void> {
+    if (!pendingElicitation.value) return
+    const requestId = pendingElicitation.value.requestId
+    pendingElicitation.value = null
+    try {
+      await window.electron.agent.respondElicitation({ requestId, response })
+    } catch (error) {
+      console.error('Failed to respond to elicitation:', error)
     }
   }
 
@@ -196,6 +255,8 @@ export const useAgentStore = defineStore('agent', () => {
     executionId.value = null
     trajectories.value = []
     pendingApproval.value = null
+    pendingUserInput.value = null
+    pendingElicitation.value = null
     streamingContent.value = ''
     streamingThinking.value = ''
     lastResult.value = null
@@ -210,6 +271,8 @@ export const useAgentStore = defineStore('agent', () => {
     executionId,
     trajectories,
     pendingApproval,
+    pendingUserInput,
+    pendingElicitation,
     streamingContent,
     streamingThinking,
     lastResult,
@@ -226,6 +289,8 @@ export const useAgentStore = defineStore('agent', () => {
     execute,
     stop,
     respondApproval,
+    respondUserInput,
+    respondElicitation,
     runAudit,
     // Handlers
     handleTrajectory,

@@ -36,6 +36,9 @@ import type {
   WikiPageSummary,
   AuditReport,
   AuditInput,
+  ActiveSessionInfo,
+  UserInputResponse,
+  ElicitationResponse,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -168,6 +171,12 @@ interface AgentAPI {
   execute(params: AgentExecuteParams): Promise<ExecutionResult>
   stop(): Promise<void>
   approve(params: AgentApproveParams): Promise<void>
+  /** B7: 查询当前活跃的 SDK 会话列表 */
+  listSessions(): Promise<ActiveSessionInfo[]>
+  /** ask_user: 响应 AI 主动提问 */
+  respondUserInput(params: UserInputResponse): Promise<void>
+  /** elicitation: 响应表单交互请求 */
+  respondElicitation(params: ElicitationResponse): Promise<void>
   onTrajectory(callback: (data: TAOTrajectory) => void): () => void
   onApprovalRequest(callback: (data: ApprovalRequest) => void): () => void
   onStreamChunk(callback: (data: StreamChunk) => void): () => void

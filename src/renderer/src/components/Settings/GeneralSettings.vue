@@ -53,6 +53,15 @@ const REASONING_EFFORT_OPTIONS: ReadonlyArray<{
   { value: 'xhigh', label: '极高' },
 ]
 
+const WIRE_API_OPTIONS: ReadonlyArray<{
+  value: string
+  label: string
+}> = [
+  { value: 'auto', label: '自动（推荐）' },
+  { value: 'responses', label: 'Responses API' },
+  { value: 'completions', label: 'Completions API' },
+]
+
 // OPT2-10: 移除独立的 applyTheme 函数和 watch/matchMedia 监听器，
 // 避免 'theme-dark'/'theme-light' 类名与 useTheme 的 'dark'/'light' 冲突，
 // 同时修复 matchMedia 监听器在组件卸载后未移除的泄漏问题。
@@ -140,6 +149,18 @@ async function updateReasoningEffort(value: string): Promise<void> {
   }
 }
 
+async function updateWireApi(value: string): Promise<void> {
+  // 'auto' maps to null (SDK auto-detects based on model type)
+  const wireApi = value === 'auto' ? null : value
+  try {
+    await settingsStore.updateSetting('copilotWireApi', wireApi)
+    showToast('Wire API 模式已更新，新对话生效', 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`保存失败: ${message}`, 'error')
+  }
+}
+
 // ─── Helpers for template binding ─────────────────────────────
 
 /** Convert the stored approvalTimeoutMs (ms) to seconds for display. */
@@ -165,6 +186,11 @@ const modelOptions = computed<SelectOption[]>(() => [
 /** Reasoning effort options for NSelect. */
 const reasoningEffortOptions = computed<SelectOption[]>(() =>
   REASONING_EFFORT_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
+)
+
+/** Wire API mode options for NSelect. */
+const wireApiOptions = computed<SelectOption[]>(() =>
+  WIRE_API_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
 )
 
 /** Whether Copilot SDK engine is selected (controls reasoning effort visibility). */
@@ -269,6 +295,21 @@ const approvalTimeoutValue = computed<number | null>({
             :value="settings?.copilotReasoningEffort ?? ''"
             :options="reasoningEffortOptions"
             @update:value="(v) => updateReasoningEffort(v as string)"
+          />
+        </div>
+      </div>
+
+      <!-- Wire API 模式（仅 Copilot SDK 引擎） -->
+      <div v-if="isCopilotEngine" class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">Wire API 模式</span>
+          <span class="setting-row__desc">控制 SDK 使用哪种 OpenAI API 格式，影响多轮状态和推理支持</span>
+        </div>
+        <div class="setting-row__control">
+          <NSelect
+            :value="settings?.copilotWireApi ?? 'auto'"
+            :options="wireApiOptions"
+            @update:value="(v) => updateWireApi(v as string)"
           />
         </div>
       </div>

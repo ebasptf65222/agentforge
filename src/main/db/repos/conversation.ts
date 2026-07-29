@@ -18,6 +18,7 @@ interface ConversationRow {
   approval_mode: string
   message_count: number
   last_message_at: number | null
+  sdk_session_id: string | null
   created_at: number
   updated_at: number
 }
@@ -40,6 +41,7 @@ function rowToConversation(row: ConversationRow): Conversation {
     approvalMode: row.approval_mode as ApprovalMode,
     messageCount: row.message_count,
     lastMessageAt: row.last_message_at,
+    sdkSessionId: row.sdk_session_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -187,6 +189,26 @@ export function updateLastMessageAt(id: string, lastMessageAt?: number): void {
 
   db.prepare('UPDATE conversations SET last_message_at = ?, updated_at = ? WHERE id = ?').run(
     ts,
+    now,
+    id,
+  )
+}
+
+/**
+ * 更新会话的 SDK sessionId（用于后续 resume）。
+ *
+ * 在创建新 SDK session 后调用，将 SDK 分配的 sessionId 持久化到数据库，
+ * 以便应用重启后通过 client.resumeSession 恢复对话上下文。
+ *
+ * @param id - 会话 ID
+ * @param sdkSessionId - SDK 分配的 sessionId
+ */
+export function updateSdkSessionId(id: string, sdkSessionId: string): void {
+  const db: Database.Database = getDatabase()
+  const now = Date.now()
+
+  db.prepare('UPDATE conversations SET sdk_session_id = ?, updated_at = ? WHERE id = ?').run(
+    sdkSessionId,
     now,
     id,
   )

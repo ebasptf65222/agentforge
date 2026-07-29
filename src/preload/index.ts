@@ -109,6 +109,17 @@ const agent = {
   approve: (params: Record<string, unknown>): Promise<void> =>
     ipcRenderer.invoke('agent:approve', params),
 
+  // B7: 查询当前活跃的 SDK 会话列表
+  listSessions: (): Promise<unknown[]> => ipcRenderer.invoke('agent:list-sessions'),
+
+  // ask_user: 响应 AI 主动提问
+  respondUserInput: (params: Record<string, unknown>): Promise<void> =>
+    ipcRenderer.invoke('agent:respond-user-input', params),
+
+  // elicitation: 响应表单交互请求
+  respondElicitation: (params: Record<string, unknown>): Promise<void> =>
+    ipcRenderer.invoke('agent:respond-elicitation', params),
+
   onTrajectory: (callback: (data: unknown) => void): (() => void) =>
     onEvent('agent:trajectory', callback),
 

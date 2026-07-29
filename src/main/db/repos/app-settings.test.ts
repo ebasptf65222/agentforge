@@ -57,6 +57,9 @@ describe('app-settings repository', () => {
     if (!cols.some((c) => c.name === 'copilot_reasoning_effort')) {
       testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_reasoning_effort TEXT')
     }
+    if (!cols.some((c) => c.name === 'copilot_wire_api')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_wire_api TEXT')
+    }
     vi.clearAllMocks()
   })
 

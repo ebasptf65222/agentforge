@@ -6,6 +6,7 @@ import { createRequire } from 'node:module'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CopilotClient, RuntimeConnection } from '@github/copilot-sdk'
+import type { ActiveSessionInfo } from '@shared/types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SdkSession = any
@@ -22,6 +23,8 @@ interface ManagedSession {
   session: SdkSession
   client: SdkClient
   conversationId: string
+  /** SDK 分配的 sessionId（用于 resume） */
+  sdkSessionId?: string
   lastUsedAt: number
   /** 清理定时器 */
   cleanupTimer: ReturnType<typeof setTimeout> | null
@@ -95,11 +98,14 @@ export class CopilotSessionManager {
     }
 
     const session = await client.createSession(fullConfig)
+    // 保存 SDK 分配的 sessionId，用于后续 resume
+    const sdkSessionId = session.sessionId || session.id || undefined
 
     const managed: ManagedSession = {
       session,
       client,
       conversationId,
+      sdkSessionId,
       lastUsedAt: Date.now(),
       cleanupTimer: null,
     }
@@ -110,10 +116,125 @@ export class CopilotSessionManager {
   }
 
   /**
+   * 尝试恢复指定对话的 SDK session。
+   * 如果磁盘上有该 session 的状态文件，则 resume；否则返回 null。
+   *
+   * @param conversationId - 对话 ID
+   * @param _sessionConfig - SDK session 配置（resume 时可重配部分项，当前实现未使用）
+   * @returns 恢复的 session，或 null（无法恢复时）
+   */
+  async resumeSession(
+    conversationId: string,
+    _sessionConfig: Record<string, unknown>,
+  ): Promise<SdkSession | null> {
+    // 如果已有活跃 session，直接返回
+    const existing = this.sessions.get(conversationId)
+    if (existing) {
+      this.resetIdleTimer(conversationId)
+      return existing.session
+    }
+
+    // sdkSessionId 在 getOrCreateSession 中保存到内存，
+    // 但应用重启后内存丢失。完整恢复逻辑见 getOrResumeSession
+    // （由调用方从数据库读取 sdkSessionId 后传入）。
+    return null
+  }
+
+  /**
+   * 获取或恢复 SDK session（应用重启后的主入口）。
+   *
+   * 流程：
+   * 1. 检查内存中是否有活跃 session → 复用
+   * 2. 如果有 sdkSessionId → 尝试 client.resumeSession 恢复
+   * 3. 恢复失败或无 sdkSessionId → 创建新 session
+   *
+   * @param conversationId - 对话 ID
+   * @param sdkSessionId - 从数据库读取的 SDK sessionId（null 表示无记录）
+   * @param sessionConfig - SDK session 配置
+   * @returns session 实例 + 是否为新建
+   */
+  async getOrResumeSession(
+    conversationId: string,
+    sdkSessionId: string | null,
+    sessionConfig: Record<string, unknown>,
+  ): Promise<{ session: SdkSession; isNew: boolean }> {
+    // 1. 检查内存中是否有活跃 session
+    const existing = this.sessions.get(conversationId)
+    if (existing) {
+      this.resetIdleTimer(conversationId)
+      return { session: existing.session, isNew: false }
+    }
+
+    // 2. 如果有 sdkSessionId，尝试 resume
+    if (sdkSessionId) {
+      try {
+        // 创建 client
+        const cliPath = resolveCopilotCliPath()
+        const clientOptions = cliPath
+          ? { connection: RuntimeConnection.forStdio({ path: cliPath }) }
+          : {}
+        const client = new CopilotClient(clientOptions)
+        await client.start()
+
+        // 构建 resume 配置（BYOK provider 必须重新提供，密钥不持久化）
+        const resumeConfig: Record<string, unknown> = {
+          ...sessionConfig,
+          infiniteSessions: {
+            enabled: true,
+            backgroundCompactionThreshold: 0.80,
+            bufferExhaustionThreshold: 0.95,
+          },
+          largeOutput: { enabled: true },
+        }
+
+        const session = await client.resumeSession(sdkSessionId, resumeConfig)
+
+        const managed: ManagedSession = {
+          session,
+          client,
+          conversationId,
+          sdkSessionId,
+          lastUsedAt: Date.now(),
+          cleanupTimer: null,
+        }
+        this.sessions.set(conversationId, managed)
+        this.resetIdleTimer(conversationId)
+
+        return { session, isNew: false }
+      } catch (error) {
+        console.warn(
+          `[SessionManager] Failed to resume session ${sdkSessionId}:`,
+          error,
+        )
+        // 恢复失败，清理 client 后继续创建新 session
+        // Fall through to create new session
+      }
+    }
+
+    // 3. 创建新 session
+    const session = await this.getOrCreateSession(conversationId, sessionConfig)
+    return { session, isNew: true }
+  }
+
+  /**
    * 检查指定对话是否有活跃 session。
    */
   hasSession(conversationId: string): boolean {
     return this.sessions.has(conversationId)
+  }
+
+  /**
+   * 列出所有活跃的会话信息（B7 会话列表查询）。
+   * 可用于会话管理 UI，展示当前内存中持有的 SDK session。
+   */
+  listActiveSessions(): ActiveSessionInfo[] {
+    return Array.from(this.sessions.values()).map((m) => ({
+      conversationId: m.conversationId,
+      sdkSessionId: m.sdkSessionId,
+      lastUsedAt: m.lastUsedAt,
+      // 简化：压缩状态由 agent-bridge 在执行时维护，此处统一返回 false
+      isCompacting: false,
+    }))
   }
 
   /**

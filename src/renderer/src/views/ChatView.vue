@@ -17,6 +17,7 @@ import ConversationList from '@/components/Sidebar/ConversationList.vue'
 import FileTreePanel from '@/components/Sidebar/FileTreePanel.vue'
 import FilePreview from '@/components/Sidebar/FilePreview.vue'
 import MessageList from '@/components/ChatPanel/MessageList.vue'
+import ContextUsageBar from '@/components/ChatPanel/ContextUsageBar.vue'
 import ChatInput from '@/components/ChatPanel/ChatInput.vue'
 import ExecutionPanel from '@/components/Agent/ExecutionPanel.vue'
 import AuditReportPanel from '@/components/Agent/AuditReportPanel.vue'
@@ -328,6 +329,7 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
 
     <!-- Main chat panel -->
     <main class="chat-view__main">
+      <ContextUsageBar />
       <MessageList
         :messages="chatStore.messages"
         :streaming-content="activeStreamingContent"

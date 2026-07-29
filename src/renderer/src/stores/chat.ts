@@ -5,6 +5,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Conversation, ChatMessage, StreamChunk, StreamEndMetadata } from '@shared/types'
 import { showToast } from '@/utils/toast'
+import { useContextUsageStore } from '@/stores/context-usage'
 
 export const useChatStore = defineStore('chat', () => {
   // ─── State ───────────────────────────────────────────────────
@@ -78,6 +79,10 @@ export const useChatStore = defineStore('chat', () => {
    * Select a conversation and load its messages.
    */
   async function selectConversation(id: string): Promise<void> {
+    // B8: 切换到不同会话时隐藏上下文使用量进度条（新会话尚无 usage 数据）
+    if (currentConversationId.value !== id) {
+      useContextUsageStore().hide()
+    }
     currentConversationId.value = id
     try {
       const result = await window.electron.chat.getMessages(id)
@@ -324,6 +329,18 @@ export const useChatStore = defineStore('chat', () => {
           voiceStore.feedStream(chunk.content)
         }
       })()
+    } else if (chunk.type === 'usage-info' && chunk.content) {
+      // B8: 更新上下文使用量进度条（SDK session.usage_info 事件）
+      try {
+        const usage = JSON.parse(chunk.content) as {
+          tokenLimit: number
+          currentTokens: number
+          messagesLength: number
+        }
+        useContextUsageStore().update(usage)
+      } catch {
+        // Ignore malformed usage-info payloads
+      }
     }
   }
 

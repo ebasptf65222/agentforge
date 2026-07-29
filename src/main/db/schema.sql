@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS conversations (
                  CHECK(approval_mode IN ('suggest', 'auto-edit', 'full-auto')),
   message_count  INTEGER NOT NULL DEFAULT 0,
   last_message_at INTEGER,
+  sdk_session_id TEXT DEFAULT NULL,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 );
@@ -319,3 +320,21 @@ CREATE TABLE IF NOT EXISTS prompt_templates (
 );
 CREATE INDEX IF NOT EXISTS idx_prompt_templates_category ON prompt_templates(category);
 CREATE INDEX IF NOT EXISTS idx_prompt_templates_updated ON prompt_templates(updated_at DESC);
+
+-- ─── 6.17 conversations.sdk_session_id (CE-06) ────────────────
+-- 为 conversations 表添加 sdk_session_id 列，存储 SDK 分配的 sessionId
+-- 用于应用重启后通过 client.resumeSession 恢复之前的对话上下文
+-- 注意：CREATE TABLE IF NOT EXISTS 不会为已存在的表添加列，
+--       已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (11, strftime('%s','now') * 1000, 'Add sdk_session_id column to conversations for SDK session resume');
+
+-- ─── 6.18 copilot_wire_api (B5) ──────────────────────────────
+-- Copilot SDK wire API 模式配置，存储在 app_settings 的 copilot_wire_api 列中
+-- 值为 'completions' | 'responses'，NULL 表示 'auto'（根据模型类型自动判断）
+-- 'responses' 模式支持多轮状态、工具命名空间、推理支持（GPT-4o/o 系列推荐）
+-- 注意：已有数据库的列添加由 db/index.ts 的 runConditionalMigrations 处理
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (12, strftime('%s','now') * 1000, 'Add copilot_wire_api column to app_settings for SDK Responses API mode control');
