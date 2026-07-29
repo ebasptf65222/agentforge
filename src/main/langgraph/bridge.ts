@@ -43,7 +43,6 @@ export class LangGraphAgentBridge {
   private config: LangGraphBridgeConfig
   private approvalManager: ApprovalManager
   private abortController: AbortController | null = null
-  private cancelled = false
 
   constructor(config: LangGraphBridgeConfig) {
     this.config = config
@@ -66,7 +65,6 @@ export class LangGraphAgentBridge {
    * @returns 执行结果
    */
   async execute(params: LangGraphExecuteParams): Promise<ExecutionResult> {
-    this.cancelled = false
     this.abortController = new AbortController()
     const eventConverter = new EventConverter(this.config.callbacks)
 
@@ -191,7 +189,6 @@ export class LangGraphAgentBridge {
    * 通过 AbortController 中止 LLM 调用，通过 ApprovalManager.cancel() 中止审批等待。
    */
   cancel(): void {
-    this.cancelled = true
     this.abortController?.abort()
     this.approvalManager.cancel()
   }

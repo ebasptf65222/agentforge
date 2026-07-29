@@ -112,7 +112,6 @@ function createConfig(callbacks: AgentEventCallbacks): LangGraphBridgeConfig {
   return {
     callbacks,
     approvalTimeoutMs: 10000,
-    maxSteps: 10,
   }
 }
 

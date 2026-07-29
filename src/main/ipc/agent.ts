@@ -146,7 +146,6 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
   const bridge = new LangGraphAgentBridge({
     callbacks,
     approvalTimeoutMs: settings.approvalTimeoutMs,
-    maxSteps: request.maxSteps,
   })
   currentLangGraphBridge = bridge
 

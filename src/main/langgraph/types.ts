@@ -11,7 +11,6 @@ import type { AgentExecutionRequest } from '../../shared/types'
 export interface LangGraphBridgeConfig {
   callbacks: AgentEventCallbacks
   approvalTimeoutMs: number
-  maxSteps: number
 }
 
 /** LangGraph 执行参数 */

@@ -25,7 +25,6 @@ import type { WrappedTool } from './tool-adapter'
 import type { EventConverter } from './event-converter'
 import type { AgentContextMessage } from '../agent/types'
 import type { AgentExecutionRequest, ExecutionResult, TAOTrajectory, ApprovalMode } from '../../shared/types'
-import { shouldRequireApproval, buildToolAction } from '../agent/approval'
 import type { ApprovalManager } from '../agent/approval'
 import type { AgentEventCallbacks } from '../agent/types'
 import { generateId } from '../utils/id'
@@ -112,7 +111,6 @@ export interface StateGraphOptions {
   tools: WrappedTool[]
   eventConverter: EventConverter
   maxSteps: number
-  systemPrompt?: string
   skillPrompt?: string
   historyMessages: AgentContextMessage[]
   request: AgentExecutionRequest
@@ -146,12 +144,8 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
     eventConverter,
     request,
     abortSignal,
-    approvalManager,
-    approvalMode,
-    approvalTimeoutMs,
     checkpointer,
     threadId,
-    callbacks,
   } = options
 
   const executionId = generateId()
