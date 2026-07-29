@@ -98,6 +98,7 @@ function createOptions(overrides?: {
     checkpointer: new MemorySaver(),
     threadId: 'thread-test-1',
     callbacks,
+    maxContextLength: 128_000,
     // 保留 callbacks 和 approvalManager 引用供测试断言
     _callbacks: callbacks,
     _approvalManager: approvalManager,
@@ -123,7 +124,7 @@ describe('StateGraph (P2-02)', () => {
       expect(result.summary).toBe('Task completed successfully.')
       expect(result.trajectories).toHaveLength(1)
       expect(result.totalSteps).toBe(1)
-      expect(result.tokensUsed).toBe(0)
+      expect(result.tokensUsed).toBeGreaterThan(0)
     })
 
     it('工具调用应推送流式 chunk 到回调', async () => {

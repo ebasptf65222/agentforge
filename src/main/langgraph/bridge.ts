@@ -21,6 +21,7 @@ import { loadMcpToolsAsLangChain, convertAllLangChainToolsRaw, closeMcpClient } 
 import { getCheckpointer } from './checkpointer'
 import { getMemoryStore } from './memory-store'
 import { createCodingNodeTool } from './coding-node'
+import { getModelContextWindow } from '../agent/context-manager'
 import { generateId } from '../utils/id'
 import type { LangGraphBridgeConfig, LangGraphExecuteParams } from './types'
 
@@ -137,6 +138,7 @@ export class LangGraphAgentBridge {
         checkpointer,
         threadId,
         callbacks: this.config.callbacks,
+        maxContextLength: getModelContextWindow(params.request.modelId),
       })
 
       result = {
@@ -144,8 +146,12 @@ export class LangGraphAgentBridge {
         executionId: params.request.conversationId,
       }
     } finally {
-      // 清理 MCP 连接
-      await closeMcpClient()
+      // 清理 MCP 连接（安全包裹，避免清理失败影响结果返回）
+      try {
+        await closeMcpClient()
+      } catch (err) {
+        console.warn('[LangGraph Bridge] Failed to close MCP client:', err)
+      }
       // 清理 AbortController（避免执行完成后误调 cancel）
       this.abortController = null
     }

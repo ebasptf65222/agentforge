@@ -30,6 +30,9 @@ import type { AgentExecutionRequest, ExecutionResult, TAOTrajectory, ApprovalMod
 import { shouldRequireApproval, buildToolAction, getToolRiskLevel } from '../agent/approval'
 import type { ApprovalManager } from '../agent/approval'
 import type { AgentEventCallbacks } from '../agent/types'
+import { loadProjectRules, formatRulesPrompt } from '../agent/project-rules'
+import { manageContext } from '../agent/context-manager'
+import { estimateTokens } from '../agent/tokenizer'
 import { generateId } from '../utils/id'
 
 // ─── State 定义 ───────────────────────────────────────────────────
@@ -135,6 +138,8 @@ export interface StateGraphOptions {
   checkpointer: BaseCheckpointSaver
   threadId: string
   callbacks: AgentEventCallbacks
+  /** 模型最大上下文窗口（tokens），用于循环内动态截断 */
+  maxContextLength: number
 }
 
 // ─── 构建并执行 StateGraph ────────────────────────────────────────
@@ -165,13 +170,27 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
     checkpointer,
     threadId,
     callbacks,
+    maxContextLength,
   } = options
 
   const executionId = generateId()
   const startTime = Date.now()
   const trajectories: TAOTrajectory[] = []
+  let totalTokensUsed = 0
 
-  const systemPrompt = buildSystemPrompt(tools, options.skillPrompt)
+  // 熔断器：连续失败次数计数器（与 builtin 引擎一致）
+  const MAX_CONSECUTIVE_FAILURES = 3
+  let consecutiveFailures = 0
+
+  // 加载项目规则（AGENTS.md），与 builtin 引擎一致
+  let projectRules = ''
+  try {
+    projectRules = await loadProjectRules()
+  } catch {
+    // AGENTS.md 加载失败不阻断执行
+  }
+
+  const systemPrompt = buildSystemPrompt(tools, options.skillPrompt, projectRules)
   const initialMessages: AgentContextMessage[] = [
     { role: 'system', content: systemPrompt },
     ...options.historyMessages,
@@ -188,7 +207,26 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
       return { status: 'failed' }
     }
 
-    const llmOutput = await model.invoke(state.messages, abortSignal)
+    // 熔断器：连续失败达到上限时终止执行
+    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      const trajectory = eventConverter.pushTrajectory({
+        thought: 'Circuit breaker triggered: too many consecutive tool failures.',
+        action: null,
+        observation: `Execution stopped after ${MAX_CONSECUTIVE_FAILURES} consecutive failures.`,
+        status: 'error',
+      })
+      trajectories.push(trajectory)
+      return { status: 'failed' }
+    }
+
+    // 动态上下文窗口管理：截断过长的历史消息（与 builtin 引擎一致）
+    // state.messages 保留完整历史，仅截断传给 LLM 的消息
+    const contextResult = manageContext(state.messages, {
+      maxContextTokens: maxContextLength,
+      toolDefsReserve: tools.length * 200,
+    })
+    const llmOutput = await model.invoke(contextResult.messages, abortSignal)
+    totalTokensUsed += estimateTokens(llmOutput)
     const parsed = parseOutput(llmOutput)
 
     const newMessages: AgentContextMessage[] = [
@@ -314,9 +352,13 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
     try {
       resultContent = await tool.execute(parsed.args)
       eventConverter.pushToolComplete(tool.name, resultContent)
+      // 工具执行成功，重置连续失败计数
+      consecutiveFailures = 0
     } catch (err) {
       resultContent = `Error: ${err instanceof Error ? err.message : String(err)}`
       status = 'error'
+      // 工具执行失败，递增连续失败计数
+      consecutiveFailures++
     }
 
     // 如果没有审批（不需要审批的工具），也要记录轨迹
@@ -395,6 +437,8 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
     finalAnswer: null,
     status: 'running' as const,
   }
+  // 错误详情（保留到 summary 中返回给前端）
+  let errorMessage = ''
 
   try {
     // Phase 3: stream + interrupt/resume 循环
@@ -413,8 +457,12 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
       // stream() 返回异步可迭代流，支持实时事件推送
       const stream = await compiledGraph.stream(invokeInput, config)
 
+      // 追踪本轮是否有 chunk 产出（用于空转检测）
+      let hadChunks = false
+
       // 迭代流事件，实时推送到前端
       for await (const chunk of stream) {
+        hadChunks = true
         // 多 streamMode 下，chunk 是 [mode, data] 元组
         const [mode, data] = chunk as [string, unknown]
 
@@ -448,6 +496,7 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
 
         if (!approvalData) {
           // 无法提取审批数据，终止执行
+          errorMessage = 'Interrupt occurred but no approval data was found.'
           graphStatus = 'failed'
           break
         }
@@ -497,12 +546,21 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
         graphStatus = finalState.status
         break
       }
+
+      // 空转保护：如果本轮无 chunk 产出且 invokeInput 未变（非 Command resume），
+      // 说明图无法推进，避免无限空转
+      if (!hadChunks && !(invokeInput instanceof Command)) {
+        errorMessage = 'Graph stalled: no progress detected in stream output.'
+        graphStatus = 'failed'
+        break
+      }
     }
   } catch (error) {
     if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('abort'))) {
       graphStatus = 'cancelled'
     } else {
       // 非 Abort 错误：保留已收集的 trajectories，设为 failed 状态
+      errorMessage = error instanceof Error ? error.message : String(error)
       console.error('[LangGraph StateGraph] Execution error:', error)
       graphStatus = 'failed'
     }
@@ -536,11 +594,15 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
   return {
     executionId,
     status,
-    summary: status === 'completed' ? summary : `Execution ${status}.`,
+    summary: status === 'completed'
+      ? summary
+      : errorMessage
+        ? `Execution ${status}: ${errorMessage}`
+        : `Execution ${status}.`,
     trajectories,
     totalSteps: trajectories.length,
     duration: Date.now() - startTime,
-    tokensUsed: 0,
+    tokensUsed: totalTokensUsed,
   }
 }
 
@@ -548,16 +610,36 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
 
 /**
  * 构建 System Prompt
+ *
+ * 包含：
+ * - 工具定义（含参数 Schema JSON）
+ * - 执行格式说明（Action/Arguments/Final Answer）
+ * - Skill 提示词（可选）
+ * - 项目规则 AGENTS.md（可选）
  */
-function buildSystemPrompt(tools: WrappedTool[], skillPrompt?: string): string {
-  const toolDefs = tools.map((t) => `- ${t.name}: ${t.description}`).join('\n')
-  let prompt = `You are a helpful AI assistant with access to the following tools:\n\n${toolDefs}\n\n`
+function buildSystemPrompt(tools: WrappedTool[], skillPrompt?: string, projectRules?: string): string {
+  // 工具定义：注入完整的参数 Schema（与 builtin 引擎一致）
+  const toolDefs = tools.map((t) => {
+    const schemaStr = JSON.stringify(t.inputSchema, null, 2)
+    return `### ${t.name}\n${t.description}\n参数 Schema:\n\`\`\`json\n${schemaStr}\n\`\`\``
+  })
+  const toolSection = toolDefs.length > 0
+    ? toolDefs.join('\n\n')
+    : '（暂无可用工具，请直接回复用户）'
+
+  let prompt = `You are a helpful AI assistant with access to the following tools:\n\n${toolSection}\n\n`
   prompt += `When you want to use a tool, output EXACTLY this format:\n`
   prompt += `Action: <tool_name>\nArguments: <json_arguments>\n\n`
   prompt += `When you are done, output:\n`
   prompt += `Final Answer: <your response>\n\n`
+
   if (skillPrompt) {
     prompt += `\n${skillPrompt}\n`
   }
+
+  if (projectRules) {
+    prompt += formatRulesPrompt(projectRules)
+  }
+
   return prompt
 }

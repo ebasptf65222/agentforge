@@ -136,7 +136,7 @@ describe('LangGraphAgentBridge', () => {
       expect(result.summary).toBe('Task completed successfully.')
       expect(result.executionId).toBe('conv-1')
       expect(result.trajectories).toHaveLength(1)
-      expect(result.tokensUsed).toBe(0)
+      expect(result.tokensUsed).toBeGreaterThan(0)
       expect(result.duration).toBeGreaterThanOrEqual(0)
     })
 
