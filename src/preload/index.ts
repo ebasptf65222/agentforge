@@ -329,6 +329,8 @@ const codebase = {
 
   reindex: (params: Record<string, unknown>): Promise<void> =>
     ipcRenderer.invoke('cb:reindex', params),
+
+  cancelScan: (): Promise<void> => ipcRenderer.invoke('cb:cancel-scan'),
 }
 
 // ─── Git 命名空间 (Git 工作流) ────────────────────────────────

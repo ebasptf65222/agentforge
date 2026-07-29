@@ -11,6 +11,11 @@ import type { CodebaseSearchOptions } from '../codebase/search'
 import { listCodebaseFiles } from '../db/repos/codebase-file'
 import { listCodebaseSymbols, searchCodebaseSymbols } from '../db/repos/codebase-symbol'
 
+// ─── 并发控制 ─────────────────────────────────────────────────────
+
+/** 当前扫描的 AbortController，null 表示空闲 */
+let currentScanAbortController: AbortController | null = null
+
 // ─── 参数校验辅助函数 ─────────────────────────────────────────────
 
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {
@@ -58,8 +63,15 @@ async function handleScan(
 ) {
   assertNonEmptyString(params['rootPath'], 'rootPath')
 
+  // 取消正在进行的扫描
+  if (currentScanAbortController) {
+    currentScanAbortController.abort()
+  }
+  currentScanAbortController = new AbortController()
+
   const options: ScanOptions = {
     rootPath: params['rootPath'],
+    abortSignal: currentScanAbortController.signal,
   }
 
   if (params['generateEmbeddings'] !== undefined) {
@@ -84,7 +96,11 @@ async function handleScan(
     options.embeddingBatchSize = Math.floor(Number(params['embeddingBatchSize']))
   }
 
-  return await scanCodebase(options)
+  try {
+    return await scanCodebase(options)
+  } finally {
+    currentScanAbortController = null
+  }
 }
 
 /**
@@ -198,10 +214,20 @@ async function handleReindex(
   await reindexFile(params['filePath'], generateEmbeddings)
 }
 
+/**
+ * 取消正在进行的扫描。
+ */
+function handleCancelScan(): void {
+  if (currentScanAbortController) {
+    currentScanAbortController.abort()
+  }
+}
+
 // ─── 注册函数 ────────────────────────────────────────────────────
 
 const handlers: Array<{ channel: string; handler: IpcMainInvokeHandler }> = [
   { channel: 'cb:scan', handler: handleScan },
+  { channel: 'cb:cancel-scan', handler: handleCancelScan },
   { channel: 'cb:stats', handler: handleStats },
   { channel: 'cb:search', handler: handleSearch },
   { channel: 'cb:symbols:search', handler: handleSearchSymbols },

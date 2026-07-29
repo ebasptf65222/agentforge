@@ -34,6 +34,12 @@ const MAX_ELEMENTS = 100
 /** 截图 JPEG 质量 */
 const JPEG_QUALITY = 80
 
+/** 最大活跃浏览器会话数（防止内存膨胀） */
+const MAX_ACTIVE_SESSIONS = 5
+
+/** 会话空闲超时（毫秒）：30 分钟无操作自动回收 */
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000
+
 // ─── 浏览器会话管理 ───────────────────────────────────────────
 
 /** 活跃的浏览器会话 */
@@ -41,6 +47,8 @@ interface BrowserSession {
   window: BrowserWindow
   createdAt: number
   lastActivity: number
+  /** 空闲回收定时器 */
+  idleTimer: ReturnType<typeof setTimeout> | null
 }
 
 /** 全局会话映射（单例，主进程生命周期内有效） */
@@ -48,6 +56,57 @@ const sessions = new Map<string, BrowserSession>()
 
 /** 默认会话 ID */
 const DEFAULT_SESSION_ID = 'default'
+
+/**
+ * 销毁会话并清理资源。
+ */
+function destroySession(sessionId: string, session: BrowserSession): void {
+  if (session.idleTimer) {
+    clearTimeout(session.idleTimer)
+    session.idleTimer = null
+  }
+  if (!session.window.isDestroyed()) {
+    session.window.destroy()
+  }
+  sessions.delete(sessionId)
+}
+
+/**
+ * 为会话设置空闲超时定时器。
+ * 超时后自动销毁会话，回收资源。
+ */
+function resetIdleTimer(sessionId: string, session: BrowserSession): void {
+  if (session.idleTimer) {
+    clearTimeout(session.idleTimer)
+  }
+  session.idleTimer = setTimeout(() => {
+    console.info(`[Browser] Session "${sessionId}" idle timeout, auto-closing`)
+    destroySession(sessionId, session)
+  }, SESSION_IDLE_TIMEOUT_MS)
+}
+
+/**
+ * 回收最旧的空闲会话（LRU 策略）。
+ */
+function evictOldestSession(): void {
+  let oldestId: string | null = null
+  let oldestActivity = Infinity
+
+  for (const [id, session] of sessions) {
+    if (session.lastActivity < oldestActivity) {
+      oldestActivity = session.lastActivity
+      oldestId = id
+    }
+  }
+
+  if (oldestId) {
+    const oldestSession = sessions.get(oldestId)
+    if (oldestSession) {
+      console.info(`[Browser] Max sessions reached, evicting oldest: "${oldestId}"`)
+      destroySession(oldestId, oldestSession)
+    }
+  }
+}
 
 /**
  * 获取或创建浏览器会话。
@@ -67,7 +126,13 @@ function getOrCreateSession(
 
   if (session && !session.window.isDestroyed()) {
     session.lastActivity = Date.now()
+    resetIdleTimer(sessionId, session)
     return session
+  }
+
+  // 达到最大会话数时回收最旧的
+  if (sessions.size >= MAX_ACTIVE_SESSIONS) {
+    evictOldestSession()
   }
 
   // 创建隐藏窗口
@@ -90,9 +155,11 @@ function getOrCreateSession(
     window: win,
     createdAt: Date.now(),
     lastActivity: Date.now(),
+    idleTimer: null,
   }
 
   sessions.set(sessionId, session)
+  resetIdleTimer(sessionId, session)
   return session
 }
 
@@ -104,10 +171,7 @@ function getOrCreateSession(
 export function closeSession(sessionId: string = DEFAULT_SESSION_ID): void {
   const session = sessions.get(sessionId)
   if (session) {
-    if (!session.window.isDestroyed()) {
-      session.window.destroy()
-    }
-    sessions.delete(sessionId)
+    destroySession(sessionId, session)
   }
 }
 
@@ -116,8 +180,8 @@ export function closeSession(sessionId: string = DEFAULT_SESSION_ID): void {
  * 在应用退出时调用。
  */
 export function closeAllSessions(): void {
-  for (const [id] of sessions) {
-    closeSession(id)
+  for (const [id, session] of sessions) {
+    destroySession(id, session)
   }
 }
 

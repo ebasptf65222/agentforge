@@ -19,10 +19,21 @@ import { app } from 'electron'
 /** Checkpointer 类型（SqliteSaver 或 MemorySaver 的联合类型） */
 type CheckpointerType = SqliteSaver | MemorySaver
 
+// ─── 常量 ─────────────────────────────────────────────────────────
+
+/** Checkpoint 清理间隔（默认 24 小时） */
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000
+
+/** Checkpoint 保留时长（默认 7 天） */
+const CHECKPOINT_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
 // ─── 单例管理 ─────────────────────────────────────────────────────
 
 /** 全局 Checkpointer 单例 */
 let checkpointer: CheckpointerType | null = null
+
+/** 清理定时器 */
+let cleanupTimer: ReturnType<typeof setInterval> | null = null
 
 /**
  * 解析 SQLite 数据库文件路径。
@@ -73,6 +84,8 @@ export function getCheckpointer(): BaseCheckpointSaver {
       const dbPath = resolveDbPath()
       checkpointer = SqliteSaver.fromConnString(dbPath)
       console.log(`[LangGraph Checkpointer] Using SQLite at: ${dbPath}`)
+      // 启动定期清理
+      startCleanupTimer()
     } catch (err) {
       console.warn('[LangGraph Checkpointer] Failed to init SqliteSaver, falling back to MemorySaver:', err)
       checkpointer = new MemorySaver()
@@ -81,7 +94,81 @@ export function getCheckpointer(): BaseCheckpointSaver {
   return checkpointer
 }
 
+/**
+ * 清理过期的 LangGraph checkpoint 数据。
+ * 删除 checkpoints / checkpoint_blobs / checkpoint_writes 表中超过 TTL 的记录。
+ */
+export function cleanupOldCheckpoints(): void {
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST) return
+
+  try {
+    const cutoff = Math.floor((Date.now() - CHECKPOINT_TTL_MS) / 1000)
+
+    // 获取 checkpoint 数据库连接（独立于主数据库）
+    // SqliteSaver 内部管理自己的连接，这里通过主数据库执行 PRAGMA 不可行。
+    // 改为直接操作 checkpointer 的 SQLite 文件。
+    const dbPath = resolveDbPath()
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { Database } = require('better-sqlite3')
+    const cpDb = new Database(dbPath)
+
+    try {
+      // 清理过期的 checkpoints
+      const deletedCheckpoints = cpDb.prepare(
+        'DELETE FROM checkpoints WHERE created_at < ?',
+      ).run(cutoff)
+
+      // 清理过期的 checkpoint_blobs
+      const deletedBlobs = cpDb.prepare(
+        'DELETE FROM checkpoint_blobs WHERE created_at < ?',
+      ).run(cutoff)
+
+      // 清理过期的 checkpoint_writes
+      const deletedWrites = cpDb.prepare(
+        'DELETE FROM checkpoint_writes WHERE created_at < ?',
+      ).run(cutoff)
+
+      if (deletedCheckpoints.changes > 0 || deletedBlobs.changes > 0 || deletedWrites.changes > 0) {
+        console.info(
+          `[LangGraph Checkpointer] Cleaned up expired checkpoints: ` +
+          `${deletedCheckpoints.changes} checkpoints, ${deletedBlobs.changes} blobs, ${deletedWrites.changes} writes`,
+        )
+        // VACUUM 回收空间
+        cpDb.exec('VACUUM')
+      }
+    } finally {
+      cpDb.close()
+    }
+  } catch (err) {
+    console.warn('[LangGraph Checkpointer] Cleanup failed:', err)
+  }
+}
+
+/**
+ * 启动定期清理定时器。
+ */
+function startCleanupTimer(): void {
+  if (cleanupTimer) return
+
+  // 首次延迟 5 分钟执行，之后每 24 小时执行一次
+  setTimeout(() => {
+    cleanupOldCheckpoints()
+    cleanupTimer = setInterval(cleanupOldCheckpoints, CLEANUP_INTERVAL_MS)
+  }, 5 * 60 * 1000)
+}
+
+/**
+ * 停止清理定时器（应用退出时调用）。
+ */
+export function stopCleanupTimer(): void {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer)
+    cleanupTimer = null
+  }
+}
+
 /** 重置 Checkpointer（仅供测试） */
 export function resetCheckpointer(): void {
+  stopCleanupTimer()
   checkpointer = null
 }

@@ -17,6 +17,7 @@ import type {
 } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { assertNonEmptyString } from '../utils/assertions'
+import { StreamBatcher } from '../utils/stream-batcher'
 import { getMainWindowWebContents } from '../utils/electron-helpers'
 import {
   createConversation,
@@ -203,21 +204,27 @@ export async function handleSend(
       })),
     )
 
-    // 8. 流式生成
+    // 8. 流式生成（微批次优化：累积 50ms 的 chunk 后批量推送）
     const startTime = Date.now()
     let assistantContent = ''
     let stopped = false
+
+    const batcher = new StreamBatcher((combined) => {
+      sendStreamChunk({ type: 'text', content: combined })
+    })
 
     try {
       const stream = adapter.streamChat(adapterMessages, abortController.signal)
 
       for await (const chunk of stream) {
-        // 推送 chunk 到渲染进程
-        sendStreamChunk(chunk)
-
-        // 收集文本内容
+        // 累积文本 chunk 到批次器
         if (chunk.type === 'text' && chunk.content) {
+          batcher.push(chunk.content)
           assistantContent += chunk.content
+        } else {
+          // 非 text chunk（如 title）立即推送，不经过批次器
+          batcher.flush()
+          sendStreamChunk(chunk)
         }
 
         // 检查是否被中断
@@ -248,6 +255,10 @@ export async function handleSend(
         sendStreamError(streamError)
       }
     } finally {
+      // 确保批次器中残留的 chunk 被推送
+      batcher.flush()
+      batcher.destroy()
+
       // 9. 保存助手消息（OPT2-08: 事务内持久化助手消息 + 会话统计更新）
       const duration = Date.now() - startTime
       const tokensUsed = approximateTokenCount(assistantContent)

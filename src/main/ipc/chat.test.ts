@@ -298,11 +298,15 @@ describe('Chat IPC Handler', () => {
         modelId: 'model-1',
       })
 
+      // 文本 chunk 通过 StreamBatcher 微批次推送：
+      // 'A' 和 'B' 合并为 'AB'（flush 时发送），空 content 的 done chunk 立即发送
       const chunkEvents = mockSend.filter((e) => e.channel === 'chat:stream-chunk')
-      expect(chunkEvents).toHaveLength(3)
-      expect(chunkEvents[0].data).toEqual({ type: 'text', content: 'A' })
-      expect(chunkEvents[1].data).toEqual({ type: 'text', content: 'B' })
-      expect(chunkEvents[2].data).toEqual({ type: 'text', content: '', done: true })
+      expect(chunkEvents.length).toBeGreaterThanOrEqual(2)
+      // 第一个事件应包含合并的 'AB'
+      expect(chunkEvents[0].data).toEqual({ type: 'text', content: 'AB' })
+      // 最后一个事件应为 done chunk
+      const lastChunk = chunkEvents[chunkEvents.length - 1]
+      expect(lastChunk.data).toEqual({ type: 'text', content: '', done: true })
     })
 
     it('should send chat:stream-end with correct metadata', async () => {

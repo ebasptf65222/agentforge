@@ -13,6 +13,7 @@ import type {
 } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { assertNonEmptyString } from '../utils/assertions'
+import { StreamBatcher } from '../utils/stream-batcher'
 import { getMainWindowWebContents } from '../utils/electron-helpers'
 import { getModelAdapter } from '../models/router'
 import { getSettings } from '../db/repos/app-settings'
@@ -84,6 +85,40 @@ function sendStreamChunk(chunk: { type: string; content: string }): void {
   }
 }
 
+/**
+ * 创建带微批次优化的 AgentEventCallbacks。
+ * 文本 chunk 通过 StreamBatcher 累积 50ms 后批量推送，
+ * 非 text chunk（如 title/approval）立即推送。
+ *
+ * @returns callbacks 和 flush/destroy 方法
+ */
+function createBatchedCallbacks(): {
+  callbacks: AgentEventCallbacks
+  flush: () => void
+  destroy: () => void
+} {
+  const batcher = new StreamBatcher((combined) => {
+    sendStreamChunk({ type: 'text', content: combined })
+  })
+
+  return {
+    callbacks: {
+      onTrajectory: (trajectory) => sendTrajectory(trajectory),
+      onApprovalRequest: (approvalRequest) => sendApprovalRequest(approvalRequest),
+      onStreamChunk: (chunk) => {
+        if (chunk.type === 'text' && chunk.content) {
+          batcher.push(chunk.content)
+        } else {
+          batcher.flush()
+          sendStreamChunk(chunk)
+        }
+      },
+    },
+    flush: () => batcher.flush(),
+    destroy: () => batcher.destroy(),
+  }
+}
+
 // ─── 参数校验 ─────────────────────────────────────────────────────
 
 const VALID_APPROVAL_MODES: readonly ApprovalMode[] = ['suggest', 'auto-edit', 'full-auto']
@@ -126,19 +161,18 @@ function getToolsMap(): Map<string, RegisteredTool> {
  * 支持流式输出、工具调用、审批机制，与现有 UI 完全兼容。
  */
 async function executeWithLangGraph(request: AgentExecutionRequest): Promise<ExecutionResult> {
-  const callbacks: AgentEventCallbacks = {
-    onTrajectory: (trajectory) => sendTrajectory(trajectory),
-    onApprovalRequest: (approvalRequest) => sendApprovalRequest(approvalRequest),
-    onStreamChunk: (chunk) => {
-      if (chunk.type === 'title' && chunk.content) {
-        try {
-          updateConversationTitle(request.conversationId, chunk.content)
-        } catch {
-          // Ignore title update errors
-        }
+  const { callbacks, flush, destroy } = createBatchedCallbacks()
+  // LangGraph 引擎需要在 title chunk 时更新会话标题
+  const originalOnStreamChunk = callbacks.onStreamChunk
+  callbacks.onStreamChunk = (chunk) => {
+    if (chunk.type === 'title' && chunk.content) {
+      try {
+        updateConversationTitle(request.conversationId, chunk.content)
+      } catch {
+        // Ignore title update errors
       }
-      sendStreamChunk(chunk)
-    },
+    }
+    originalOnStreamChunk(chunk)
   }
 
   const settings = getSettings()
@@ -228,6 +262,8 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
     updateLastMessageAt(request.conversationId)
     throw error
   } finally {
+    flush()
+    destroy()
     currentLangGraphBridge = null
   }
 
@@ -241,20 +277,18 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
  * largeOutput、reasoningEffort 等 SDK 高级能力。
  */
 async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<ExecutionResult> {
-  const callbacks: AgentEventCallbacks = {
-    onTrajectory: (trajectory) => sendTrajectory(trajectory),
-    onApprovalRequest: (approvalRequest) => sendApprovalRequest(approvalRequest),
-    onStreamChunk: (chunk) => {
-      // 标题自动生成：更新对话标题
-      if (chunk.type === 'title' && chunk.content) {
-        try {
-          updateConversationTitle(request.conversationId, chunk.content)
-        } catch {
-          // Ignore title update errors
-        }
+  const { callbacks, flush, destroy } = createBatchedCallbacks()
+  // Copilot SDK 引擎需要在 title chunk 时更新会话标题
+  const originalOnStreamChunk = callbacks.onStreamChunk
+  callbacks.onStreamChunk = (chunk) => {
+    if (chunk.type === 'title' && chunk.content) {
+      try {
+        updateConversationTitle(request.conversationId, chunk.content)
+      } catch {
+        // Ignore title update errors
       }
-      sendStreamChunk(chunk)
-    },
+    }
+    originalOnStreamChunk(chunk)
   }
 
   const settings = getSettings()
@@ -526,6 +560,8 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
     updateLastMessageAt(request.conversationId)
     throw error
   } finally {
+    flush()
+    destroy()
     currentBridge = null
   }
 
@@ -595,14 +631,11 @@ export async function handleExecute(
   // 内置引擎路径：使用 AgentExecutor
   // 根据模型配置获取上下文窗口大小（替代硬编码的 4096）
   const contextWindow = getModelContextWindow(request.modelId)
+  const { callbacks: batchedCallbacks, flush: flushBatcher, destroy: destroyBatcher } = createBatchedCallbacks()
   const executorConfig: AgentExecutorConfig = {
     adapter: getModelAdapter(request.modelId),
     tools: getToolsMap(),
-    callbacks: {
-      onTrajectory: (trajectory) => sendTrajectory(trajectory),
-      onApprovalRequest: (approvalRequest) => sendApprovalRequest(approvalRequest),
-      onStreamChunk: (chunk) => sendStreamChunk(chunk),
-    },
+    callbacks: batchedCallbacks,
     approvalTimeoutMs: settings.approvalTimeoutMs,
     maxContextLength: contextWindow,
     skillPrompt: undefined,
@@ -683,6 +716,8 @@ export async function handleExecute(
     updateLastMessageAt(request.conversationId)
     throw error
   } finally {
+    flushBatcher()
+    destroyBatcher()
     currentExecutor = null
   }
 

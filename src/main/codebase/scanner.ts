@@ -80,6 +80,8 @@ export interface ScanOptions {
   generateEmbeddings?: boolean
   /** 嵌入批次大小 */
   embeddingBatchSize?: number
+  /** 中止信号（允许用户取消扫描） */
+  abortSignal?: AbortSignal
 }
 
 /** 扫描结果 */
@@ -109,11 +111,15 @@ function discoverFiles(
   excludeExtensions: Set<string>,
   languages: Set<CodebaseLanguage> | null,
   maxFileSize: number,
+  abortSignal?: AbortSignal,
 ): string[] {
   const result: string[] = []
   const supportedExtensions = new Set(getSupportedCodeExtensions())
 
   function walkDir(dirPath: string): void {
+    // 中止检查
+    if (abortSignal?.aborted) return
+
     let entries: ReturnType<typeof readdirSync>
     try {
       entries = readdirSync(dirPath, { withFileTypes: true })
@@ -122,6 +128,9 @@ function discoverFiles(
     }
 
     for (const entry of entries) {
+      // 中止检查（在循环内也检查，避免大目录长时间阻塞）
+      if (abortSignal?.aborted) return
+
       const fullPath = join(dirPath, entry.name)
 
       if (entry.isDirectory()) {
@@ -229,7 +238,23 @@ export async function scanCodebase(
     excludeExtensions,
     languages,
     maxFileSize,
+    options.abortSignal,
   )
+
+  // 如果扫描被取消，立即返回
+  if (options.abortSignal?.aborted) {
+    return {
+      totalFiles: 0,
+      newFiles: 0,
+      modifiedFiles: 0,
+      unchangedFiles: 0,
+      deletedFiles: 0,
+      totalSymbols: 0,
+      totalChunks: 0,
+      errors: [],
+      duration: Date.now() - startTime,
+    }
+  }
 
   // 2. 获取已索引文件列表
   const existingFiles = new Map<string, { id: string; fileHash: string }>(
@@ -257,6 +282,11 @@ export async function scanCodebase(
   const total = discoveredFiles.length + deletedPaths.length
 
   for (let i = 0; i < discoveredFiles.length; i++) {
+    // 中止检查（允许用户取消长时间运行的扫描）
+    if (options.abortSignal?.aborted) {
+      break
+    }
+
     const filePath = discoveredFiles[i]
     const fileName = basename(filePath)
 
