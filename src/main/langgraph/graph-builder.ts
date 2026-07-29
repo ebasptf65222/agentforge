@@ -24,3 +24,16 @@ export {
   closeMcpClient,
   convertLangChainToolToWrapped,
 } from './mcp-adapter'
+
+// Phase 2: Copilot SDK 编码节点
+export {
+  createCodingNodeTool,
+  createWrappedCodingNode,
+  getCodingNodeTool,
+  resetCodingNode,
+} from './coding-node'
+export type { CodingNodeOptions } from './coding-node'
+
+// Phase 2: Memory Store
+export { MemoryStore, getMemoryStore, resetMemoryStore } from './memory-store'
+export type { MemoryEntry, MemoryStoreConfig } from './memory-store'

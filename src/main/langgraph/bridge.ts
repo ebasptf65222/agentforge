@@ -8,6 +8,8 @@
 //
 // Phase 2: 使用 StateGraph + interrupt 替代 Phase 1 的简单 ReAct 循环
 // 同时集成 langchain-mcp-adapters 加载 MCP 工具
+// 集成 Memory Store 实现跨对话上下文持久化
+// 集成 Copilot SDK 编码节点支持复杂编码任务
 
 import type { ExecutionResult } from '../../shared/types'
 import { ApprovalManager } from '../agent/approval'
@@ -17,6 +19,8 @@ import { EventConverter } from './event-converter'
 import { executeWithStateGraph } from './state-graph'
 import { loadMcpToolsAsLangChain, convertAllLangChainTools, closeMcpClient } from './mcp-adapter'
 import { getCheckpointer } from './checkpointer'
+import { getMemoryStore } from './memory-store'
+import { createCodingNodeTool } from './coding-node'
 import { generateId } from '../utils/id'
 import type { LangGraphBridgeConfig, LangGraphExecuteParams } from './types'
 
@@ -30,9 +34,10 @@ import type { LangGraphBridgeConfig, LangGraphExecuteParams } from './types'
  *
  * Phase 2 增强：
  * - 使用 LangGraph StateGraph 替代手动 ReAct 循环
- * - 使用 interrupt() 实现审批 Gate
  * - 使用 langchain-mcp-adapters 加载 MCP 工具
  * - 使用 MemorySaver checkpointer 支持中断恢复
+ * - 使用 MemoryStore 持久化跨对话上下文摘要
+ * - 集成 Copilot SDK 编码节点支持复杂编码任务
  */
 export class LangGraphAgentBridge {
   private config: LangGraphBridgeConfig
@@ -50,10 +55,12 @@ export class LangGraphAgentBridge {
    *
    * Phase 2 流程：
    * 1. 创建 EventConverter、ModelWrapper
-   * 2. 加载 MCP 工具（通过 langchain-mcp-adapters）
-   * 3. 合并内置工具 + MCP 工具为 WrappedTool[]
-   * 4. 调用 executeWithStateGraph 执行 StateGraph
-   * 5. 返回 ExecutionResult
+   * 2. 加载跨对话上下文摘要（Memory Store）
+   * 3. 加载 MCP 工具（通过 langchain-mcp-adapters）
+   * 4. 合并内置工具 + MCP 工具 + 编码节点为 WrappedTool[]
+   * 5. 调用 executeWithStateGraph 执行 StateGraph
+   * 6. 保存对话上下文摘要
+   * 7. 返回 ExecutionResult
    *
    * @param params - 执行参数（请求、适配器、工具、历史消息、Skill 提示词）
    * @returns 执行结果
@@ -64,6 +71,20 @@ export class LangGraphAgentBridge {
     const eventConverter = new EventConverter(this.config.callbacks)
 
     const modelWrapper = new ModelWrapper(params.adapter, this.config.callbacks)
+
+    // ─── 加载跨对话上下文摘要 ────────────────────────────────
+    // 从 Memory Store 加载之前的对话摘要，注入到 Skill Prompt 中
+    let enhancedSkillPrompt = params.skillPrompt
+    try {
+      const memoryStore = getMemoryStore()
+      const contextPrompt = memoryStore.buildContextPrompt(params.request.conversationId)
+      if (contextPrompt) {
+        enhancedSkillPrompt = (enhancedSkillPrompt ?? '') + contextPrompt
+      }
+    } catch (err) {
+      // Memory Store 不可用时不阻断执行
+      console.warn('[LangGraph Bridge] Memory Store unavailable:', err)
+    }
 
     // ─── 加载工具 ────────────────────────────────────────────
     // 1. 内置工具（来自 ToolRegistry）
@@ -94,20 +115,33 @@ export class LangGraphAgentBridge {
       // MCP 加载失败不阻断执行，降级为仅内置工具
     }
 
+    // 3. Copilot SDK 编码节点（可选工具）
+    let codingNodeTool: typeof wrappedBuiltinTools = []
+    try {
+      const codingTool = createCodingNodeTool({
+        callbacks: this.config.callbacks,
+        approvalTimeoutMs: this.config.approvalTimeoutMs,
+      })
+      codingNodeTool = [codingTool]
+    } catch (err) {
+      console.warn('[LangGraph Bridge] Coding node unavailable:', err)
+    }
+
     // 合并工具
-    const allTools = [...wrappedBuiltinTools, ...wrappedMcpTools]
+    const allTools = [...wrappedBuiltinTools, ...wrappedMcpTools, ...codingNodeTool]
 
     // ─── 执行 StateGraph ──────────────────────────────────────
     const checkpointer = getCheckpointer()
     const threadId = `${params.request.conversationId}-${generateId()}`
 
+    let result: ExecutionResult
     try {
-      const result = await executeWithStateGraph({
+      result = await executeWithStateGraph({
         model: modelWrapper,
         tools: allTools,
         eventConverter,
         maxSteps: params.request.maxSteps,
-        skillPrompt: params.skillPrompt,
+        skillPrompt: enhancedSkillPrompt,
         historyMessages: params.historyMessages,
         request: params.request,
         abortSignal: this.abortController.signal,
@@ -119,7 +153,7 @@ export class LangGraphAgentBridge {
         callbacks: this.config.callbacks,
       })
 
-      return {
+      result = {
         ...result,
         executionId: params.request.conversationId,
       }
@@ -127,6 +161,29 @@ export class LangGraphAgentBridge {
       // 清理 MCP 连接
       await closeMcpClient()
     }
+
+    // ─── 保存对话上下文摘要 ──────────────────────────────────
+    // 执行完成后，将摘要保存到 Memory Store 供下次对话使用
+    try {
+      const memoryStore = getMemoryStore()
+      if (result.status === 'completed' && result.summary) {
+        memoryStore.saveConversationSummary(
+          params.request.conversationId,
+          result.summary,
+          {
+            totalSteps: result.totalSteps,
+            duration: result.duration,
+            tokensUsed: result.tokensUsed,
+            timestamp: Date.now(),
+          },
+        )
+      }
+    } catch (err) {
+      // Memory Store 保存失败不阻断结果返回
+      console.warn('[LangGraph Bridge] Failed to save conversation summary:', err)
+    }
+
+    return result
   }
 
   /**

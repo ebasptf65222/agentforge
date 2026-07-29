@@ -17,3 +17,7 @@ export {
   convertLangChainToolToWrapped,
 } from './mcp-adapter'
 export { createReactLoop } from './react-loop'
+export { createCodingNodeTool, createWrappedCodingNode, getCodingNodeTool, resetCodingNode } from './coding-node'
+export type { CodingNodeOptions } from './coding-node'
+export { MemoryStore, getMemoryStore, resetMemoryStore } from './memory-store'
+export type { MemoryEntry, MemoryStoreConfig } from './memory-store'

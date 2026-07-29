@@ -1,4 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+// ─── Mock Phase 2 依赖（避免 electron / 数据库 / Copilot SDK 依赖） ──
+
+vi.mock('../db/index', () => ({
+  getDatabase: vi.fn(() => ({
+    exec: vi.fn(),
+    prepare: vi.fn(() => ({ run: vi.fn(), get: vi.fn(() => undefined), all: vi.fn(() => []) })),
+  })),
+}))
+
+vi.mock('../db/repos/app-settings', () => ({
+  getSettings: vi.fn(() => ({ approvalTimeoutMs: 10000, engineType: 'langgraph' })),
+}))
+
+vi.mock('../copilot/agent-bridge', () => ({
+  CopilotAgentBridge: vi.fn().mockImplementation(() => ({
+    execute: vi.fn().mockResolvedValue({ status: 'completed', summary: 'coding done' }),
+    cancel: vi.fn(),
+  })),
+}))
+
+vi.mock('../mcp/manager', () => ({
+  getMcpServerManager: vi.fn(() => ({
+    listServers: vi.fn(() => []),
+  })),
+}))
+
 import { LangGraphAgentBridge } from './bridge'
 import type { LangGraphBridgeConfig, LangGraphExecuteParams } from './types'
 import type { ModelAdapter, StreamChunk } from '../models/adapter'
