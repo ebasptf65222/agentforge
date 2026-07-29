@@ -14,9 +14,6 @@ importers:
       '@github/copilot':
         specifier: ^1.0.75
         version: 1.0.75
-      '@github/copilot-linux-x64':
-        specifier: ^1.0.75
-        version: 1.0.75
       '@github/copilot-sdk':
         specifier: ^1.0.8
         version: 1.0.8
@@ -50,6 +47,31 @@ importers:
       unpdf:
         specifier: ^1.8.0
         version: 1.8.0
+    optionalDependencies:
+      '@github/copilot-darwin-arm64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-darwin-x64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-linux-arm64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-linux-x64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-linuxmusl-arm64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-linuxmusl-x64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-win32-arm64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-win32-x64':
+        specifier: ^1.0.75
+        version: 1.0.75
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -3386,7 +3408,8 @@ snapshots:
   '@github/copilot-linux-arm64@1.0.75':
     optional: true
 
-  '@github/copilot-linux-x64@1.0.75': {}
+  '@github/copilot-linux-x64@1.0.75':
+    optional: true
 
   '@github/copilot-linuxmusl-arm64@1.0.75':
     optional: true

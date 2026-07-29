@@ -5,7 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join, dirname } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CopilotClient, RuntimeConnection } from '@github/copilot-sdk'
 import type { AgentExecutionRequest, ExecutionResult, TAOTrajectory } from '@shared/types'
@@ -34,20 +34,25 @@ import {
 type SdkSession = any
 
 /**
- * Resolve the Copilot CLI entry point path for the current platform.
+ * Resolve the Copilot CLI native binary path for the current platform.
  *
  * The SDK's getBundledCliPath() uses import.meta.resolve which may fail in
  * Electron's bundled context, and it tries to resolve `./sdk` which is
  * blocked by the platform package's `exports` map under pnpm.
  *
- * This function uses bare package resolution (the `.` export → native binary)
- * and derives the package directory from that path, avoiding the `exports`
- * restriction on `./package.json` and `./sdk` subpaths.
+ * This function resolves the **native binary** (e.g. `copilot.exe` on Windows,
+ * `copilot` on Linux/macOS) rather than the JS wrapper (`index.js`).
  *
- * The CLI entry point is `index.js` inside the platform package, e.g.
- * `node_modules/@github/copilot-win32-x64/index.js`.
+ * Why native binary instead of index.js?
+ * The SDK checks `resolvedCliPath.endsWith(".js")` — if true, it spawns the
+ * CLI via `spawn(process.execPath, ["index.js", ...])`. In Electron,
+ * `process.execPath` is the Electron binary, so this launches a **second
+ * Electron instance** as the subprocess. The Electron subprocess fails to
+ * function as a proper CLI server (stdin pipe gets closed immediately).
+ * By passing the native binary path, the SDK spawns it directly via
+ * `spawn(copilotBinary, args, ...)`, which works correctly.
  *
- * @returns CLI entry point path, or undefined to let SDK use its default
+ * @returns Native CLI binary path, or undefined to let SDK use its default
  */
 function resolveCopilotCliPath(): string | undefined {
   const arch = process.arch
@@ -56,17 +61,14 @@ function resolveCopilotCliPath(): string | undefined {
   const packageNames = variants.map((v) => `@github/copilot-${v}-${arch}`)
 
   // Strategy 1: createRequire — resolve bare package name (bypasses exports map)
-  // The `.` export resolves to the native binary (e.g. ./copilot); we derive
-  // the package directory from its parent and look for index.js alongside it.
+  // The `.` export resolves to the native binary directly (e.g. copilot.exe).
   try {
     const req = createRequire(import.meta.url)
     for (const packageName of packageNames) {
       try {
         const resolved = req.resolve(packageName)
-        const pkgDir = dirname(resolved)
-        const cliPath = join(pkgDir, 'index.js')
-        if (existsSync(cliPath)) {
-          return cliPath
+        if (existsSync(resolved)) {
+          return resolved
         }
       } catch {
         // Package not found, try next
@@ -82,10 +84,8 @@ function resolveCopilotCliPath(): string | undefined {
       try {
         const resolvedUrl = import.meta.resolve(packageName)
         const resolvedPath = fileURLToPath(resolvedUrl)
-        const pkgDir = dirname(resolvedPath)
-        const cliPath = join(pkgDir, 'index.js')
-        if (existsSync(cliPath)) {
-          return cliPath
+        if (existsSync(resolvedPath)) {
+          return resolvedPath
         }
       } catch {
         // Package not found, try next
@@ -99,9 +99,11 @@ function resolveCopilotCliPath(): string | undefined {
     const searchPaths = req.resolve.paths('@github/copilot') ?? []
     for (const base of searchPaths) {
       for (const packageName of packageNames) {
-        const cliPath = join(base, ...packageName.split('/'), 'index.js')
-        if (existsSync(cliPath)) {
-          return cliPath
+        // Probe native binary names
+        const binaryName = process.platform === 'win32' ? 'copilot.exe' : 'copilot'
+        const binaryPath = join(base, ...packageName.split('/'), binaryName)
+        if (existsSync(binaryPath)) {
+          return binaryPath
         }
       }
     }
