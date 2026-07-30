@@ -7,6 +7,7 @@ import {
   buildToolAction,
   DEFAULT_APPROVAL_TIMEOUT_MS,
 } from './approval'
+import type { ApprovalAuditEntry } from './approval'
 import type { ToolAction } from './types'
 
 describe('getToolRiskLevel', () => {
@@ -271,5 +272,176 @@ describe('ApprovalManager', () => {
 
     // Second should be approved
     expect(response2.approved).toBe(true)
+  })
+})
+
+// ─── 审批审计日志测试 ──────────────────────────────────────────
+
+describe('ApprovalManager audit log', () => {
+  it('should return empty audit log initially', () => {
+    const manager = new ApprovalManager()
+    expect(manager.getAuditLog()).toEqual([])
+  })
+
+  it('should record an audit entry when approval is granted', async () => {
+    const manager = new ApprovalManager()
+    const request = {
+      executionId: 'exec-audit-1',
+      step: 1,
+      toolAction: buildToolAction('file_write', { path: '/test' }),
+      reason: 'write test file',
+    }
+    const onReq = vi.fn()
+
+    setTimeout(() => manager.respond(true, 'approved by user'), 10)
+
+    await manager.requestApproval(request, DEFAULT_APPROVAL_TIMEOUT_MS, onReq)
+
+    const log = manager.getAuditLog()
+    expect(log).toHaveLength(1)
+    const entry: ApprovalAuditEntry = log[0]
+    expect(entry.toolName).toBe('file_write')
+    expect(entry.riskLevel).toBe('medium')
+    expect(entry.approved).toBe(true)
+    expect(entry.reason).toBe('approved by user')
+    expect(entry.executionId).toBe('exec-audit-1')
+    expect(typeof entry.timestamp).toBe('number')
+    expect(entry.timestamp).toBeGreaterThan(0)
+  })
+
+  it('should record an audit entry when approval is rejected', async () => {
+    const manager = new ApprovalManager()
+    const request = {
+      executionId: 'exec-audit-2',
+      step: 1,
+      toolAction: buildToolAction('web_search', { query: 'test' }),
+      reason: 'search test',
+    }
+    const onReq = vi.fn()
+
+    setTimeout(() => manager.respond(false, 'rejected by user'), 10)
+
+    await manager.requestApproval(request, DEFAULT_APPROVAL_TIMEOUT_MS, onReq)
+
+    const log = manager.getAuditLog()
+    expect(log).toHaveLength(1)
+    expect(log[0].approved).toBe(false)
+    expect(log[0].reason).toBe('rejected by user')
+    expect(log[0].toolName).toBe('web_search')
+    expect(log[0].riskLevel).toBe('low')
+  })
+
+  it('should record an audit entry when approval is cancelled', async () => {
+    const manager = new ApprovalManager()
+    const request = {
+      executionId: 'exec-audit-3',
+      step: 1,
+      toolAction: buildToolAction('file_read', { path: '/test' }),
+      reason: 'read test file',
+    }
+    const onReq = vi.fn()
+
+    const promise = manager.requestApproval(request, DEFAULT_APPROVAL_TIMEOUT_MS, onReq)
+    manager.cancel()
+    await promise
+
+    const log = manager.getAuditLog()
+    expect(log).toHaveLength(1)
+    expect(log[0].approved).toBe(false)
+    expect(log[0].reason).toBe('CANCELLED')
+  })
+
+  it('should record an audit entry on timeout', async () => {
+    vi.useFakeTimers()
+
+    const manager = new ApprovalManager()
+    const request = {
+      executionId: 'exec-audit-4',
+      step: 1,
+      toolAction: buildToolAction('web_search', {}),
+      reason: 'timeout test',
+    }
+    const onReq = vi.fn()
+
+    const promise = manager.requestApproval(request, 5000, onReq)
+    vi.advanceTimersByTime(60000)
+    await promise
+
+    const log = manager.getAuditLog()
+    expect(log).toHaveLength(1)
+    expect(log[0].approved).toBe(false)
+    expect(log[0].reason).toBe('TIMEOUT')
+
+    vi.useRealTimers()
+  })
+
+  it('should record multiple audit entries in order', async () => {
+    const manager = new ApprovalManager()
+
+    // First approval
+    const req1 = {
+      executionId: 'exec-multi-1',
+      step: 1,
+      toolAction: buildToolAction('web_search', {}),
+      reason: 'first',
+    }
+    setTimeout(() => manager.respond(true, 'ok1'), 10)
+    await manager.requestApproval(req1, DEFAULT_APPROVAL_TIMEOUT_MS, vi.fn())
+
+    // Second approval
+    const req2 = {
+      executionId: 'exec-multi-2',
+      step: 1,
+      toolAction: buildToolAction('file_write', {}),
+      reason: 'second',
+    }
+    setTimeout(() => manager.respond(false, 'no'), 10)
+    await manager.requestApproval(req2, DEFAULT_APPROVAL_TIMEOUT_MS, vi.fn())
+
+    const log = manager.getAuditLog()
+    expect(log).toHaveLength(2)
+    expect(log[0].executionId).toBe('exec-multi-1')
+    expect(log[0].approved).toBe(true)
+    expect(log[1].executionId).toBe('exec-multi-2')
+    expect(log[1].approved).toBe(false)
+  })
+
+  it('should return a copy of the audit log (modifications do not affect internal state)', async () => {
+    const manager = new ApprovalManager()
+    const request = {
+      executionId: 'exec-copy-1',
+      step: 1,
+      toolAction: buildToolAction('web_search', {}),
+      reason: 'copy test',
+    }
+
+    setTimeout(() => manager.respond(true, 'ok'), 10)
+    await manager.requestApproval(request, DEFAULT_APPROVAL_TIMEOUT_MS, vi.fn())
+
+    const log1 = manager.getAuditLog()
+    expect(log1).toHaveLength(1)
+    log1.pop() // modify the copy
+
+    const log2 = manager.getAuditLog()
+    expect(log2).toHaveLength(1) // internal log unaffected
+  })
+
+  it('should clear the audit log', async () => {
+    const manager = new ApprovalManager()
+    const request = {
+      executionId: 'exec-clear-1',
+      step: 1,
+      toolAction: buildToolAction('web_search', {}),
+      reason: 'clear test',
+    }
+
+    setTimeout(() => manager.respond(true, 'ok'), 10)
+    await manager.requestApproval(request, DEFAULT_APPROVAL_TIMEOUT_MS, vi.fn())
+
+    expect(manager.getAuditLog()).toHaveLength(1)
+
+    manager.clearAuditLog()
+
+    expect(manager.getAuditLog()).toEqual([])
   })
 })

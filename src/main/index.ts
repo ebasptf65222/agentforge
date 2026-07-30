@@ -13,6 +13,7 @@ import { initBuiltinTools } from './tools/registry-init'
 import { getSettings } from './db/repos/app-settings'
 import { setEmbeddingConfig } from './knowledge-base/embedding'
 import { getMcpServerManager } from './mcp/manager'
+import { scanAndResetCorruptApiKeys } from './db/repos/model-config'
 
 // ─── 全局未捕获错误处理 ───────────────────────────────────────────────
 // 防止应用崩溃后静默退出，至少记录错误日志
@@ -250,6 +251,19 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     // 初始化数据库（P1-03）
     initDatabase()
+
+    // A2: 启动时扫描并重置损坏的 API Key
+    // 检测因 OS 密钥变更或数据损坏导致无法解密的 API Key，自动重置为空
+    try {
+      const result = scanAndResetCorruptApiKeys()
+      if (result.reset > 0) {
+        console.warn(
+          `[AgentForge] API Key recovery: ${result.reset} corrupt key(s) reset out of ${result.scanned} model config(s).`,
+        )
+      }
+    } catch (error) {
+      console.error('[AgentForge] Failed to scan corrupt API keys:', error)
+    }
 
     // 从应用设置初始化嵌入模型配置（RAG-FIX-01）
     try {

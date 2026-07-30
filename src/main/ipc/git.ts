@@ -13,6 +13,7 @@ import type {
   GitCreatePrResult,
 } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+import { validateNonEmptyString, validateOptionalString } from '../utils/ipc-validator'
 import { getWorkspacePath } from './workspace'
 import {
   getGitStatus,
@@ -26,27 +27,7 @@ import {
   validateGitRepo,
 } from '../git'
 
-// ─── 参数校验辅助函数 ─────────────────────────────────────────────
-
-function assertNonEmptyString(value: unknown, field: string): asserts value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
-    )
-  }
-}
-
-function assertOptionalString(value: unknown, field: string): asserts value is string {
-  if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string if provided.`,
-      { field, value },
-    )
-  }
-}
+// ─── 参数辅助函数 ─────────────────────────────────────────────
 
 function getCwdFromParams(params: Record<string, unknown>): string {
   if (typeof params['cwd'] === 'string' && params['cwd'].trim() !== '') {
@@ -176,13 +157,13 @@ async function handleCommit(
 ): Promise<GitCommitResult> {
   const cwd = getCwdFromParams(params)
 
-  assertNonEmptyString(params['message'], 'message')
+  const message = validateNonEmptyString(params['message'], 'message')
 
   const options: Parameters<typeof gitCommit>[2] = {}
   if (params['addAll'] === true) options.addAll = true
   if (params['amend'] === true) options.amend = true
 
-  return await gitCommit(cwd, params['message'], options)
+  return await gitCommit(cwd, message, options)
 }
 
 /**
@@ -195,7 +176,7 @@ async function handleCreateBranch(
 ): Promise<GitCreateBranchResult> {
   const cwd = getCwdFromParams(params)
 
-  assertNonEmptyString(params['branchName'], 'branchName')
+  const branchName = validateNonEmptyString(params['branchName'], 'branchName')
 
   const options: Parameters<typeof createBranch>[2] = {}
   if (params['switchTo'] === false) options.switchTo = false
@@ -203,7 +184,7 @@ async function handleCreateBranch(
     options.baseRef = params['baseRef']
   }
 
-  return await createBranch(cwd, params['branchName'], options)
+  return await createBranch(cwd, branchName, options)
 }
 
 /**
@@ -232,16 +213,16 @@ async function handleCreatePr(
 ): Promise<GitCreatePrResult> {
   const cwd = getCwdFromParams(params)
 
-  assertNonEmptyString(params['title'], 'title')
+  const title = validateNonEmptyString(params['title'], 'title')
 
   const options: Parameters<typeof createPullRequest>[1] = {
-    title: params['title'],
+    title,
   }
   if (typeof params['body'] === 'string') options.body = params['body']
-  assertOptionalString(params['base'], 'base')
-  if (params['base'] !== undefined) options.base = params['base']
-  assertOptionalString(params['head'], 'head')
-  if (params['head'] !== undefined) options.head = params['head']
+  const base = validateOptionalString(params['base'], 'base')
+  if (base !== undefined) options.base = base
+  const head = validateOptionalString(params['head'], 'head')
+  if (head !== undefined) options.head = head
   if (params['draft'] === true) options.draft = true
 
   return await createPullRequest(cwd, options)

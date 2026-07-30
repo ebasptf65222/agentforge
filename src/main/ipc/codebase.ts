@@ -4,6 +4,10 @@
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import type { CodebaseSearchResult, CodebaseStats, CodebaseSymbol, CodebaseFile } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+import {
+  validateNonEmptyString,
+  validateOptionalNumber,
+} from '../utils/ipc-validator'
 import { scanCodebase, getCodebaseStats, clearCodebaseIndex, reindexFile } from '../codebase/scanner'
 import type { ScanOptions } from '../codebase/scanner'
 import { searchCodebase } from '../codebase/search'
@@ -16,41 +20,6 @@ import { listCodebaseSymbols, searchCodebaseSymbols } from '../db/repos/codebase
 /** 当前扫描的 AbortController，null 表示空闲 */
 let currentScanAbortController: AbortController | null = null
 
-// ─── 参数校验辅助函数 ─────────────────────────────────────────────
-
-function assertNonEmptyString(value: unknown, field: string): asserts value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
-    )
-  }
-}
-
-function assertOptionalNumber(value: unknown, field: string, min?: number, max?: number): void {
-  if (value === undefined) return
-  const num = Number(value)
-  if (Number.isNaN(num)) {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}" must be a number.`, {
-      field,
-      value,
-    })
-  }
-  if (min !== undefined && num < min) {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}" must be >= ${min}.`, {
-      field,
-      value,
-    })
-  }
-  if (max !== undefined && num > max) {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}" must be <= ${max}.`, {
-      field,
-      value,
-    })
-  }
-}
-
 // ─── IPC Handlers ────────────────────────────────────────────────
 
 /**
@@ -61,7 +30,7 @@ async function handleScan(
   _event: unknown,
   params: Record<string, unknown>,
 ) {
-  assertNonEmptyString(params['rootPath'], 'rootPath')
+  const rootPath = validateNonEmptyString(params['rootPath'], 'rootPath')
 
   // 取消正在进行的扫描
   if (currentScanAbortController) {
@@ -70,7 +39,7 @@ async function handleScan(
   currentScanAbortController = new AbortController()
 
   const options: ScanOptions = {
-    rootPath: params['rootPath'],
+    rootPath,
     abortSignal: currentScanAbortController.signal,
   }
 
@@ -86,14 +55,19 @@ async function handleScan(
     options.languages = params['languages'] as ScanOptions['languages']
   }
 
-  if (params['maxFileSize'] !== undefined) {
-    assertOptionalNumber(params['maxFileSize'], 'maxFileSize', 1)
-    options.maxFileSize = Number(params['maxFileSize'])
+  const maxFileSize = validateOptionalNumber(params['maxFileSize'], 'maxFileSize', 1)
+  if (maxFileSize !== undefined) {
+    options.maxFileSize = maxFileSize
   }
 
-  if (params['embeddingBatchSize'] !== undefined) {
-    assertOptionalNumber(params['embeddingBatchSize'], 'embeddingBatchSize', 1, 256)
-    options.embeddingBatchSize = Math.floor(Number(params['embeddingBatchSize']))
+  const embeddingBatchSize = validateOptionalNumber(
+    params['embeddingBatchSize'],
+    'embeddingBatchSize',
+    1,
+    256,
+  )
+  if (embeddingBatchSize !== undefined) {
+    options.embeddingBatchSize = Math.floor(embeddingBatchSize)
   }
 
   try {
@@ -118,13 +92,13 @@ async function handleSearch(
   _event: unknown,
   params: Record<string, unknown>,
 ): Promise<CodebaseSearchResult[]> {
-  assertNonEmptyString(params['query'], 'query')
+  const query = validateNonEmptyString(params['query'], 'query')
 
   const options: CodebaseSearchOptions = {}
 
-  if (params['topK'] !== undefined) {
-    assertOptionalNumber(params['topK'], 'topK', 1, 50)
-    options.topK = Math.floor(Number(params['topK']))
+  const topK = validateOptionalNumber(params['topK'], 'topK', 1, 50)
+  if (topK !== undefined) {
+    options.topK = Math.floor(topK)
   }
 
   if (typeof params['language'] === 'string' && params['language'].trim().length > 0) {
@@ -135,12 +109,12 @@ async function handleSearch(
     options.chunkType = params['chunkType'] as CodebaseSearchOptions['chunkType']
   }
 
-  if (params['threshold'] !== undefined) {
-    assertOptionalNumber(params['threshold'], 'threshold', 0, 1)
-    options.threshold = Number(params['threshold'])
+  const threshold = validateOptionalNumber(params['threshold'], 'threshold', 0, 1)
+  if (threshold !== undefined) {
+    options.threshold = threshold
   }
 
-  return searchCodebase(params['query'], options)
+  return searchCodebase(query, options)
 }
 
 /**
@@ -151,13 +125,13 @@ function handleSearchSymbols(
   _event: unknown,
   params: Record<string, unknown>,
 ): CodebaseSymbol[] {
-  assertNonEmptyString(params['name'], 'name')
+  const name = validateNonEmptyString(params['name'], 'name')
 
   const limit = params['limit'] !== undefined
     ? Math.min(Math.floor(Number(params['limit'])), 100)
     : 20
 
-  return searchCodebaseSymbols(params['name'], limit)
+  return searchCodebaseSymbols(name, limit)
 }
 
 /**
@@ -208,10 +182,10 @@ async function handleReindex(
   _event: unknown,
   params: Record<string, unknown>,
 ): Promise<void> {
-  assertNonEmptyString(params['filePath'], 'filePath')
+  const filePath = validateNonEmptyString(params['filePath'], 'filePath')
 
   const generateEmbeddings = params['generateEmbeddings'] !== false
-  await reindexFile(params['filePath'], generateEmbeddings)
+  await reindexFile(filePath, generateEmbeddings)
 }
 
 /**

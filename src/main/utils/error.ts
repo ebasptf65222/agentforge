@@ -28,6 +28,8 @@ export const ErrorCodes = {
   // ─── 加密相关（P1） ──────────────────────────────────────────
   /** safeStorage 不可用 */
   SAFE_STORAGE_UNAVAILABLE: 'SAFE_STORAGE_UNAVAILABLE',
+  /** 解密失败（密钥损坏或 OS 密钥变更） */
+  DECRYPTION_FAILED: 'DECRYPTION_FAILED',
 
   // ─── 会话相关（P1） ──────────────────────────────────────────
   /** 会话不存在 */

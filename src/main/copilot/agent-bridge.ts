@@ -781,10 +781,14 @@ export class CopilotAgentBridge {
 
   /**
    * Respond to an approval request.
+   *
+   * @param approved - Whether the approval is granted
+   * @param reason - Optional reason for the decision
+   * @param executionId - Optional execution ID for validation
    */
-  respondApproval(approved: boolean, reason?: string): void {
+  respondApproval(approved: boolean, reason?: string, executionId?: string): void {
     if (this.approvalManager) {
-      this.approvalManager.respond(approved, reason)
+      this.approvalManager.respond(approved, reason, executionId)
     }
   }
 

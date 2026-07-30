@@ -13,7 +13,7 @@ import type {
   ApprovalMode,
 } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
-import { assertNonEmptyString } from '../utils/assertions'
+import { validateNonEmptyString } from '../utils/ipc-validator'
 import { getSessionManager } from '../copilot/session-manager'
 import {
   executeAgentFlow,
@@ -60,15 +60,15 @@ export async function handleExecute(
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['conversationId'], 'conversationId')
-  assertNonEmptyString(p['userInput'], 'userInput')
-  assertNonEmptyString(p['modelId'], 'modelId')
+  const conversationId = validateNonEmptyString(p['conversationId'], 'conversationId')
+  const userInput = validateNonEmptyString(p['userInput'], 'userInput')
+  const modelId = validateNonEmptyString(p['modelId'], 'modelId')
   assertApprovalMode(p['approvalMode'])
 
   const request: AgentExecutionRequest = {
-    conversationId: p['conversationId'] as string,
-    userInput: p['userInput'] as string,
-    modelId: p['modelId'] as string,
+    conversationId,
+    userInput,
+    modelId,
     approvalMode: p['approvalMode'] as ApprovalMode,
     maxSteps: (p['maxSteps'] as number) || 20,
     skillName: p['skillName'] as string | undefined,
@@ -111,7 +111,7 @@ export function handleApprove(params: unknown): void {
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['executionId'], 'executionId')
+  validateNonEmptyString(p['executionId'], 'executionId')
 
   // OPT2-07: 校验 approved 必须是 boolean，防止字符串 'false' 被当 truthy
   if (typeof p['approved'] !== 'boolean') {
@@ -123,18 +123,19 @@ export function handleApprove(params: unknown): void {
   }
   const approved = p['approved'] as boolean
   const reason = typeof p['reason'] === 'string' ? p['reason'] : undefined
+  const executionId = p['executionId'] as string
 
   const executor = getCurrentExecutor()
   const bridge = getCurrentBridge()
   const lgBridge = getCurrentLangGraphBridge()
   if (executor) {
-    executor.respondApproval(approved, reason)
+    executor.respondApproval(approved, reason, executionId)
   }
   if (bridge) {
-    bridge.respondApproval(approved, reason)
+    bridge.respondApproval(approved, reason, executionId)
   }
   if (lgBridge) {
-    lgBridge.respondApproval(approved, reason)
+    lgBridge.respondApproval(approved, reason, executionId)
   }
 }
 
@@ -147,7 +148,7 @@ export function handleRespondUserInput(params: unknown): void {
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['requestId'], 'requestId')
+  const requestId = validateNonEmptyString(p['requestId'], 'requestId')
   if (typeof p['response'] !== 'string') {
     throw new AppError(
       ErrorCodes.VALIDATION_ERROR,
@@ -157,7 +158,7 @@ export function handleRespondUserInput(params: unknown): void {
 
   const bridge = getCurrentBridge()
   if (bridge) {
-    const success = bridge.respondToUserInput(p['requestId'], p['response'] as string)
+    const success = bridge.respondToUserInput(requestId, p['response'] as string)
     if (!success) {
       throw new AppError(
         ErrorCodes.VALIDATION_ERROR,
@@ -176,7 +177,7 @@ export function handleRespondElicitation(params: unknown): void {
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['requestId'], 'requestId')
+  const requestId = validateNonEmptyString(p['requestId'], 'requestId')
   if (typeof p['response'] !== 'object' || p['response'] === null) {
     throw new AppError(
       ErrorCodes.VALIDATION_ERROR,
@@ -187,7 +188,7 @@ export function handleRespondElicitation(params: unknown): void {
   const bridge = getCurrentBridge()
   if (bridge) {
     const success = bridge.respondToElicitation(
-      p['requestId'],
+      requestId,
       p['response'] as Record<string, unknown>,
     )
     if (!success) {
@@ -212,7 +213,7 @@ async function handleSwitchModel(
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['modelId'], 'modelId')
+  const modelId = validateNonEmptyString(p['modelId'], 'modelId')
 
   const bridge = getCurrentBridge()
   if (!bridge) {
@@ -223,15 +224,15 @@ async function handleSwitchModel(
   }
 
   const { buildProviderConfigById } = await import('../copilot/provider-config')
-  const providerConfig = buildProviderConfigById(p['modelId'] as string)
+  const providerConfig = buildProviderConfigById(modelId)
   if (!providerConfig) {
     throw new AppError(
       ErrorCodes.VALIDATION_ERROR,
-      `Model not found: ${p['modelId'] as string}`,
+      `Model not found: ${modelId}`,
     )
   }
 
-  return bridge.setModel(p['modelId'] as string, providerConfig)
+  return bridge.setModel(modelId, providerConfig)
 }
 
 // ─── 通道注册 ───────────────────────────────────────────────────

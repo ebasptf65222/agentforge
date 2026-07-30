@@ -86,7 +86,7 @@ describe('handleGetMcpStatus 返回格式修复', () => {
   })
 
   it('参数为空时应抛出 VALIDATION_ERROR', () => {
-    expect(() => handleGetMcpStatus(null)).toThrow('must be an object')
+    expect(() => handleGetMcpStatus(null)).toThrow('must be a non-null object')
   })
 
   it('id 为空时应抛出 VALIDATION_ERROR', () => {

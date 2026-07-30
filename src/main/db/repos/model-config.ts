@@ -7,7 +7,7 @@ import type { ModelConfig, ModelCapabilities, ModelProvider } from '@shared/type
 import { getDatabase } from '../index'
 import { AppError, ErrorCodes } from '../../utils/error'
 import { generateId } from '../../utils/id'
-import { encryptApiKey, decryptApiKey } from '../../utils/encryption'
+import { encryptApiKey, decryptApiKey, isEncryptedValueValid, resetEncryptedApiKey } from '../../utils/encryption'
 
 /**
  * SQLite 行类型（数据库存储格式）。
@@ -65,6 +65,11 @@ export interface UpdateModelParams {
 /**
  * 将数据库行转换为 ModelConfig 实体（解密 API Key）。
  *
+ * 当 decrypt=true 且解密失败时（OS 密钥变更或数据损坏）：
+ * - 自动重置数据库中的 api_key 为空字符串
+ * - 返回 apiKey 为空字符串的 ModelConfig（而非抛出异常）
+ * - 调用方将通过空 apiKey 检测到需要重新输入密钥
+ *
  * @param row - 数据库行
  * @param decrypt - 是否解密 API Key（默认 true）
  * @returns ModelConfig 实体
@@ -77,12 +82,19 @@ function rowToModelConfig(row: ModelConfigRow, decrypt = true): ModelConfig {
     capabilities = { ...DEFAULT_CAPABILITIES }
   }
 
+  let apiKey: string
+  if (decrypt) {
+    apiKey = tryDecryptApiKey(row.id, row.api_key)
+  } else {
+    apiKey = row.api_key
+  }
+
   return {
     id: row.id,
     name: row.name,
     provider: row.provider as ModelProvider,
     modelId: row.model_id,
-    apiKey: decrypt ? decryptApiKey(row.api_key) : row.api_key,
+    apiKey,
     baseUrl: row.base_url ?? undefined,
     temperature: row.temperature,
     maxTokens: row.max_tokens,
@@ -90,6 +102,51 @@ function rowToModelConfig(row: ModelConfigRow, decrypt = true): ModelConfig {
     capabilities,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }
+}
+
+/**
+ * 尝试解密 API Key，失败时自动重置并返回空字符串。
+ * 当解密失败时（OS 密钥变更或数据损坏），将数据库中的 api_key 重置为空字符串，
+ * 允许用户通过 UI 重新输入 API Key。
+ *
+ * @param modelId - 模型 ID（用于日志）
+ * @param encryptedKey - 加密的 API Key
+ * @returns 解密后的明文 Key，或空字符串（解密失败时）
+ */
+function tryDecryptApiKey(modelId: string, encryptedKey: string): string {
+  // 空字符串表示之前已重置或从未设置
+  if (encryptedKey === '') return ''
+
+  // 尝试解密
+  try {
+    return decryptApiKey(encryptedKey)
+  } catch {
+    // 解密失败：重置数据库中的加密值为空字符串
+    console.warn(
+      `[model-config] API Key decryption failed for model "${modelId}". ` +
+      'The encrypted value has been reset. Please re-enter the API key in Settings.'
+    )
+    resetCorruptApiKeyInDb(modelId)
+    return ''
+  }
+}
+
+/**
+ * 在数据库中重置已损坏的 API Key 为空字符串。
+ *
+ * @param modelId - 模型 ID
+ */
+function resetCorruptApiKeyInDb(modelId: string): void {
+  try {
+    const db = getDatabase()
+    db.prepare('UPDATE model_configs SET api_key = ?, updated_at = ? WHERE id = ?').run(
+      resetEncryptedApiKey(),
+      Date.now(),
+      modelId,
+    )
+  } catch (dbError) {
+    console.error(`[model-config] Failed to reset corrupt API key for model "${modelId}":`, dbError)
   }
 }
 
@@ -357,4 +414,40 @@ export function modelConfigExists(id: string): boolean {
   const row = db.prepare('SELECT 1 FROM model_configs WHERE id = ?').get(id) as
     { '1': number } | undefined
   return row !== undefined
+}
+
+/**
+ * 启动时扫描所有模型配置，检测并重置损坏的 API Key。
+ *
+ * 主动遍历 model_configs 表中所有记录，使用 isEncryptedValueValid 检测
+ * 加密值是否可解密。对于检测到的损坏密钥，自动重置为空字符串。
+ *
+ * 与惰性检测（tryDecryptApiKey）的区别：
+ * - 惰性检测：仅在 getModelConfigById 读取单条记录时触发
+ * - 启动扫描：在应用启动时一次性扫描全部记录，提前发现并修复
+ *
+ * @returns { scanned: number; reset: number } 扫描总数和重置数量
+ */
+export function scanAndResetCorruptApiKeys(): { scanned: number; reset: number } {
+  const db: Database.Database = getDatabase()
+  const rows = db
+    .prepare('SELECT id, api_key FROM model_configs')
+    .all() as { id: string; api_key: string }[]
+
+  let resetCount = 0
+  for (const row of rows) {
+    // 空字符串表示之前已重置或从未设置，跳过
+    if (row.api_key === '') continue
+
+    // 检测加密值是否可解密
+    if (!isEncryptedValueValid(row.api_key)) {
+      console.warn(
+        `[model-config] Startup scan: corrupt API Key detected for model "${row.id}". Resetting...`,
+      )
+      resetCorruptApiKeyInDb(row.id)
+      resetCount++
+    }
+  }
+
+  return { scanned: rows.length, reset: resetCount }
 }

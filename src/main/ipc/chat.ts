@@ -16,7 +16,7 @@ import type {
   ApprovalMode,
 } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
-import { assertNonEmptyString } from '../utils/assertions'
+import { validateNonEmptyString } from '../utils/ipc-validator'
 import { StreamBatcher } from '../utils/stream-batcher'
 import { getMainWindowWebContents } from '../utils/electron-helpers'
 import {
@@ -124,15 +124,9 @@ export async function handleSend(
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['conversationId'], 'conversationId')
-  assertNonEmptyString(p['content'], 'content')
-  assertNonEmptyString(p['modelId'], 'modelId')
-
-  const { conversationId, content, modelId } = p as {
-    conversationId: string
-    content: string
-    modelId: string
-  }
+  const conversationId = validateNonEmptyString(p['conversationId'], 'conversationId')
+  const content = validateNonEmptyString(p['content'], 'content')
+  const modelId = validateNonEmptyString(p['modelId'], 'modelId')
 
   // 1. 并发控制：已有生成任务在运行
   if (currentAbortController !== null) {
@@ -348,7 +342,7 @@ export function handleCreateConversation(params: unknown): Conversation {
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['modelId'], 'modelId')
+  const modelId = validateNonEmptyString(p['modelId'], 'modelId')
   assertApprovalMode(p['approvalMode'])
 
   // title 可选；非空字符串才使用，否则使用默认值
@@ -363,7 +357,6 @@ export function handleCreateConversation(params: unknown): Conversation {
     title = trimmed === '' ? undefined : trimmed
   }
 
-  const modelId = p['modelId'] as string
   const approvalMode = p['approvalMode'] as ApprovalMode | undefined
 
   // 验证 modelId 在 model_configs 表中存在
@@ -402,9 +395,9 @@ export function handleGetConversation(params: unknown): Conversation {
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['id'], 'id')
+  const id = validateNonEmptyString(p['id'], 'id')
 
-  return getConversationById(p['id'] as string)
+  return getConversationById(id)
 }
 
 /**
@@ -419,9 +412,8 @@ export function handleDeleteConversation(params: unknown): void {
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['id'], 'id')
+  const id = validateNonEmptyString(p['id'], 'id')
 
-  const id = p['id'] as string
   deleteConversation(id)
 
   // 清理对应的 Copilot SDK 持久化会话
@@ -440,9 +432,9 @@ export function handleGetMessages(params: unknown): ChatMessage[] {
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['conversationId'], 'conversationId')
+  const conversationId = validateNonEmptyString(p['conversationId'], 'conversationId')
 
-  return getMessagesByConversationId(p['conversationId'] as string)
+  return getMessagesByConversationId(conversationId)
 }
 
 /**
@@ -457,9 +449,8 @@ export function handleClearConversation(params: unknown): void {
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['id'], 'id')
+  const id = validateNonEmptyString(p['id'], 'id')
 
-  const id = p['id'] as string
   // 验证会话存在
   getConversationById(id)
 
@@ -488,9 +479,8 @@ export function handleSearchConversations(params: unknown): Conversation[] {
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['keyword'], 'keyword')
+  const keyword = validateNonEmptyString(p['keyword'], 'keyword')
 
-  const keyword = p['keyword'] as string
   const db = getDatabase()
 
   // 搜索标题匹配的会话
@@ -536,10 +526,13 @@ export function handleForkConversation(params: unknown): Conversation {
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['sourceConversationId'], 'sourceConversationId')
+  const sourceConversationId = validateNonEmptyString(
+    p['sourceConversationId'],
+    'sourceConversationId',
+  )
 
   const forkParams: ForkConversationParams = {
-    sourceConversationId: p['sourceConversationId'] as string,
+    sourceConversationId,
   }
 
   if (p['messageCount'] !== undefined) {
@@ -570,9 +563,7 @@ export function handleGetConversationTree(params: unknown): {
   }
   const p = params as Record<string, unknown>
 
-  assertNonEmptyString(p['id'], 'id')
-
-  const id = p['id'] as string
+  const id = validateNonEmptyString(p['id'], 'id')
 
   // 验证会话存在
   getConversationById(id)
@@ -619,10 +610,10 @@ const registrations: ChannelRegistration[] = [
         throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Update title params must be an object.')
       }
       const p = params as Record<string, unknown>
-      assertNonEmptyString(p['id'], 'id')
-      assertNonEmptyString(p['title'], 'title')
-      updateConversationTitle(p['id'] as string, (p['title'] as string).trim())
-      return getConversationById(p['id'] as string)
+      const id = validateNonEmptyString(p['id'], 'id')
+      const title = validateNonEmptyString(p['title'], 'title')
+      updateConversationTitle(id, title)
+      return getConversationById(id)
     },
   },
   {

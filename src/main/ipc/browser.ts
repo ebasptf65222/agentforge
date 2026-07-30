@@ -11,6 +11,7 @@ import type {
   BrowserElementInfo,
 } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+import { validateNonEmptyString, validateOptionalString } from '../utils/ipc-validator'
 import {
   navigateToUrl,
   captureScreenshot,
@@ -23,32 +24,6 @@ import {
   getCurrentPageInfo,
 } from '../browser'
 
-// ─── 参数校验辅助函数 ─────────────────────────────────────────────
-
-function assertNonEmptyString(value: unknown, field: string): asserts value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
-    )
-  }
-}
-
-function getOptionalString(value: unknown, field: string): string | undefined {
-  if (typeof value === 'string' && value.trim() !== '') {
-    return value
-  }
-  if (value !== undefined) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string if provided.`,
-      { field, value },
-    )
-  }
-  return undefined
-}
-
 // ─── IPC Handlers ────────────────────────────────────────────────
 
 /**
@@ -59,7 +34,7 @@ async function handleNavigate(
   _event: unknown,
   params: Record<string, unknown>,
 ): Promise<BrowserPageInfo> {
-  assertNonEmptyString(params['url'], 'url')
+  const url = validateNonEmptyString(params['url'], 'url')
 
   const options: Parameters<typeof navigateToUrl>[1] = {}
 
@@ -86,10 +61,10 @@ async function handleNavigate(
     options.waitUntil = params['waitUntil']
   }
 
-  const sessionId = getOptionalString(params['sessionId'], 'sessionId')
+  const sessionId = validateOptionalString(params['sessionId'], 'sessionId')
   if (sessionId) options.sessionId = sessionId
 
-  return await navigateToUrl(params['url'], options)
+  return await navigateToUrl(url, options)
 }
 
 /**
@@ -139,7 +114,7 @@ async function handleScreenshot(
     options.height = Math.floor(height)
   }
 
-  const sessionId = getOptionalString(params['sessionId'], 'sessionId')
+  const sessionId = validateOptionalString(params['sessionId'], 'sessionId')
   if (sessionId) options.sessionId = sessionId
 
   return await captureScreenshot(options)
@@ -155,7 +130,7 @@ async function handleGetText(
 ): Promise<{ text: string; url: string; title: string; selector: string; length: number }> {
   const options: Parameters<typeof getPageText>[0] = {}
 
-  const selector = getOptionalString(params['selector'], 'selector')
+  const selector = validateOptionalString(params['selector'], 'selector')
   if (selector) options.selector = selector
 
   if (params['maxLength'] !== undefined) {
@@ -170,7 +145,7 @@ async function handleGetText(
     options.maxLength = Math.floor(maxLength)
   }
 
-  const sessionId = getOptionalString(params['sessionId'], 'sessionId')
+  const sessionId = validateOptionalString(params['sessionId'], 'sessionId')
   if (sessionId) options.sessionId = sessionId
 
   const text = await getPageText(options)
@@ -195,7 +170,7 @@ async function handleGetDom(
 ): Promise<{ elements: BrowserElementInfo[]; url: string; selector: string; count: number }> {
   const options: Parameters<typeof getDomStructure>[0] = {}
 
-  const selector = getOptionalString(params['selector'], 'selector')
+  const selector = validateOptionalString(params['selector'], 'selector')
   if (selector) options.selector = selector
 
   if (params['maxElements'] !== undefined) {
@@ -210,7 +185,7 @@ async function handleGetDom(
     options.maxElements = Math.floor(maxElements)
   }
 
-  const sessionId = getOptionalString(params['sessionId'], 'sessionId')
+  const sessionId = validateOptionalString(params['sessionId'], 'sessionId')
   if (sessionId) options.sessionId = sessionId
 
   const elements = await getDomStructure(options)
@@ -232,13 +207,13 @@ async function handleClick(
   _event: unknown,
   params: Record<string, unknown>,
 ): Promise<{ clicked: boolean; selector: string; text: string }> {
-  assertNonEmptyString(params['selector'], 'selector')
+  const selector = validateNonEmptyString(params['selector'], 'selector')
 
   const options: Parameters<typeof clickElement>[1] = {}
-  const sessionId = getOptionalString(params['sessionId'], 'sessionId')
+  const sessionId = validateOptionalString(params['sessionId'], 'sessionId')
   if (sessionId) options.sessionId = sessionId
 
-  return await clickElement(params['selector'], options)
+  return await clickElement(selector, options)
 }
 
 /**
@@ -249,7 +224,7 @@ async function handleFill(
   _event: unknown,
   params: Record<string, unknown>,
 ): Promise<{ filled: boolean; selector: string; value: string }> {
-  assertNonEmptyString(params['selector'], 'selector')
+  const selector = validateNonEmptyString(params['selector'], 'selector')
 
   if (typeof params['value'] !== 'string') {
     throw new AppError(
@@ -262,7 +237,7 @@ async function handleFill(
   const options: Parameters<typeof fillInput>[2] = {}
   if (params['clearFirst'] === false) options.clearFirst = false
 
-  const sessionId = getOptionalString(params['sessionId'], 'sessionId')
+  const sessionId = validateOptionalString(params['sessionId'], 'sessionId')
   if (sessionId) options.sessionId = sessionId
 
   return await fillInput(params['selector'], params['value'], options)
@@ -276,7 +251,7 @@ async function handleClose(
   _event: unknown,
   params: Record<string, unknown>,
 ): Promise<{ closed: boolean; sessionId: string }> {
-  const sessionId = getOptionalString(params['sessionId'], 'sessionId') ?? 'default'
+  const sessionId = validateOptionalString(params['sessionId'], 'sessionId') ?? 'default'
   closeSession(sessionId)
   return { closed: true, sessionId }
 }
@@ -289,7 +264,7 @@ async function handleGetPageInfo(
   _event: unknown,
   params: Record<string, unknown>,
 ): Promise<{ url: string; title: string }> {
-  const sessionId = getOptionalString(params['sessionId'], 'sessionId') ?? 'default'
+  const sessionId = validateOptionalString(params['sessionId'], 'sessionId') ?? 'default'
   return getCurrentPageInfo(sessionId)
 }
 

@@ -7,73 +7,20 @@ import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VoiceConfig
 import { AppError, ErrorCodes } from '../utils/error'
 import { getSettings, updateSettings, type UpdateSettingsParams } from '../db/repos/app-settings'
 import { setEmbeddingConfig } from '../knowledge-base/embedding'
+import {
+  ensureParamsObject,
+  validateOptionalEnum,
+  validateOptionalNumber,
+  validateOptionalStringOrNull,
+} from '../utils/ipc-validator'
 
-// ─── 参数校验辅助函数 ─────────────────────────────────────────────
+// ─── 常量 ─────────────────────────────────────────────────────────
 
 const VALID_THEMES: readonly AppSettings['theme'][] = ['dark', 'light', 'system']
 const VALID_APPROVAL_MODES: readonly ApprovalMode[] = ['suggest', 'auto-edit', 'full-auto']
 const VALID_ENGINE_TYPES: readonly EngineType[] = ['builtin', 'copilot-sdk']
 
-function assertOptionalTheme(value: unknown): asserts value is AppSettings['theme'] | undefined {
-  if (
-    value !== undefined &&
-    (typeof value !== 'string' || !VALID_THEMES.includes(value as AppSettings['theme']))
-  ) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Invalid theme: ${String(value)}. Must be one of: ${VALID_THEMES.join(', ')}.`,
-      { theme: value },
-    )
-  }
-}
-
-function assertOptionalApprovalMode(value: unknown): asserts value is ApprovalMode | undefined {
-  if (
-    value !== undefined &&
-    (typeof value !== 'string' || !VALID_APPROVAL_MODES.includes(value as ApprovalMode))
-  ) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Invalid defaultApprovalMode: ${String(value)}. Must be one of: ${VALID_APPROVAL_MODES.join(', ')}.`,
-      { defaultApprovalMode: value },
-    )
-  }
-}
-
-function assertOptionalEngineType(value: unknown): asserts value is EngineType | undefined {
-  if (
-    value !== undefined &&
-    (typeof value !== 'string' || !VALID_ENGINE_TYPES.includes(value as EngineType))
-  ) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Invalid engineType: ${String(value)}. Must be one of: ${VALID_ENGINE_TYPES.join(', ')}.`,
-      { engineType: value },
-    )
-  }
-}
-
-function assertOptionalNumber(value: unknown, field: string): asserts value is number | undefined {
-  if (value !== undefined && typeof value !== 'number') {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}" must be a number.`, {
-      field,
-      value,
-    })
-  }
-}
-
-function assertOptionalStringOrNull(
-  value: unknown,
-  field: string,
-): asserts value is string | null | undefined {
-  if (value !== undefined && value !== null && (typeof value !== 'string' || value.trim() === '')) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string or null.`,
-      { field, value },
-    )
-  }
-}
+// ─── 复杂嵌套校验（保留为本地函数） ──────────────────────────────
 
 function assertOptionalShortcuts(
   value: unknown,
@@ -259,21 +206,18 @@ export function handleGetSettings(): AppSettings {
  * @param params - 部分字段（与 AppSettings 字段名一致，排除 updatedAt）
  */
 export function handleUpdateSettings(params: unknown): void {
-  if (params === null || typeof params !== 'object') {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Update settings params must be an object.')
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'settings:update')
 
-  assertOptionalTheme(p['theme'])
-  assertOptionalApprovalMode(p['defaultApprovalMode'])
-  assertOptionalNumber(p['maxExecutionSteps'], 'maxExecutionSteps')
-  assertOptionalStringOrNull(p['defaultModelId'], 'defaultModelId')
+  validateOptionalEnum(p['theme'], 'theme', VALID_THEMES)
+  validateOptionalEnum(p['defaultApprovalMode'], 'defaultApprovalMode', VALID_APPROVAL_MODES)
+  validateOptionalNumber(p['maxExecutionSteps'], 'maxExecutionSteps')
+  validateOptionalStringOrNull(p['defaultModelId'], 'defaultModelId')
   assertOptionalShortcuts(p['shortcuts'])
-  assertOptionalNumber(p['approvalTimeoutMs'], 'approvalTimeoutMs')
+  validateOptionalNumber(p['approvalTimeoutMs'], 'approvalTimeoutMs')
   assertOptionalVoice(p['voice'])
   assertOptionalWorkspace(p['workspace'])
   assertOptionalWindowBounds(p['windowBounds'])
-  assertOptionalEngineType(p['engineType'])
+  validateOptionalEnum(p['engineType'], 'engineType', VALID_ENGINE_TYPES)
 
   // updatedAt 字段不允许外部覆盖
   if (p['updatedAt'] !== undefined) {

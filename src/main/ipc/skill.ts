@@ -5,7 +5,12 @@
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import type { Skill, SkillTrigger } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
-import { assertNonEmptyString } from '../utils/assertions'
+import {
+  ensureParamsObject,
+  validateNonEmptyString,
+  validateOptionalString,
+  validateOptionalStringArray,
+} from '../utils/ipc-validator'
 import {
   createSkill,
   getSkillById,
@@ -21,16 +26,6 @@ import {
 
 const VALID_TRIGGERS: readonly SkillTrigger[] = ['auto', 'manual']
 
-function assertOptionalString(value: unknown, field: string): asserts value is string | undefined {
-  if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
-    )
-  }
-}
-
 function assertOptionalTrigger(value: unknown): asserts value is SkillTrigger | undefined {
   if (
     value !== undefined &&
@@ -40,20 +35,6 @@ function assertOptionalTrigger(value: unknown): asserts value is SkillTrigger | 
       ErrorCodes.VALIDATION_ERROR,
       `Invalid trigger: ${String(value)}. Must be one of: ${VALID_TRIGGERS.join(', ')}.`,
       { trigger: value },
-    )
-  }
-}
-
-function assertOptionalStringArray(
-  value: unknown,
-  field: string,
-): asserts value is string[] | undefined {
-  if (value === undefined) return
-  if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be an array of strings.`,
-      { field, value },
     )
   }
 }
@@ -113,10 +94,7 @@ export function handleList(params: unknown): Skill[] {
   if (params === undefined || params === null) {
     return listSkills()
   }
-  if (typeof params !== 'object') {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'List skill params must be an object.')
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'skill:list')
 
   assertOptionalTrigger(p['trigger'])
 
@@ -140,14 +118,11 @@ export function handleList(params: unknown): Skill[] {
  * skill:get - 根据 ID 查询 Skill
  */
 export function handleGet(params: unknown): Skill {
-  if (params === null || typeof params !== 'object') {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Get skill params must be an object.')
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'skill:get')
 
-  assertNonEmptyString(p['id'], 'id')
+  const id = validateNonEmptyString(p['id'], 'id')
 
-  return getSkillById(p['id'])
+  return getSkillById(id)
 }
 
 /**
@@ -155,41 +130,35 @@ export function handleGet(params: unknown): Skill {
  * 返回 Skill 或 null（不存在时）
  */
 export function handleGetByName(params: unknown): Skill | null {
-  if (params === null || typeof params !== 'object') {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'GetByName skill params must be an object.')
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'skill:getByName')
 
-  assertNonEmptyString(p['name'], 'name')
+  const name = validateNonEmptyString(p['name'], 'name')
 
-  return getSkillByName(p['name']) ?? null
+  return getSkillByName(name) ?? null
 }
 
 /**
  * skill:create - 创建 Skill
  */
 export function handleCreate(params: unknown): Skill {
-  if (params === null || typeof params !== 'object') {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Create skill params must be an object.')
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'skill:create')
 
-  assertNonEmptyString(p['name'], 'name')
-  assertNonEmptyString(p['displayName'], 'displayName')
-  assertNonEmptyString(p['description'], 'description')
-  assertNonEmptyString(p['prompt'], 'prompt')
-  assertOptionalString(p['modelId'], 'modelId')
-  assertOptionalStringArray(p['allowedTools'], 'allowedTools')
+  const name = validateNonEmptyString(p['name'], 'name')
+  const displayName = validateNonEmptyString(p['displayName'], 'displayName')
+  const description = validateNonEmptyString(p['description'], 'description')
+  const prompt = validateNonEmptyString(p['prompt'], 'prompt')
+  const modelId = validateOptionalString(p['modelId'], 'modelId')
+  const allowedTools = validateOptionalStringArray(p['allowedTools'], 'allowedTools')
   assertOptionalTrigger(p['trigger'])
   assertOptionalVariables(p['variables'])
 
   const createParams: CreateSkillParams = {
-    name: p['name'],
-    displayName: p['displayName'],
-    description: p['description'],
-    prompt: p['prompt'],
-    modelId: p['modelId'],
-    allowedTools: p['allowedTools'] ?? [],
+    name,
+    displayName,
+    description,
+    prompt,
+    modelId,
+    allowedTools: allowedTools ?? [],
     trigger: (p['trigger'] as SkillTrigger) ?? 'auto',
     variables: p['variables'] as CreateSkillParams['variables'],
   }
@@ -202,16 +171,13 @@ export function handleCreate(params: unknown): Skill {
  * 内置 Skill 仅允许更新 modelId
  */
 export function handleUpdate(params: unknown): void {
-  if (params === null || typeof params !== 'object') {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Update skill params must be an object.')
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'skill:update')
 
-  assertNonEmptyString(p['id'], 'id')
-  assertOptionalString(p['displayName'], 'displayName')
-  assertOptionalString(p['description'], 'description')
-  assertOptionalString(p['prompt'], 'prompt')
-  assertOptionalStringArray(p['allowedTools'], 'allowedTools')
+  const id = validateNonEmptyString(p['id'], 'id')
+  const displayName = validateOptionalString(p['displayName'], 'displayName')
+  const description = validateOptionalString(p['description'], 'description')
+  const prompt = validateOptionalString(p['prompt'], 'prompt')
+  const allowedTools = validateOptionalStringArray(p['allowedTools'], 'allowedTools')
   assertOptionalTrigger(p['trigger'])
   assertOptionalVariables(p['variables'])
 
@@ -227,12 +193,12 @@ export function handleUpdate(params: unknown): void {
   }
 
   const updateParams: UpdateSkillParams = {
-    id: p['id'],
-    displayName: p['displayName'],
-    description: p['description'],
-    prompt: p['prompt'],
+    id,
+    displayName,
+    description,
+    prompt,
     modelId: p['modelId'] === null ? null : (p['modelId'] as string | undefined),
-    allowedTools: p['allowedTools'],
+    allowedTools,
     trigger: p['trigger'] as SkillTrigger | undefined,
     variables: p['variables'] as UpdateSkillParams['variables'],
   }
@@ -245,14 +211,11 @@ export function handleUpdate(params: unknown): void {
  * 内置 Skill 不可删除
  */
 export function handleDelete(params: unknown): void {
-  if (params === null || typeof params !== 'object') {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Delete skill params must be an object.')
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'skill:delete')
 
-  assertNonEmptyString(p['id'], 'id')
+  const id = validateNonEmptyString(p['id'], 'id')
 
-  deleteSkill(p['id'])
+  deleteSkill(id)
 }
 
 // ─── 通道注册表 ───────────────────────────────────────────────────

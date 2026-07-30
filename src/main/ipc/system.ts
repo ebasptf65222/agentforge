@@ -18,13 +18,19 @@ interface VersionInfo {
 // ─── 参数校验辅助函数 ─────────────────────────────────────────────
 
 /**
+ * system:open-external 允许的 URL 协议白名单。
+ * 显式声明 https: 与 http: 为允许的协议，防止 file://、javascript: 等危险协议。
+ */
+const ALLOWED_URL_PROTOCOLS: readonly string[] = ['http:', 'https:']
+
+/**
  * 校验 URL 是否为合法的 http/https 链接。
  * - 必须是 string
  * - 必须能被 URL 解析
- * - protocol 必须是 http: 或 https:
+ * - protocol 必须在白名单（http: / https:）中
  *
  * @param url - 待校验的 URL
- * @throws {AppError} INVALID_URL - URL 为空或非 http/https
+ * @throws {AppError} INVALID_URL - URL 为空或协议不在白名单中
  */
 function assertHttpUrl(url: unknown): asserts url is string {
   if (typeof url !== 'string' || url.trim() === '') {
@@ -38,11 +44,11 @@ function assertHttpUrl(url: unknown): asserts url is string {
     throw new AppError(ErrorCodes.INVALID_URL, `URL is not valid: "${url}".`, { url })
   }
 
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+  if (!ALLOWED_URL_PROTOCOLS.includes(parsed.protocol)) {
     throw new AppError(
       ErrorCodes.INVALID_URL,
-      `URL protocol must be http or https, got "${parsed.protocol}".`,
-      { url, protocol: parsed.protocol },
+      `URL protocol must be one of [${ALLOWED_URL_PROTOCOLS.join(', ')}], got "${parsed.protocol}".`,
+      { url, protocol: parsed.protocol, allowedProtocols: [...ALLOWED_URL_PROTOCOLS] },
     )
   }
 }

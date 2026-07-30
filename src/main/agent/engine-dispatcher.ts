@@ -21,7 +21,6 @@ import { getMainWindowWebContents } from '../utils/electron-helpers'
 import { getModelAdapter } from '../models/router'
 import { getSettings } from '../db/repos/app-settings'
 import {
-  getConversationById,
   updateSdkSessionId,
   updateConversationTitle,
 } from '../db/repos/conversation'
@@ -38,44 +37,53 @@ import {
   loadHistoryAndTruncate,
   saveAgentResult,
   saveAgentError,
+  validateConversationAndSaveUserMessage,
 } from './engine-commons'
-import { getConversationService } from '../services/conversation-service'
+import { ExecutionLock } from './execution-lock'
 
 // ─── 并发控制 ─────────────────────────────────────────────────────
 
-/** 当前正在运行的 AgentExecutor */
-let currentExecutor: AgentExecutor | null = null
-/** 当前正在运行的 CopilotAgentBridge（SDK 引擎） */
-let currentBridge: CopilotAgentBridge | null = null
-/** 当前正在运行的 LangGraphAgentBridge（LangGraph 引擎） */
-let currentLangGraphBridge: LangGraphAgentBridge | null = null
+/**
+ * 引擎句柄类型（判别联合）。
+ * 锁持有时存储当前活跃引擎的类型和引用。
+ */
+type EngineHandle =
+  | { readonly type: 'builtin'; readonly executor: AgentExecutor }
+  | { readonly type: 'copilot-sdk'; readonly bridge: CopilotAgentBridge }
+  | { readonly type: 'langgraph'; readonly bridge: LangGraphAgentBridge }
+
+/** 全局执行锁，替代三个独立的模块级变量 */
+const executionLock = new ExecutionLock<EngineHandle>()
 
 /**
  * 获取当前 AgentExecutor（仅供测试使用）。
  */
 export function getCurrentExecutor(): AgentExecutor | null {
-  return currentExecutor
+  const handle = executionLock.getCurrent()
+  return handle?.type === 'builtin' ? handle.executor : null
 }
 
 /**
- * 重置当前 AgentExecutor（仅供测试使用）。
+ * 重置当前执行锁（仅供测试使用）。
  */
 export function resetCurrentExecutor(): void {
-  currentExecutor = null
+  executionLock.reset()
 }
 
 /**
  * 获取当前 CopilotAgentBridge（供 IPC handler 使用）。
  */
 export function getCurrentBridge(): CopilotAgentBridge | null {
-  return currentBridge
+  const handle = executionLock.getCurrent()
+  return handle?.type === 'copilot-sdk' ? handle.bridge : null
 }
 
 /**
  * 获取当前 LangGraphAgentBridge（供 IPC handler 使用）。
  */
 export function getCurrentLangGraphBridge(): LangGraphAgentBridge | null {
-  return currentLangGraphBridge
+  const handle = executionLock.getCurrent()
+  return handle?.type === 'langgraph' ? handle.bridge : null
 }
 
 // ─── 主窗口事件推送 ───────────────────────────────────────────────
@@ -106,9 +114,10 @@ function sendStreamChunk(chunk: { type: string; content: string }): void {
  * 文本 chunk 通过 StreamBatcher 累积 50ms 后批量推送，
  * 非 text chunk（如 title/approval）立即推送。
  *
+ * @param conversationId - 可选的会话 ID。提供时，title chunk 会自动更新会话标题。
  * @returns callbacks 和 flush/destroy 方法
  */
-export function createBatchedCallbacks(): {
+export function createBatchedCallbacks(conversationId?: string): {
   callbacks: AgentEventCallbacks
   flush: () => void
   destroy: () => void
@@ -126,6 +135,14 @@ export function createBatchedCallbacks(): {
           batcher.push(chunk.content)
         } else {
           batcher.flush()
+          // title chunk：更新会话标题（如果提供了 conversationId）
+          if (chunk.type === 'title' && chunk.content && conversationId) {
+            try {
+              updateConversationTitle(conversationId, chunk.content)
+            } catch {
+              // Ignore title update errors
+            }
+          }
           sendStreamChunk(chunk)
         }
       },
@@ -163,19 +180,7 @@ export function getToolsMap(): Map<string, RegisteredTool> {
  * 支持流式输出、工具调用、审批机制，与现有 UI 完全兼容。
  */
 async function executeWithLangGraph(request: AgentExecutionRequest): Promise<ExecutionResult> {
-  const { callbacks, flush, destroy } = createBatchedCallbacks()
-  // LangGraph 引擎需要在 title chunk 时更新会话标题
-  const originalOnStreamChunk = callbacks.onStreamChunk
-  callbacks.onStreamChunk = (chunk) => {
-    if (chunk.type === 'title' && chunk.content) {
-      try {
-        updateConversationTitle(request.conversationId, chunk.content)
-      } catch {
-        // Ignore title update errors
-      }
-    }
-    originalOnStreamChunk(chunk)
-  }
+  const { callbacks, flush, destroy } = createBatchedCallbacks(request.conversationId)
 
   const settings = getSettings()
 
@@ -183,12 +188,12 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
     callbacks,
     approvalTimeoutMs: settings.approvalTimeoutMs,
   })
-  currentLangGraphBridge = bridge
+  executionLock.acquire({ type: 'langgraph', bridge })
 
   let result: ExecutionResult
   try {
-    // 验证会话存在
-    getConversationById(request.conversationId)
+    // 验证会话存在 + 保存用户消息
+    validateConversationAndSaveUserMessage(request.conversationId, request.userInput)
 
     // 加载历史对话消息
     const contextWindow = getModelContextWindow(request.modelId)
@@ -197,9 +202,6 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
       contextWindow,
       '[Agent LangGraph]',
     )
-
-    // 保存用户消息
-    getConversationService().saveUserMessage(request.conversationId, request.userInput)
 
     // 解析 Skill
     let adapter = getModelAdapter(request.modelId)
@@ -243,7 +245,7 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
   } finally {
     flush()
     destroy()
-    currentLangGraphBridge = null
+    executionLock.release()
   }
 
   return result
@@ -256,19 +258,7 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
  * largeOutput、reasoningEffort 等 SDK 高级能力。
  */
 async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<ExecutionResult> {
-  const { callbacks, flush, destroy } = createBatchedCallbacks()
-  // Copilot SDK 引擎需要在 title chunk 时更新会话标题
-  const originalOnStreamChunk = callbacks.onStreamChunk
-  callbacks.onStreamChunk = (chunk) => {
-    if (chunk.type === 'title' && chunk.content) {
-      try {
-        updateConversationTitle(request.conversationId, chunk.content)
-      } catch {
-        // Ignore title update errors
-      }
-    }
-    originalOnStreamChunk(chunk)
-  }
+  const { callbacks, flush, destroy } = createBatchedCallbacks(request.conversationId)
 
   const settings = getSettings()
 
@@ -276,15 +266,15 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
     callbacks,
     approvalTimeoutMs: settings.approvalTimeoutMs,
   })
-  currentBridge = bridge
+  executionLock.acquire({ type: 'copilot-sdk', bridge })
 
   let result: ExecutionResult
   try {
-    // 验证会话存在，并读取 sdkSessionId（用于 resume）
-    const conversation = getConversationById(request.conversationId)
-
-    // 保存用户消息
-    getConversationService().saveUserMessage(request.conversationId, request.userInput)
+    // 验证会话存在 + 保存用户消息，并获取 conversation（用于读取 sdkSessionId）
+    const conversation = validateConversationAndSaveUserMessage(
+      request.conversationId,
+      request.userInput,
+    )
 
     // ─── 构建 SessionExtras ────────────────────────────────────
     const extras: SessionExtras = {}
@@ -523,7 +513,7 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
   } finally {
     flush()
     destroy()
-    currentBridge = null
+    executionLock.release()
   }
 
   return result
@@ -558,14 +548,11 @@ async function executeWithBuiltin(
 
   // 在任何 await 之前创建执行器并持有锁
   const executor = new AgentExecutor(executorConfig)
-  currentExecutor = executor
+  executionLock.acquire({ type: 'builtin', executor })
 
   // 所有后续操作包入 try/finally，确保锁在异常时也能释放
   let result: ExecutionResult
   try {
-    // 验证会话存在
-    getConversationById(request.conversationId)
-
     // 加载历史对话消息并进行上下文窗口管理
     //    在保存当前用户消息之前加载，避免重复包含当前输入
     const contextResult = loadHistoryAndTruncate(
@@ -575,8 +562,8 @@ async function executeWithBuiltin(
     )
     executorConfig.historyMessages = contextResult.messages
 
-    // 保存用户消息
-    getConversationService().saveUserMessage(request.conversationId, request.userInput)
+    // 验证会话存在 + 保存用户消息
+    validateConversationAndSaveUserMessage(request.conversationId, request.userInput)
 
     // 解析 Skill（用户指定或意图匹配）
     const skillResolution = await resolveSkill(request.userInput, request.skillName, executorConfig.adapter)
@@ -610,7 +597,7 @@ async function executeWithBuiltin(
   } finally {
     flushBatcher()
     destroyBatcher()
-    currentExecutor = null
+    executionLock.release()
   }
 
   return result
@@ -631,8 +618,9 @@ async function executeWithBuiltin(
  * @throws {AppError} CHAT_ALREADY_RUNNING - 已有执行在运行
  */
 export async function executeAgentFlow(request: AgentExecutionRequest): Promise<ExecutionResult> {
-  // 并发控制 - OPT-02: 在任何 await 之前检查锁，防止竞态条件
-  if (currentExecutor !== null || currentBridge !== null || currentLangGraphBridge !== null) {
+  // 并发控制：锁的 acquire 会在各引擎函数内部完成
+  // 此处仅做前置检查，提供更清晰的错误信息
+  if (executionLock.isLocked()) {
     throw new AppError(ErrorCodes.CHAT_ALREADY_RUNNING, 'An agent execution is already running.')
   }
 

@@ -368,6 +368,11 @@ export class MCPServerManager {
           )
         }
         transport = new StdioTransport(config.command, config.args ?? [], config.env ?? {})
+        // 注册重连回调：子进程崩溃后自动重连成功时，重新执行 MCP 协议握手
+        // （initialize + listTools）并刷新工具注册表
+        transport.onReconnect = () => {
+          void this.handleReconnect(id)
+        }
       } else {
         throw new AppError(
           ErrorCodes.MCP_CONNECT_FAILED,
@@ -419,6 +424,71 @@ export class MCPServerManager {
         `Failed to connect MCP Server: ${err instanceof Error ? err.message : String(err)}`,
         { id },
       )
+    }
+  }
+
+  /**
+   * 重连成功后重新执行 MCP 协议握手。
+   *
+   * StdioTransport 在子进程崩溃后自动重连成功时触发 onReconnect 回调，
+   * 本方法在回调中被调用，负责：
+   * 1. 重新发送 initialize 请求（交换 capabilities）
+   * 2. 重新发送 tools/list 请求（获取最新工具列表）
+   * 3. 刷新 ToolRegistry（注销旧工具 + 注册新工具）
+   * 4. 更新管理表状态
+   *
+   * 重连握手失败时将 Server 状态置为 'error'，但不抛出，
+   * 避免影响 transport 层的后续操作。
+   *
+   * @param id - Server ID
+   */
+  private async handleReconnect(id: string): Promise<void> {
+    const server = this.servers.get(id)
+    if (!server) {
+      console.warn(`[MCP Manager] Reconnect triggered for unknown server "${id}", ignoring.`)
+      return
+    }
+
+    const client = server.client
+    if (!client) {
+      console.warn(`[MCP Manager] Reconnect triggered for server "${id}" with no client, ignoring.`)
+      return
+    }
+
+    console.log(`[MCP Manager] Reconnected to server "${id}", re-initializing protocol handshake...`)
+
+    try {
+      // 1. 重新执行 initialize + listTools
+      await client.initialize()
+      const tools = await client.listTools()
+
+      // 2. 刷新工具注册表：先注销旧工具，再注册新工具
+      const registry = getToolRegistry()
+      try {
+        registry.unregisterMcpServer(id)
+      } catch (cleanupErr) {
+        console.error(`[MCP Manager] Failed to unregister stale tools for server "${id}":`, cleanupErr)
+      }
+
+      for (const tool of tools) {
+        const executeFn: ToolExecuteFn = (args: Record<string, unknown>) =>
+          client.callTool(tool.name, args)
+        registry.registerMcp(id, tool, executeFn)
+      }
+
+      // 3. 更新管理表
+      server.tools = tools
+      server.status = 'connected'
+
+      console.log(
+        `[MCP Manager] Server "${id}" re-initialized successfully, ${tools.length} tool(s) registered.`,
+      )
+    } catch (err) {
+      console.error(
+        `[MCP Manager] Failed to re-initialize server "${id}" after reconnect:`,
+        err instanceof Error ? err.message : err,
+      )
+      server.status = 'error'
     }
   }
 

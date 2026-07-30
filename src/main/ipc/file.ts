@@ -11,6 +11,7 @@ import {
   type FileFilter,
 } from 'electron'
 import { AppError, ErrorCodes } from '../utils/error'
+import { validateOptionalString } from '../utils/ipc-validator'
 
 // ─── 参数类型 ─────────────────────────────────────────────────────
 
@@ -27,18 +28,8 @@ interface SelectFileParams {
 
 // ─── 参数校验辅助函数 ─────────────────────────────────────────────
 
-function assertOptionalString(value: unknown, field: string): asserts value is string | undefined {
-  if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
-    )
-  }
-}
-
-function assertOptionalFilters(value: unknown): asserts value is FileFilter[] | undefined {
-  if (value === undefined) return
+function validateOptionalFilters(value: unknown): FileFilter[] | undefined {
+  if (value === undefined) return undefined
   if (!Array.isArray(value)) {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Field "filters" must be an array.', {
       filters: value,
@@ -59,6 +50,7 @@ function assertOptionalFilters(value: unknown): asserts value is FileFilter[] | 
       )
     }
   }
+  return value as FileFilter[]
 }
 
 // ─── 主窗口辅助 ───────────────────────────────────────────────────
@@ -84,19 +76,23 @@ function getMainWindow(): BrowserWindow | undefined {
  * @returns 选中的目录路径，或 null（取消选择）
  */
 export async function handleSelectDir(params: unknown): Promise<string | null> {
-  if (params !== undefined && (params === null || typeof params !== 'object')) {
+  // params can be undefined for file:select-dir (no required fields)
+  const p = (params ?? {}) as Record<string, unknown>
+  if (
+    params !== undefined &&
+    (params === null || typeof params !== 'object' || Array.isArray(params))
+  ) {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Select dir params must be an object.')
   }
-  const p = (params ?? {}) as Record<string, unknown>
 
-  assertOptionalString(p['title'], 'title')
-  assertOptionalString(p['defaultPath'], 'defaultPath')
+  const title = validateOptionalString(p['title'], 'title')
+  const defaultPath = validateOptionalString(p['defaultPath'], 'defaultPath')
 
   const opts: OpenDialogOptions = {
     properties: ['openDirectory'],
   }
-  if (typeof p['title'] === 'string') opts.title = p['title']
-  if (typeof p['defaultPath'] === 'string') opts.defaultPath = p['defaultPath']
+  if (title) opts.title = title
+  if (defaultPath) opts.defaultPath = defaultPath
 
   const parentWindow = getMainWindow()
   const result = parentWindow
@@ -116,21 +112,25 @@ export async function handleSelectDir(params: unknown): Promise<string | null> {
  * @returns 选中的文件路径，或 null（取消选择）
  */
 export async function handleSelectFile(params: unknown): Promise<string | null> {
-  if (params !== undefined && (params === null || typeof params !== 'object')) {
+  // params can be undefined for file:select-file (no required fields)
+  const p = (params ?? {}) as Record<string, unknown>
+  if (
+    params !== undefined &&
+    (params === null || typeof params !== 'object' || Array.isArray(params))
+  ) {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Select file params must be an object.')
   }
-  const p = (params ?? {}) as Record<string, unknown>
 
-  assertOptionalString(p['title'], 'title')
-  assertOptionalString(p['defaultPath'], 'defaultPath')
-  assertOptionalFilters(p['filters'])
+  const title = validateOptionalString(p['title'], 'title')
+  const defaultPath = validateOptionalString(p['defaultPath'], 'defaultPath')
+  const filters = validateOptionalFilters(p['filters'])
 
   const opts: OpenDialogOptions = {
     properties: ['openFile'],
   }
-  if (typeof p['title'] === 'string') opts.title = p['title']
-  if (typeof p['defaultPath'] === 'string') opts.defaultPath = p['defaultPath']
-  if (Array.isArray(p['filters'])) opts.filters = p['filters'] as FileFilter[]
+  if (title) opts.title = title
+  if (defaultPath) opts.defaultPath = defaultPath
+  if (filters) opts.filters = filters
 
   const parentWindow = getMainWindow()
   const result = parentWindow

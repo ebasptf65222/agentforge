@@ -194,9 +194,10 @@ export class LangGraphAgentBridge {
    *
    * @param approved - 是否批准
    * @param reason - 可选的审批理由
+   * @param executionId - 可选的执行 ID，用于校验响应是否对应当前等待中的审批
    */
-  respondApproval(approved: boolean, reason?: string): void {
-    this.approvalManager.respond(approved, reason)
+  respondApproval(approved: boolean, reason?: string, executionId?: string): void {
+    this.approvalManager.respond(approved, reason, executionId)
   }
 
   /**

@@ -4,7 +4,7 @@
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import type { TransportType, MCPServerConfig } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
-import { assertNonEmptyString } from '../utils/assertions'
+import { validateNonEmptyString } from '../utils/ipc-validator'
 import { getMcpServerManager } from '../mcp/manager'
 import {
   getCatalog,
@@ -56,14 +56,14 @@ export function handleGetCatalogEntry(params: unknown): McpCatalogEntry {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Get catalog entry params must be an object.')
   }
   const p = params as Record<string, unknown>
-  assertNonEmptyString(p['id'], 'id')
+  const id = validateNonEmptyString(p['id'], 'id')
 
-  const entry = getCatalogEntry(p['id'] as string)
+  const entry = getCatalogEntry(id)
   if (!entry) {
     throw new AppError(
       ErrorCodes.MCP_NOT_IN_CATALOG,
-      `Catalog entry "${p['id']}" not found.`,
-      { id: p['id'] },
+      `Catalog entry "${id}" not found.`,
+      { id },
     )
   }
   return entry
@@ -87,14 +87,14 @@ export async function handleInstallFromCatalog(params: unknown): Promise<{
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Install params must be an object.')
   }
   const p = params as Record<string, unknown>
-  assertNonEmptyString(p['id'], 'id')
+  const id = validateNonEmptyString(p['id'], 'id')
 
-  const entry = getCatalogEntry(p['id'] as string)
+  const entry = getCatalogEntry(id)
   if (!entry) {
     throw new AppError(
       ErrorCodes.MCP_NOT_IN_CATALOG,
-      `Catalog entry "${p['id']}" not found.`,
-      { id: p['id'] },
+      `Catalog entry "${id}" not found.`,
+      { id },
     )
   }
 

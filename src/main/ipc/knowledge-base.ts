@@ -5,6 +5,10 @@
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import type { KbDocument, SearchResult, KbStats } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+import {
+  validateNonEmptyString,
+  validateOptionalNumber,
+} from '../utils/ipc-validator'
 import { listKbDocuments, getKbDocumentById, countKbDocuments } from '../db/repos/kb-document'
 import { countAllKbChunks, getKbChunksWithEmbeddings } from '../db/repos/kb-chunk'
 import { importDocument, reimportDocument, removeDocument } from '../knowledge-base/importer'
@@ -17,16 +21,6 @@ import type { IndexOptions } from '../knowledge-base/indexing'
 // ─── 参数校验辅助函数 ─────────────────────────────────────────────
 
 const VALID_FILE_TYPES = ['pdf', 'markdown', 'txt', 'docx', 'xlsx', 'csv'] as const
-
-function assertNonEmptyString(value: unknown, field: string): asserts value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
-    )
-  }
-}
 
 function assertFileType(value: unknown): asserts value is KbDocument['fileType'] {
   if (
@@ -41,29 +35,6 @@ function assertFileType(value: unknown): asserts value is KbDocument['fileType']
   }
 }
 
-function assertOptionalNumber(value: unknown, field: string, min?: number, max?: number): void {
-  if (value === undefined) return
-  const num = Number(value)
-  if (Number.isNaN(num)) {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}" must be a number.`, {
-      field,
-      value,
-    })
-  }
-  if (min !== undefined && num < min) {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}" must be >= ${min}.`, {
-      field,
-      value,
-    })
-  }
-  if (max !== undefined && num > max) {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, `Field "${field}" must be <= ${max}.`, {
-      field,
-      value,
-    })
-  }
-}
-
 // ─── IPC Handlers ────────────────────────────────────────────────
 
 /**
@@ -74,12 +45,9 @@ async function handleImport(
   _event: unknown,
   params: Record<string, unknown>,
 ): Promise<ImportResult> {
-  assertNonEmptyString(params['filePath'], 'filePath')
-  assertNonEmptyString(params['fileName'], 'fileName')
+  const filePath = validateNonEmptyString(params['filePath'], 'filePath')
+  const fileName = validateNonEmptyString(params['fileName'], 'fileName')
   assertFileType(params['fileType'])
-
-  const filePath = params['filePath']
-  const fileName = params['fileName']
 
   // 知识库导入不限制工作区路径——用户可通过系统文件对话框自由选择文档导入
   const fileType = params['fileType'] as KbDocument['fileType']
@@ -106,8 +74,8 @@ function handleList(_event: unknown, params?: Record<string, unknown>): KbDocume
  * 参数: { id }
  */
 function handleGet(_event: unknown, params: Record<string, unknown>): KbDocument {
-  assertNonEmptyString(params['id'], 'id')
-  return getKbDocumentById(params['id'])
+  const id = validateNonEmptyString(params['id'], 'id')
+  return getKbDocumentById(id)
 }
 
 /**
@@ -115,8 +83,8 @@ function handleGet(_event: unknown, params: Record<string, unknown>): KbDocument
  * 参数: { id }
  */
 function handleDelete(_event: unknown, params: Record<string, unknown>): void {
-  assertNonEmptyString(params['id'], 'id')
-  removeDocument(params['id'])
+  const id = validateNonEmptyString(params['id'], 'id')
+  removeDocument(id)
 }
 
 /**
@@ -127,14 +95,14 @@ async function handleReimport(
   _event: unknown,
   params: Record<string, unknown>,
 ): Promise<ImportResult> {
-  assertNonEmptyString(params['id'], 'id')
+  const id = validateNonEmptyString(params['id'], 'id')
 
   const options: ImportOptions = {}
   if (params['chunking'] !== undefined && typeof params['chunking'] === 'object') {
     options.chunking = params['chunking'] as ImportOptions['chunking']
   }
 
-  return await reimportDocument(params['id'], options)
+  return await reimportDocument(id, options)
 }
 
 /**
@@ -145,25 +113,25 @@ async function handleSearch(
   _event: unknown,
   params: Record<string, unknown>,
 ): Promise<SearchResult[]> {
-  assertNonEmptyString(params['query'], 'query')
+  const query = validateNonEmptyString(params['query'], 'query')
 
   const options: SearchOptions = {}
 
-  if (params['topK'] !== undefined) {
-    assertOptionalNumber(params['topK'], 'topK', 1, 50)
-    options.topK = Math.floor(Number(params['topK']))
+  const topK = validateOptionalNumber(params['topK'], 'topK', 1, 50)
+  if (topK !== undefined) {
+    options.topK = Math.floor(topK)
   }
 
   if (typeof params['documentId'] === 'string' && params['documentId'].trim().length > 0) {
     options.documentId = params['documentId']
   }
 
-  if (params['threshold'] !== undefined) {
-    assertOptionalNumber(params['threshold'], 'threshold', 0, 1)
-    options.threshold = Number(params['threshold'])
+  const threshold = validateOptionalNumber(params['threshold'], 'threshold', 0, 1)
+  if (threshold !== undefined) {
+    options.threshold = threshold
   }
 
-  return semanticSearch(params['query'], options)
+  return semanticSearch(query, options)
 }
 
 /**
@@ -171,15 +139,15 @@ async function handleSearch(
  * 参数: { id, batchSize? }
  */
 async function handleIndex(_event: unknown, params: Record<string, unknown>): Promise<number> {
-  assertNonEmptyString(params['id'], 'id')
+  const id = validateNonEmptyString(params['id'], 'id')
 
   const options: IndexOptions = {}
-  if (params['batchSize'] !== undefined) {
-    assertOptionalNumber(params['batchSize'], 'batchSize', 1, 256)
-    options.batchSize = Math.floor(Number(params['batchSize']))
+  const batchSize = validateOptionalNumber(params['batchSize'], 'batchSize', 1, 256)
+  if (batchSize !== undefined) {
+    options.batchSize = Math.floor(batchSize)
   }
 
-  return indexDocumentEmbeddings(params['id'], options)
+  return indexDocumentEmbeddings(id, options)
 }
 
 /**
@@ -187,15 +155,15 @@ async function handleIndex(_event: unknown, params: Record<string, unknown>): Pr
  * 参数: { id, batchSize? }
  */
 async function handleReindex(_event: unknown, params: Record<string, unknown>): Promise<number> {
-  assertNonEmptyString(params['id'], 'id')
+  const id = validateNonEmptyString(params['id'], 'id')
 
   const options: IndexOptions = {}
-  if (params['batchSize'] !== undefined) {
-    assertOptionalNumber(params['batchSize'], 'batchSize', 1, 256)
-    options.batchSize = Math.floor(Number(params['batchSize']))
+  const batchSize = validateOptionalNumber(params['batchSize'], 'batchSize', 1, 256)
+  if (batchSize !== undefined) {
+    options.batchSize = Math.floor(batchSize)
   }
 
-  return reindexDocumentEmbeddings(params['id'], options)
+  return reindexDocumentEmbeddings(id, options)
 }
 
 /**

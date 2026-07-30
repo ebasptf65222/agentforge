@@ -12,7 +12,14 @@ vi.mock('electron', () => ({
 }))
 
 // Import after mock is set up
-const { isEncryptionAvailable, encryptApiKey, decryptApiKey } = await import('./encryption')
+const {
+  isEncryptionAvailable,
+  encryptApiKey,
+  decryptApiKey,
+  isEncryptedValueValid,
+  resetEncryptedApiKey,
+  getEncryptionStatus,
+} = await import('./encryption')
 const { AppError } = await import('./error')
 
 describe('isEncryptionAvailable', () => {
@@ -104,5 +111,105 @@ describe('encrypt/decrypt round-trip', () => {
 
     const decrypted = decryptApiKey(encrypted)
     expect(decrypted).toBe(plainKey)
+  })
+})
+
+// ─── 密钥恢复机制测试 ──────────────────────────────────────────
+
+describe('decryptApiKey DECRYPTION_FAILED', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('should throw AppError with DECRYPTION_FAILED when safeStorage.decryptString throws', () => {
+    mockSafeStorage.isEncryptionAvailable.mockReturnValue(true)
+    mockSafeStorage.decryptString.mockImplementation(() => {
+      throw new Error('Decryption failed: invalid encrypted data')
+    })
+
+    try {
+      decryptApiKey('aW52YWxpZC1kYXRh')
+      throw new Error('Should have thrown')
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError)
+      expect((error as InstanceType<typeof AppError>).code).toBe('DECRYPTION_FAILED')
+      expect((error as InstanceType<typeof AppError>).message).toContain('decrypt')
+    }
+  })
+
+  it('should still throw SAFE_STORAGE_UNAVAILABLE when safeStorage is not available', () => {
+    mockSafeStorage.isEncryptionAvailable.mockReturnValue(false)
+
+    try {
+      decryptApiKey('some-key')
+      throw new Error('Should have thrown')
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError)
+      expect((error as InstanceType<typeof AppError>).code).toBe('SAFE_STORAGE_UNAVAILABLE')
+    }
+  })
+})
+
+describe('isEncryptedValueValid', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('should return true when decryption succeeds', () => {
+    mockSafeStorage.isEncryptionAvailable.mockReturnValue(true)
+    mockSafeStorage.decryptString.mockReturnValue('plain-key')
+
+    expect(isEncryptedValueValid('valid-base64')).toBe(true)
+    expect(mockSafeStorage.decryptString).toHaveBeenCalledTimes(1)
+  })
+
+  it('should return false when decryption throws', () => {
+    mockSafeStorage.isEncryptionAvailable.mockReturnValue(true)
+    mockSafeStorage.decryptString.mockImplementation(() => {
+      throw new Error('corrupted')
+    })
+
+    expect(isEncryptedValueValid('corrupted-base64')).toBe(false)
+  })
+
+  it('should return false when safeStorage is not available', () => {
+    mockSafeStorage.isEncryptionAvailable.mockReturnValue(false)
+
+    expect(isEncryptedValueValid('some-key')).toBe(false)
+    expect(mockSafeStorage.decryptString).not.toHaveBeenCalled()
+  })
+})
+
+describe('resetEncryptedApiKey', () => {
+  it('should return an empty string', () => {
+    expect(resetEncryptedApiKey()).toBe('')
+  })
+
+  it('should always return empty string (idempotent)', () => {
+    expect(resetEncryptedApiKey()).toBe('')
+    expect(resetEncryptedApiKey()).toBe('')
+  })
+})
+
+describe('getEncryptionStatus', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('should return available=true when safeStorage is available', () => {
+    mockSafeStorage.isEncryptionAvailable.mockReturnValue(true)
+
+    const status = getEncryptionStatus()
+    expect(status.available).toBe(true)
+    expect(status.reason).toBeUndefined()
+  })
+
+  it('should return available=false with reason when safeStorage is unavailable', () => {
+    mockSafeStorage.isEncryptionAvailable.mockReturnValue(false)
+
+    const status = getEncryptionStatus()
+    expect(status.available).toBe(false)
+    expect(typeof status.reason).toBe('string')
+    expect(status.reason!.length).toBeGreaterThan(0)
   })
 })

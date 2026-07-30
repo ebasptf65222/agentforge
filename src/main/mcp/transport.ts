@@ -67,6 +67,19 @@ export class StdioTransport implements ITransport {
   private isClosed = false
 
   /**
+   * 重连成功后触发的回调属性。
+   *
+   * 子进程意外退出并自动重连成功后，transport 会重新 spawn 一个子进程，
+   * 但新的子进程尚未执行 MCP 协议握手（initialize / listTools）。
+   * 上层（如 MCPServerManager）可设置此回调，在重连成功后重新执行
+   * 协议握手并更新工具注册表。
+   *
+   * 回调可为同步或异步；异步回调的 rejection 会被捕获并记录日志，
+   * 不会阻塞传输层后续操作。
+   */
+  onReconnect: (() => void | Promise<void>) | null = null
+
+  /**
    * @param command - 要执行的命令（如 'node'、'python'）
    * @param args - 命令参数
    * @param env - 环境变量（会与 process.env 合并）
@@ -202,10 +215,16 @@ export class StdioTransport implements ITransport {
 
   /**
    * 处理进程意外退出，尝试自动重连。
-   * - 最多重连 1 次，等待 2000ms
+   * - 最多重连 MAX_RECONNECT_ATTEMPTS 次，每次等待 RECONNECT_DELAY_MS
+   * - 重连成功后触发 onReconnect 回调，通知上层重新执行协议握手
    * - 重连失败或达到上限后标记为已断开
    */
-  private async handleUnexpectedExit(_code: number | null, _signal: string | null): Promise<void> {
+  private async handleUnexpectedExit(code: number | null, signal: string | null): Promise<void> {
+    console.warn(
+      `[MCP Transport] Process exited unexpectedly (code=${code}, signal=${signal}), ` +
+        `attempting reconnect ${this.reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS}...`,
+    )
+
     if (this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       this.reconnectAttempts++
       await new Promise((resolve) => setTimeout(resolve, RECONNECT_DELAY_MS))
@@ -215,7 +234,11 @@ export class StdioTransport implements ITransport {
 
       try {
         await this.spawnProcess()
-        // 重连成功
+        // 重连成功：触发 onReconnect 回调，通知上层重新执行协议握手
+        console.log(
+          `[MCP Transport] Reconnected successfully after ${this.reconnectAttempts} attempt(s).`,
+        )
+        this.emitReconnect()
       } catch {
         this.isClosed = true
         this.emitClose()
@@ -389,6 +412,26 @@ export class StdioTransport implements ITransport {
   private emitError(error: Error): void {
     for (const cb of this.errorCallbacks) {
       cb(error)
+    }
+  }
+
+  /**
+   * 触发重连成功回调。
+   * 支持同步与异步回调；异步回调的 rejection 被捕获并记录日志，
+   * 不会影响传输层后续操作。
+   */
+  private emitReconnect(): void {
+    const cb = this.onReconnect
+    if (!cb) return
+    try {
+      const result = cb()
+      if (result instanceof Promise) {
+        result.catch((err: unknown) => {
+          console.error('[MCP Transport] onReconnect callback error:', err)
+        })
+      }
+    } catch (err) {
+      console.error('[MCP Transport] onReconnect callback error:', err)
     }
   }
 

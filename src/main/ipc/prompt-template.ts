@@ -5,8 +5,12 @@
 
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import type { PromptTemplate } from '@shared/types'
-import { AppError, ErrorCodes } from '../utils/error'
-import { assertNonEmptyString } from '../utils/assertions'
+import {
+  ensureParamsObject,
+  validateNonEmptyString,
+  validateOptionalString,
+  validateOptionalStringArray,
+} from '../utils/ipc-validator'
 import {
   createPromptTemplate,
   getPromptTemplateById,
@@ -18,32 +22,6 @@ import {
   type UpdatePromptTemplateParams,
 } from '../db/repos/prompt-template'
 
-// ─── 参数校验辅助函数 ─────────────────────────────────────────────
-
-function assertOptionalString(value: unknown, field: string): asserts value is string | undefined {
-  if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be a non-empty string.`,
-      { field, value },
-    )
-  }
-}
-
-function assertOptionalStringArray(
-  value: unknown,
-  field: string,
-): asserts value is string[] | undefined {
-  if (value === undefined) return
-  if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      `Field "${field}" must be an array of strings.`,
-      { field, value },
-    )
-  }
-}
-
 // ─── IPC 通道处理函数 ─────────────────────────────────────────────
 
 /**
@@ -54,14 +32,11 @@ export function handleList(params: unknown): PromptTemplate[] {
   if (params === undefined || params === null) {
     return getAllPromptTemplates()
   }
-  if (typeof params !== 'object') {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'List prompt template params must be an object.')
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'prompt-template:list')
 
   if (p['category'] !== undefined) {
-    assertNonEmptyString(p['category'], 'category')
-    return getPromptTemplatesByCategory(p['category'])
+    const category = validateNonEmptyString(p['category'], 'category')
+    return getPromptTemplatesByCategory(category)
   }
 
   return getAllPromptTemplates()
@@ -72,38 +47,29 @@ export function handleList(params: unknown): PromptTemplate[] {
  * 返回 PromptTemplate 或 null（不存在时）
  */
 export function handleGet(params: unknown): PromptTemplate | null {
-  if (params === null || typeof params !== 'object') {
-    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Get prompt template params must be an object.')
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'prompt-template:get')
 
-  assertNonEmptyString(p['id'], 'id')
+  const id = validateNonEmptyString(p['id'], 'id')
 
-  return getPromptTemplateById(p['id'])
+  return getPromptTemplateById(id)
 }
 
 /**
  * prompt-template:create - 创建 Prompt 模板
  */
 export function handleCreate(params: unknown): PromptTemplate {
-  if (params === null || typeof params !== 'object') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      'Create prompt template params must be an object.',
-    )
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'prompt-template:create')
 
-  assertNonEmptyString(p['title'], 'title')
-  assertNonEmptyString(p['content'], 'content')
-  assertOptionalString(p['category'], 'category')
-  assertOptionalStringArray(p['variables'], 'variables')
+  const title = validateNonEmptyString(p['title'], 'title')
+  const content = validateNonEmptyString(p['content'], 'content')
+  const category = validateOptionalString(p['category'], 'category')
+  const variables = validateOptionalStringArray(p['variables'], 'variables')
 
   const createParams: CreatePromptTemplateParams = {
-    title: p['title'],
-    content: p['content'],
-    category: p['category'],
-    variables: p['variables'],
+    title,
+    content,
+    category,
+    variables,
   }
 
   return createPromptTemplate(createParams)
@@ -113,26 +79,20 @@ export function handleCreate(params: unknown): PromptTemplate {
  * prompt-template:update - 更新 Prompt 模板
  */
 export function handleUpdate(params: unknown): void {
-  if (params === null || typeof params !== 'object') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      'Update prompt template params must be an object.',
-    )
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'prompt-template:update')
 
-  assertNonEmptyString(p['id'], 'id')
-  assertOptionalString(p['title'], 'title')
-  assertOptionalString(p['content'], 'content')
-  assertOptionalString(p['category'], 'category')
-  assertOptionalStringArray(p['variables'], 'variables')
+  const id = validateNonEmptyString(p['id'], 'id')
+  const title = validateOptionalString(p['title'], 'title')
+  const content = validateOptionalString(p['content'], 'content')
+  const category = validateOptionalString(p['category'], 'category')
+  const variables = validateOptionalStringArray(p['variables'], 'variables')
 
   const updateParams: UpdatePromptTemplateParams = {
-    id: p['id'],
-    title: p['title'],
-    content: p['content'],
-    category: p['category'],
-    variables: p['variables'],
+    id,
+    title,
+    content,
+    category,
+    variables,
   }
 
   updatePromptTemplate(updateParams)
@@ -142,17 +102,11 @@ export function handleUpdate(params: unknown): void {
  * prompt-template:delete - 删除 Prompt 模板
  */
 export function handleDelete(params: unknown): void {
-  if (params === null || typeof params !== 'object') {
-    throw new AppError(
-      ErrorCodes.VALIDATION_ERROR,
-      'Delete prompt template params must be an object.',
-    )
-  }
-  const p = params as Record<string, unknown>
+  const p = ensureParamsObject(params, 'prompt-template:delete')
 
-  assertNonEmptyString(p['id'], 'id')
+  const id = validateNonEmptyString(p['id'], 'id')
 
-  deletePromptTemplate(p['id'])
+  deletePromptTemplate(id)
 }
 
 // ─── 通道注册表 ───────────────────────────────────────────────────

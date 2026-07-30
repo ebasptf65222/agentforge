@@ -8,7 +8,7 @@ import type { VoiceConfig, TtsOptions, SttOptions } from '@shared/types'
 import { ttsService } from '../services/tts-service'
 import { sttService } from '../services/stt-service'
 import { AppError, ErrorCodes } from '../utils/error'
-import { assertNonEmptyString } from '../utils/assertions'
+import { validateNonEmptyString } from '../utils/ipc-validator'
 
 // ─── TTS Handlers ──────────────────────────────────────────────
 
@@ -25,8 +25,8 @@ async function handleTtsSynthesize(
   if (params === null || typeof params !== 'object') {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'tts-synthesize params must be an object.')
   }
-  const { text, options } = params
-  assertNonEmptyString(text, 'text')
+  const { options } = params
+  const text = validateNonEmptyString(params.text, 'text')
   return await ttsService.synthesize(text, options)
 }
 

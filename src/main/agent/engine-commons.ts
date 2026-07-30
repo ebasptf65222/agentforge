@@ -9,12 +9,33 @@
 
 import type { ExecutionResult } from '@shared/types'
 import { getMessagesByConversationId } from '../db/repos/message'
+import { getConversationById } from '../db/repos/conversation'
 import {
   manageContext,
   chatMessagesToContext,
   type ContextManagementResult,
 } from './context-manager'
 import { getConversationService } from '../services/conversation-service'
+
+/**
+ * 验证会话存在并保存用户消息。
+ *
+ * 三个引擎共享的前置步骤：
+ * 1. 验证会话存在（不存在则抛出 CONVERSATION_NOT_FOUND）
+ * 2. 保存用户消息到消息表
+ *
+ * @param conversationId - 会话 ID
+ * @param userInput - 用户输入文本
+ * @returns 会话实体（供后续使用）
+ */
+export function validateConversationAndSaveUserMessage(
+  conversationId: string,
+  userInput: string,
+): ReturnType<typeof getConversationById> {
+  const conversation = getConversationById(conversationId)
+  getConversationService().saveUserMessage(conversationId, userInput)
+  return conversation
+}
 
 /**
  * 加载历史对话消息并进行上下文窗口截断。

@@ -75,6 +75,28 @@ export function shouldRequireApproval(toolAction: ToolAction, approvalMode: Appr
   return APPROVAL_MATRIX[approvalMode][riskLevel]
 }
 
+// ─── 审批审计日志 ─────────────────────────────────────────────────
+
+/**
+ * 审批审计条目。
+ * 记录每一次审批决策（批准/拒绝/取消/超时）的完整上下文，
+ * 用于追溯谁在何时批准/拒绝了什么操作。
+ */
+export interface ApprovalAuditEntry {
+  /** 决策时间戳（Unix 毫秒） */
+  timestamp: number
+  /** 工具名称 */
+  toolName: string
+  /** 风险等级（low | medium | high） */
+  riskLevel: string
+  /** 是否批准 */
+  approved: boolean
+  /** 决策原因（如用户填写的原因、TIMEOUT、CANCELLED 等） */
+  reason?: string
+  /** 关联的执行 ID */
+  executionId: string
+}
+
 // ─── 审批等待器 ─────────────────────────────────────────────────
 
 /** 默认审批超时时间（5 分钟） */
@@ -178,6 +200,8 @@ export class ApprovalWaiter {
  */
 export class ApprovalManager {
   private currentWaiter: ApprovalWaiter | null = null
+  /** 审批审计日志（内存保存，应用重启后清空） */
+  private auditLog: ApprovalAuditEntry[] = []
 
   /**
    * 创建一个新的审批等待并返回。
@@ -205,6 +229,17 @@ export class ApprovalManager {
     onRequest(request)
 
     const response = await waiter.waitForResponse()
+
+    // 记录审计条目：涵盖所有决策路径（用户批准/拒绝、取消、超时）
+    this.auditLog.push({
+      timestamp: Date.now(),
+      toolName: request.toolAction.toolName,
+      riskLevel: request.toolAction.riskLevel,
+      approved: response.approved,
+      reason: response.reason,
+      executionId: response.executionId,
+    })
+
     // 只有当当前 waiter 仍是本实例时才清除（避免竞态条件）
     if (this.currentWaiter === waiter) {
       this.currentWaiter = null
@@ -215,11 +250,28 @@ export class ApprovalManager {
   /**
    * 响应当前审批。
    * 供 IPC handler 的 agent:approve 调用。
+   *
+   * @param approved - 是否批准
+   * @param reason - 可选的审批理由
+   * @param executionId - 可选的执行 ID，用于校验响应是否对应当前等待中的审批
+   * @returns true 表示响应已传递给等待器；false 表示 executionId 不匹配或无等待中的审批
    */
-  respond(approved: boolean, reason?: string): void {
-    if (this.currentWaiter) {
-      this.currentWaiter.respond(approved, reason)
+  respond(approved: boolean, reason?: string, executionId?: string): boolean {
+    if (!this.currentWaiter) return false
+
+    // 如果提供了 executionId，校验是否匹配当前等待中的审批请求
+    if (executionId !== undefined) {
+      const currentExecutionId = this.currentWaiter.getRequest().executionId
+      if (currentExecutionId !== executionId) {
+        console.warn(
+          `[approval] executionId mismatch: received "${executionId}" but current pending approval is for "${currentExecutionId}". Response ignored.`,
+        )
+        return false
+      }
     }
+
+    this.currentWaiter.respond(approved, reason)
+    return true
   }
 
   /**
@@ -245,6 +297,23 @@ export class ApprovalManager {
    */
   getCurrentRequest(): ApprovalRequest | null {
     return this.currentWaiter?.getRequest() ?? null
+  }
+
+  /**
+   * 获取审计日志副本（修改副本不影响内部日志）。
+   * 日志仅保存在内存中，应用重启后清空。
+   *
+   * @returns 审计条目数组副本
+   */
+  getAuditLog(): ApprovalAuditEntry[] {
+    return [...this.auditLog]
+  }
+
+  /**
+   * 清空审计日志。
+   */
+  clearAuditLog(): void {
+    this.auditLog = []
   }
 }
 
