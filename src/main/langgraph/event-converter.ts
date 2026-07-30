@@ -33,6 +33,30 @@ export class EventConverter {
   }
 
   /**
+   * 推送 ask-user 事件。
+   *
+   * 当 copilot_ask_user 委托工具触发时，将用户提问请求推送到前端。
+   * 前端通过 IPC agent:respond-user-input 回复。
+   *
+   * @param requestJson - 序列化的 UserInputRequest
+   */
+  pushAskUser(requestJson: string): void {
+    this.callbacks.onStreamChunk({ type: 'ask-user', content: requestJson })
+  }
+
+  /**
+   * 推送 elicitation-request 事件。
+   *
+   * 当 copilot_elicitation 委托工具触发时，将表单请求推送到前端。
+   * 前端通过 IPC agent:respond-elicitation 回复。
+   *
+   * @param requestJson - 序列化的 ElicitationRequest
+   */
+  pushElicitationRequest(requestJson: string): void {
+    this.callbacks.onStreamChunk({ type: 'elicitation-request', content: requestJson })
+  }
+
+  /**
    * 推送节点级更新事件（P3-03: stream() 实时事件流）。
    *
    * 当 StateGraph 使用 stream() 执行时，每个节点完成后会通过
