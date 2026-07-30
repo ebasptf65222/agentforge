@@ -18,7 +18,7 @@ import {
 
 const VALID_THEMES: readonly AppSettings['theme'][] = ['dark', 'light', 'system']
 const VALID_APPROVAL_MODES: readonly ApprovalMode[] = ['suggest', 'auto-edit', 'full-auto']
-const VALID_ENGINE_TYPES: readonly EngineType[] = ['builtin', 'copilot-sdk']
+const VALID_ENGINE_TYPES: readonly EngineType[] = ['builtin', 'copilot-sdk', 'langgraph']
 
 // ─── 复杂嵌套校验（保留为本地函数） ──────────────────────────────
 
