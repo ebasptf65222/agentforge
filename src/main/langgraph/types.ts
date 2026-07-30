@@ -13,6 +13,21 @@ export interface LangGraphBridgeConfig {
   approvalTimeoutMs: number
 }
 
+/**
+ * 委托工具上下文。
+ *
+ * 提供 ask_user / elicitation 等交互工具所需的共享依赖，
+ * 使 LangGraph ReAct 循环中的工具能够与前端进行双向 IPC 通信。
+ */
+export interface DelegationToolContext {
+  /** 当前执行 ID（用于关联 IPC 响应） */
+  executionId: string
+  /** 事件回调（推送 ask-user / elicitation-request chunk 到前端） */
+  callbacks: AgentEventCallbacks
+  /** 审批超时时间（同时用作用户输入超时） */
+  approvalTimeoutMs: number
+}
+
 /** LangGraph 执行参数 */
 export interface LangGraphExecuteParams {
   request: AgentExecutionRequest

@@ -58,7 +58,9 @@ const showSkillBanner = computed(() => selectedSkillInfo.value !== null)
 /** Current engine label for the status indicator */
 const engineLabel = computed(() => {
   const engineType = settingsStore.settings?.engineType ?? 'builtin'
-  return engineType === 'copilot-sdk' ? 'Copilot SDK' : '内置引擎'
+  if (engineType === 'copilot-sdk') return 'Copilot SDK'
+  if (engineType === 'langgraph') return 'LangGraph'
+  return '内置引擎'
 })
 
 /** Current model name for the status indicator */

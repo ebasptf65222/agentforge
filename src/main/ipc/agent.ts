@@ -141,6 +141,9 @@ export function handleApprove(params: unknown): void {
 
 /**
  * agent:respond-user-input - 响应 AI 主动提问（ask_user）。
+ *
+ * 支持 Copilot SDK 引擎和 LangGraph 引擎（委托工具集成）。
+ * 优先检查 Copilot SDK bridge，其次检查 LangGraph bridge。
  */
 export function handleRespondUserInput(params: unknown): void {
   if (params === null || typeof params !== 'object') {
@@ -156,20 +159,40 @@ export function handleRespondUserInput(params: unknown): void {
     )
   }
 
+  const response = p['response'] as string
+
+  // Copilot SDK 引擎
   const bridge = getCurrentBridge()
   if (bridge) {
-    const success = bridge.respondToUserInput(requestId, p['response'] as string)
+    const success = bridge.respondToUserInput(requestId, response)
     if (!success) {
       throw new AppError(
         ErrorCodes.VALIDATION_ERROR,
         'No matching user input request found. It may have timed out or been cancelled.',
       )
     }
+    return
+  }
+
+  // LangGraph 引擎（委托工具集成）
+  const lgBridge = getCurrentLangGraphBridge()
+  if (lgBridge) {
+    const success = lgBridge.respondToUserInput(requestId, response)
+    if (!success) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'No matching user input request found. It may have timed out or been cancelled.',
+      )
+    }
+    return
   }
 }
 
 /**
  * agent:respond-elicitation - 响应 elicitation 表单交互。
+ *
+ * 支持 Copilot SDK 引擎和 LangGraph 引擎（委托工具集成）。
+ * 优先检查 Copilot SDK bridge，其次检查 LangGraph bridge。
  */
 export function handleRespondElicitation(params: unknown): void {
   if (params === null || typeof params !== 'object') {
@@ -185,18 +208,32 @@ export function handleRespondElicitation(params: unknown): void {
     )
   }
 
+  const response = p['response'] as Record<string, unknown>
+
+  // Copilot SDK 引擎
   const bridge = getCurrentBridge()
   if (bridge) {
-    const success = bridge.respondToElicitation(
-      requestId,
-      p['response'] as Record<string, unknown>,
-    )
+    const success = bridge.respondToElicitation(requestId, response)
     if (!success) {
       throw new AppError(
         ErrorCodes.VALIDATION_ERROR,
         'No matching elicitation request found. It may have timed out or been cancelled.',
       )
     }
+    return
+  }
+
+  // LangGraph 引擎（委托工具集成）
+  const lgBridge = getCurrentLangGraphBridge()
+  if (lgBridge) {
+    const success = lgBridge.respondToElicitation(requestId, response)
+    if (!success) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'No matching elicitation request found. It may have timed out or been cancelled.',
+      )
+    }
+    return
   }
 }
 
