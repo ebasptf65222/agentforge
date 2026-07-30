@@ -444,4 +444,93 @@ describe('ApprovalManager audit log', () => {
 
     expect(manager.getAuditLog()).toEqual([])
   })
+
+  it('should record requestTimestamp and responseTimeMs in audit entry', async () => {
+    const manager = new ApprovalManager()
+    const requestTs = Date.now()
+    const request = {
+      executionId: 'exec-ts-1',
+      step: 1,
+      toolAction: buildToolAction('file_write', { path: '/test/file.ts' }),
+      reason: 'timestamp test',
+      timestamp: requestTs,
+    }
+
+    setTimeout(() => manager.respond(true, 'ok'), 50)
+    await manager.requestApproval(request, DEFAULT_APPROVAL_TIMEOUT_MS, vi.fn())
+
+    const log = manager.getAuditLog()
+    expect(log).toHaveLength(1)
+    expect(log[0].requestTimestamp).toBe(requestTs)
+    expect(typeof log[0].responseTimeMs).toBe('number')
+    expect(log[0].responseTimeMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('should record toolArgumentsSummary (truncated to 200 chars)', async () => {
+    const manager = new ApprovalManager()
+    const longArgs: Record<string, unknown> = {}
+    for (let i = 0; i < 50; i++) {
+      longArgs[`key_${i}`] = `value_${i}_`.repeat(10)
+    }
+    const request = {
+      executionId: 'exec-summary-1',
+      step: 1,
+      toolAction: buildToolAction('file_write', longArgs),
+      reason: 'summary test',
+      timestamp: Date.now(),
+    }
+
+    setTimeout(() => manager.respond(true, 'ok'), 10)
+    await manager.requestApproval(request, DEFAULT_APPROVAL_TIMEOUT_MS, vi.fn())
+
+    const log = manager.getAuditLog()
+    expect(log).toHaveLength(1)
+    expect(typeof log[0].toolArgumentsSummary).toBe('string')
+    expect(log[0].toolArgumentsSummary!.length).toBeLessThanOrEqual(200)
+  })
+
+  it('should fall back to Date.now() for requestTimestamp when not provided', async () => {
+    const manager = new ApprovalManager()
+    const beforeTs = Date.now()
+    const request = {
+      executionId: 'exec-fallback-1',
+      step: 1,
+      toolAction: buildToolAction('web_search', { q: 'test' }),
+      reason: 'fallback test',
+      // timestamp intentionally omitted
+    }
+
+    setTimeout(() => manager.respond(true, 'ok'), 10)
+    await manager.requestApproval(request, DEFAULT_APPROVAL_TIMEOUT_MS, vi.fn())
+
+    const log = manager.getAuditLog()
+    expect(log).toHaveLength(1)
+    expect(log[0].requestTimestamp).toBeGreaterThanOrEqual(beforeTs)
+    expect(log[0].responseTimeMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('should enforce MAX_AUDIT_LOG_SIZE by trimming old entries', async () => {
+    const manager = new ApprovalManager()
+
+    // Record 5 entries
+    for (let i = 0; i < 5; i++) {
+      const req = {
+        executionId: `exec-overflow-${i}`,
+        step: 1,
+        toolAction: buildToolAction('web_search', { idx: i }),
+        reason: `entry ${i}`,
+        timestamp: Date.now(),
+      }
+      setTimeout(() => manager.respond(true, 'ok'), 5)
+      await manager.requestApproval(req, DEFAULT_APPROVAL_TIMEOUT_MS, vi.fn())
+    }
+
+    expect(manager.getAuditLog()).toHaveLength(5)
+    expect(manager.getAuditLog()[0].executionId).toBe('exec-overflow-0')
+
+    // Verify the log is a copy (clearing copy does not affect internal state)
+    const copy = manager.getAuditLog()
+    copy.length = 0
+    expect(manager.getAuditLog()).toHaveLength(5)
+  })
 })

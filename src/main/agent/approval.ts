@@ -77,6 +77,9 @@ export function shouldRequireApproval(toolAction: ToolAction, approvalMode: Appr
 
 // ─── 审批审计日志 ─────────────────────────────────────────────────
 
+/** 审计日志最大条数（防止内存无限增长） */
+const MAX_AUDIT_LOG_SIZE = 1000
+
 /**
  * 审批审计条目。
  * 记录每一次审批决策（批准/拒绝/取消/超时）的完整上下文，
@@ -95,6 +98,12 @@ export interface ApprovalAuditEntry {
   reason?: string
   /** 关联的执行 ID */
   executionId: string
+  /** 请求发起时间戳（用于计算响应时间） */
+  requestTimestamp: number
+  /** 响应时间（毫秒，从请求到决策） */
+  responseTimeMs: number
+  /** 工具参数摘要（截断前 200 字符，用于审计追溯） */
+  toolArgumentsSummary?: string
 }
 
 // ─── 审批等待器 ─────────────────────────────────────────────────
@@ -231,6 +240,8 @@ export class ApprovalManager {
     const response = await waiter.waitForResponse()
 
     // 记录审计条目：涵盖所有决策路径（用户批准/拒绝、取消、超时）
+    // 包含响应时间和工具参数摘要，便于事后追溯
+    const requestTimestamp = request.timestamp ?? Date.now()
     this.auditLog.push({
       timestamp: Date.now(),
       toolName: request.toolAction.toolName,
@@ -238,7 +249,15 @@ export class ApprovalManager {
       approved: response.approved,
       reason: response.reason,
       executionId: response.executionId,
+      requestTimestamp,
+      responseTimeMs: Date.now() - requestTimestamp,
+      toolArgumentsSummary: JSON.stringify(request.toolAction.arguments).substring(0, 200),
     })
+
+    // 防止审计日志无限增长：超过上限时移除最旧的条目
+    if (this.auditLog.length > MAX_AUDIT_LOG_SIZE) {
+      this.auditLog.shift()
+    }
 
     // 只有当当前 waiter 仍是本实例时才清除（避免竞态条件）
     if (this.currentWaiter === waiter) {

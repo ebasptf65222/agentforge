@@ -35,6 +35,13 @@ export class HttpTransport implements ITransport {
   private readonly reconnectDelay = 2000
 
   /**
+   * 重连成功回调。
+   * 当 send() 中检测到连接失败并成功重连后触发，
+   * 供 MCPServerManager 重新执行 MCP 协议握手。
+   */
+  onReconnect?: () => void | Promise<void>
+
+  /**
    * @param url - MCP Server 的 HTTP 端点 URL
    * @param headers - 额外的 HTTP 请求头（如 Authorization）
    */
@@ -148,7 +155,15 @@ export class HttpTransport implements ITransport {
         if (!this.isClosed) {
           try {
             await this.connect()
-            // 重连成功后重试发送
+            // 重连成功后，先通知 manager 重新执行 MCP 协议握手，
+            // 再重试发送原始消息
+            if (this.onReconnect) {
+              try {
+                await this.onReconnect()
+              } catch (reconnectErr) {
+                console.warn('[MCP HttpTransport] onReconnect callback failed:', reconnectErr)
+              }
+            }
             return this.send(message)
           } catch {
             // 重连失败，继续抛出

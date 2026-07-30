@@ -221,13 +221,20 @@ async function generateOllamaEmbedding(text: string, config: EmbeddingConfig): P
 
   if (!response.ok) {
     const body = await response.text()
-    throw new Error(`Ollama API error ${response.status}: ${body}`)
+    throw new AppError(
+      ErrorCodes.KB_EMBEDDING_ERROR,
+      `Ollama API error ${response.status}: ${body}`,
+      { status: response.status, body },
+    )
   }
 
   const data = (await response.json()) as OllamaEmbedResponse
 
   if (!Array.isArray(data.embedding)) {
-    throw new Error('Invalid Ollama response: embedding is not an array')
+    throw new AppError(
+      ErrorCodes.KB_EMBEDDING_ERROR,
+      'Invalid Ollama response: embedding is not an array',
+    )
   }
 
   return data.embedding
@@ -280,13 +287,20 @@ async function generateOpenAiEmbedding(text: string, config: EmbeddingConfig): P
 
   if (!response.ok) {
     const body = await response.text()
-    throw new Error(`OpenAI API error ${response.status}: ${body}`)
+    throw new AppError(
+      ErrorCodes.KB_EMBEDDING_ERROR,
+      `OpenAI API error ${response.status}: ${body}`,
+      { status: response.status, body },
+    )
   }
 
   const data = (await response.json()) as OpenAiEmbedResponse
 
   if (!data.data?.[0]?.embedding) {
-    throw new Error('Invalid OpenAI response: missing embedding data')
+    throw new AppError(
+      ErrorCodes.KB_EMBEDDING_ERROR,
+      'Invalid OpenAI response: missing embedding data',
+    )
   }
 
   return data.data[0].embedding
@@ -341,13 +355,20 @@ async function generateOpenAiEmbeddingsBatch(
 
     if (!response.ok) {
       const body = await response.text()
-      throw new Error(`OpenAI API error ${response.status}: ${body}`)
+      throw new AppError(
+        ErrorCodes.KB_EMBEDDING_ERROR,
+        `OpenAI API error ${response.status}: ${body}`,
+        { status: response.status, body },
+      )
     }
 
     const data = (await response.json()) as OpenAiEmbedResponse
 
     if (!Array.isArray(data.data)) {
-      throw new Error('Invalid OpenAI response: data is not an array')
+      throw new AppError(
+        ErrorCodes.KB_EMBEDDING_ERROR,
+        'Invalid OpenAI response: data is not an array',
+      )
     }
 
     // 按 index 排序

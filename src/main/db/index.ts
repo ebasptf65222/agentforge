@@ -4,6 +4,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
 import { app } from 'electron'
+import { AppError, ErrorCodes } from '../utils/error'
 
 // ─── 单例数据库实例 ─────────────────────────────────────────────
 let db: Database.Database | null = null
@@ -38,7 +39,11 @@ function resolveSchemaPath(): string {
     }
   }
 
-  throw new Error(`Schema file not found. Tried:\n${candidates.map((c) => `  - ${c}`).join('\n')}`)
+  throw new AppError(
+    ErrorCodes.DB_ERROR,
+    `Schema file not found. Tried:\n${candidates.map((c) => `  - ${c}`).join('\n')}`,
+    { candidates },
+  )
 }
 
 /**
@@ -372,7 +377,10 @@ function runConditionalMigrations(db: Database.Database): void {
  */
 export function getDatabase(): Database.Database {
   if (db === null) {
-    throw new Error('Database not initialized. Call initDatabase() first.')
+    throw new AppError(
+      ErrorCodes.DB_ERROR,
+      'Database not initialized. Call initDatabase() first.',
+    )
   }
   return db
 }

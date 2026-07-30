@@ -432,7 +432,7 @@ export async function scanCodebase(
       message: 'Generating embeddings...',
     })
 
-    await generateCodebaseEmbeddings(options.rootPath, options.embeddingBatchSize ?? 32, onProgress)
+    await generateCodebaseEmbeddings(options.rootPath, options.embeddingBatchSize ?? 32, onProgress, options.abortSignal)
   }
 
   const duration = Date.now() - startTime
@@ -483,11 +483,17 @@ export async function generateCodebaseEmbeddings(
   rootPath: string | null,
   batchSize: number = 32,
   onProgress?: ProgressCallback,
+  abortSignal?: AbortSignal,
 ): Promise<number> {
   const files = listCodebaseFiles({ status: 'ready' })
   let totalEmbedded = 0
 
   for (const file of files) {
+    // 检查取消信号：嵌入阶段也支持中断
+    if (abortSignal?.aborted) {
+      break
+    }
+
     // 获取该文件未嵌入的分块
     const allChunks = listCodebaseChunks({ fileId: file.id })
     const pendingChunks = allChunks.filter(c => !c.embedding || c.embedding.length === 0)
@@ -496,6 +502,10 @@ export async function generateCodebaseEmbeddings(
 
     // 分批生成嵌入
     for (let i = 0; i < pendingChunks.length; i += batchSize) {
+      // 批次级别的取消检查
+      if (abortSignal?.aborted) {
+        break
+      }
       const batch = pendingChunks.slice(i, i + batchSize)
       const texts = batch.map(c => `// ${file.fileName}\n${c.content}`)
 

@@ -15,6 +15,7 @@ import type { DynamicStructuredTool } from '@langchain/core/tools'
 import type { MCPServerConfig } from '../../shared/types'
 import type { WrappedTool } from './tool-adapter'
 import { getMcpServerManager } from '../mcp/manager'
+import { AppError, ErrorCodes } from '../utils/error'
 
 // ─── 配置转换 ─────────────────────────────────────────────────────
 
@@ -28,7 +29,11 @@ import { getMcpServerManager } from '../mcp/manager'
 function configToConnection(config: MCPServerConfig): Connection {
   if (config.transport === 'http') {
     if (!config.url) {
-      throw new Error(`MCP Server "${config.name}" is configured for HTTP but has no URL.`)
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        `MCP Server "${config.name}" is configured for HTTP but has no URL.`,
+        { serverName: config.name, transport: 'http' },
+      )
     }
     const conn: StreamableHTTPConnection = {
       transport: 'http',
@@ -40,7 +45,11 @@ function configToConnection(config: MCPServerConfig): Connection {
 
   if (config.transport === 'stdio') {
     if (!config.command) {
-      throw new Error(`MCP Server "${config.name}" is configured for stdio but has no command.`)
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        `MCP Server "${config.name}" is configured for stdio but has no command.`,
+        { serverName: config.name, transport: 'stdio' },
+      )
     }
     const conn: StdioConnection = {
       transport: 'stdio',
@@ -52,7 +61,11 @@ function configToConnection(config: MCPServerConfig): Connection {
     return conn
   }
 
-  throw new Error(`Unsupported transport type "${config.transport}" for server "${config.name}".`)
+  throw new AppError(
+    ErrorCodes.VALIDATION_ERROR,
+    `Unsupported transport type "${config.transport}" for server "${config.name}".`,
+    { serverName: config.name, transport: config.transport },
+  )
 }
 
 // ─── MCP 工具加载 ─────────────────────────────────────────────────

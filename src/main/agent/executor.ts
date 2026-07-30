@@ -211,6 +211,7 @@ export class AgentExecutor {
               step,
               toolAction,
               reason: `Tool "${parsed.toolName}" requires approval in ${request.approvalMode} mode.`,
+              timestamp: Date.now(),
             }
 
             // 推送轨迹（pending-approval 状态）

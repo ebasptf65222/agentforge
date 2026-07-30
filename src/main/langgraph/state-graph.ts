@@ -512,6 +512,7 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
           step: Date.now(),
           toolAction,
           reason: approvalData.reason,
+          timestamp: Date.now(),
         }
 
         const response = await approvalManager.requestApproval(

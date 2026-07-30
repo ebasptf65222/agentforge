@@ -79,6 +79,8 @@ export interface ApprovalRequest {
   step: number
   toolAction: ToolAction
   reason: string
+  /** 请求发起时间戳（Unix 毫秒，用于审计日志计算响应时间） */
+  timestamp?: number
 }
 
 /** 审批响应 */

@@ -359,6 +359,10 @@ export class MCPServerManager {
           )
         }
         transport = new HttpTransport(config.url, config.headers ?? {})
+        // 注册重连回调：HTTP 请求失败后自动重连成功时，重新执行 MCP 协议握手
+        transport.onReconnect = () => {
+          void this.handleReconnect(id)
+        }
       } else if (config.transport === 'stdio') {
         if (!config.command) {
           throw new AppError(

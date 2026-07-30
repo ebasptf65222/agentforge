@@ -107,6 +107,7 @@ export function bridgeAllTools(ctx: ToolBridgeContext): Tool[] {
             step,
             toolAction,
             reason: `Tool "${def.name}" requires approval (risk: ${toolAction.riskLevel}).`,
+            timestamp: Date.now(),
           }
 
           const response = await ctx.approvalManager.requestApproval(

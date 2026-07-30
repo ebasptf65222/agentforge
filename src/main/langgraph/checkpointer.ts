@@ -96,42 +96,70 @@ export function getCheckpointer(): BaseCheckpointSaver {
 
 /**
  * 清理过期的 LangGraph checkpoint 数据。
- * 删除 checkpoints / checkpoint_blobs / checkpoint_writes 表中超过 TTL 的记录。
+ *
+ * LangGraph SqliteSaver 的表结构：
+ * - checkpoints(thread_id, checkpoint_ns, checkpoint_id, parent_checkpoint_id, type, checkpoint, metadata)
+ * - writes(thread_id, checkpoint_ns, checkpoint_id, task_id, idx, channel, type, value)
+ *
+ * 这两张表没有 `created_at` 时间戳列，因此采用以下清理策略：
+ * 1. 如果 `created_at` 列存在（未来版本可能添加），使用 TTL 清理
+ * 2. 否则，按 thread 保留最近 N 条 checkpoint（默认 20 条），删除更旧的
  */
 export function cleanupOldCheckpoints(): void {
   if (process.env.NODE_ENV === 'test' || process.env.VITEST) return
 
   try {
-    const cutoff = Math.floor((Date.now() - CHECKPOINT_TTL_MS) / 1000)
-
-    // 获取 checkpoint 数据库连接（独立于主数据库）
-    // SqliteSaver 内部管理自己的连接，这里通过主数据库执行 PRAGMA 不可行。
-    // 改为直接操作 checkpointer 的 SQLite 文件。
     const dbPath = resolveDbPath()
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { Database } = require('better-sqlite3')
     const cpDb = new Database(dbPath)
 
     try {
-      // 清理过期的 checkpoints
-      const deletedCheckpoints = cpDb.prepare(
-        'DELETE FROM checkpoints WHERE created_at < ?',
-      ).run(cutoff)
+      // 检查 checkpoints 表是否存在 created_at 列
+      const columns = cpDb.pragma('table_info(checkpoints)') as Array<{ name: string }>
+      const hasCreatedAt = columns.some((c) => c.name === 'created_at')
 
-      // 清理过期的 checkpoint_blobs
-      const deletedBlobs = cpDb.prepare(
-        'DELETE FROM checkpoint_blobs WHERE created_at < ?',
-      ).run(cutoff)
+      let totalDeleted = 0
 
-      // 清理过期的 checkpoint_writes
-      const deletedWrites = cpDb.prepare(
-        'DELETE FROM checkpoint_writes WHERE created_at < ?',
-      ).run(cutoff)
+      if (hasCreatedAt) {
+        // 策略 1: 基于 TTL 清理（如果列存在）
+        const cutoff = Math.floor((Date.now() - CHECKPOINT_TTL_MS) / 1000)
+        const delCp = cpDb.prepare('DELETE FROM checkpoints WHERE created_at < ?').run(cutoff)
+        const delWr = cpDb.prepare('DELETE FROM writes WHERE created_at < ?').run(cutoff)
+        totalDeleted = delCp.changes + delWr.changes
+      } else {
+        // 策略 2: 按 thread 保留最近 N 条 checkpoint
+        const MAX_CHECKPOINTS_PER_THREAD = 20
+        const threads = cpDb.prepare(
+          'SELECT DISTINCT thread_id FROM checkpoints',
+        ).all() as Array<{ thread_id: string }>
 
-      if (deletedCheckpoints.changes > 0 || deletedBlobs.changes > 0 || deletedWrites.changes > 0) {
+        for (const { thread_id } of threads) {
+          // 获取该 thread 的所有 checkpoint_id，按 checkpoint_id 降序（最新的在前）
+          const rows = cpDb.prepare(
+            'SELECT checkpoint_id FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id DESC',
+          ).all(thread_id) as Array<{ checkpoint_id: string }>
+
+          if (rows.length <= MAX_CHECKPOINTS_PER_THREAD) continue
+
+          // 需要删除的 checkpoint_id 列表
+          const toDelete = rows.slice(MAX_CHECKPOINTS_PER_THREAD).map((r) => r.checkpoint_id)
+          const placeholders = toDelete.map(() => '?').join(',')
+
+          const delCp = cpDb.prepare(
+            `DELETE FROM checkpoints WHERE thread_id = ? AND checkpoint_id IN (${placeholders})`,
+          ).run(thread_id, ...toDelete)
+          const delWr = cpDb.prepare(
+            `DELETE FROM writes WHERE thread_id = ? AND checkpoint_id IN (${placeholders})`,
+          ).run(thread_id, ...toDelete)
+          totalDeleted += delCp.changes + delWr.changes
+        }
+      }
+
+      if (totalDeleted > 0) {
         console.info(
-          `[LangGraph Checkpointer] Cleaned up expired checkpoints: ` +
-          `${deletedCheckpoints.changes} checkpoints, ${deletedBlobs.changes} blobs, ${deletedWrites.changes} writes`,
+          `[LangGraph Checkpointer] Cleaned up ${totalDeleted} expired checkpoint records` +
+          (hasCreatedAt ? ' (TTL-based)' : ' (count-based, max 20 per thread)'),
         )
         // VACUUM 回收空间
         cpDb.exec('VACUUM')
