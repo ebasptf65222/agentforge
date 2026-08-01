@@ -13,8 +13,9 @@ import SkillConfig from '@/components/Settings/SkillConfig.vue'
 import VoiceConfig from '@/components/Settings/VoiceConfig.vue'
 import WorkspaceConfig from '@/components/Settings/WorkspaceConfig.vue'
 import GeneralSettings from '@/components/Settings/GeneralSettings.vue'
+import SchedulerConfig from '@/components/Settings/SchedulerConfig.vue'
 
-type SettingsTab = 'models' | 'mcp' | 'skills' | 'voice' | 'workspace' | 'general'
+type SettingsTab = 'models' | 'mcp' | 'skills' | 'voice' | 'workspace' | 'general' | 'scheduler'
 
 const uiStore = useUiStore()
 const activeTab = ref<SettingsTab>('models')
@@ -28,6 +29,7 @@ const TAB_KEYWORDS: Record<SettingsTab, string[]> = {
   voice: ['语音', 'voice', 'tts', 'stt', '录音', '播报', '语速'],
   workspace: ['工作区', 'workspace', '文件', '目录', 'folder'],
   general: ['通用', 'general', '主题', 'theme', '审批', 'approval', '超时', 'timeout'],
+  scheduler: ['定时', '任务', '调度', 'schedule', 'cron', '自动化', '夜间'],
 }
 
 const tabOptions = computed(() => {
@@ -120,6 +122,9 @@ const paneStyle: CSSProperties = {
       </NTabPane>
       <NTabPane name="general" tab="通用设置">
         <GeneralSettings />
+      </NTabPane>
+      <NTabPane name="scheduler" tab="定时任务">
+        <SchedulerConfig />
       </NTabPane>
     </NTabs>
   </div>
