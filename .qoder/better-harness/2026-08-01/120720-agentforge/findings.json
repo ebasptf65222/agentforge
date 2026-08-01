@@ -1,0 +1,179 @@
+{
+  "summary": {
+    "projectName": "agentforge",
+    "locale": "zh-CN",
+    "modelId": "agent-work-loop-v4",
+    "reportContractVersion": 25,
+    "overview": "项目拥有扎实的工程基础（947 测试、严格 lint 规则、安全基线），但质量门禁缺乏自动化执行、可观测性仅依赖 console、AI 代理指令未接入路由层、数据库迁移无回滚路径——这些缺口在无会话观测数据的情况下无法通过实际使用来验证或弥补。",
+    "aiAgentPractice": {
+      "inspectedSurfaces": [],
+      "coverageRows": [
+        {
+          "surface": "Rules",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0,
+          "paths": []
+        },
+        {
+          "surface": "Skills",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0,
+          "paths": []
+        },
+        {
+          "surface": "MCP",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0,
+          "paths": []
+        },
+        {
+          "surface": "Custom Agents",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0
+        },
+        {
+          "surface": "Hooks",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0,
+          "paths": []
+        },
+        {
+          "surface": "Commands",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0,
+          "paths": []
+        },
+        {
+          "surface": "Plugins",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0,
+          "paths": []
+        }
+      ]
+    },
+    "assignmentSummaries": [],
+    "dimensions": [
+      {
+        "id": "task-understanding",
+        "label": "任务理解",
+        "score": 45,
+        "summary": "AGENT.md 提供了项目阶段和版本信息，但未被注册为 AI 代理可路由的指令文件；无模块级上下文引导。",
+        "findingRefs": [
+          "agent-instructions-not-routed"
+        ]
+      },
+      {
+        "id": "controlled-execution",
+        "label": "可控执行",
+        "score": 40,
+        "summary": "启动和构建脚本完整，但质量门禁（lint/typecheck/test）无 pre-commit hook 或 CI 强制执行，依赖开发者自觉。",
+        "findingRefs": [
+          "quality-gate-enforcement-gap"
+        ]
+      },
+      {
+        "id": "change-validation",
+        "label": "改动验证",
+        "score": 42,
+        "summary": "多层验证信号可用（vitest、typecheck、eslint），但缺乏受影响检查路由和结构化诊断能力；无会话数据验证实际验证行为。",
+        "findingRefs": [
+          "quality-gate-enforcement-gap",
+          "observability-console-only"
+        ]
+      },
+      {
+        "id": "reliable-delivery",
+        "label": "可靠交付",
+        "score": 38,
+        "summary": "清理机制存在（DB 关闭、MCP 子进程、浏览器会话），但数据库迁移无回滚路径，交付接受边界未被观测。",
+        "findingRefs": [
+          "db-migration-no-rollback"
+        ]
+      },
+      {
+        "id": "learning-capture",
+        "label": "经验沉淀",
+        "score": 35,
+        "summary": "30 天窗口内 0 个合格会话，无法评估生命周期检测、循环工程或纵向验证能力；无 Qoder Memory 或 Skill 配置。",
+        "findingRefs": []
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "quality-gate-enforcement-gap",
+      "title": "质量门禁（lint/typecheck/test）缺乏自动化执行机制",
+      "severity": "Medium",
+      "reason": "ESLint 配置了 --max-warnings 0 和严格 TypeScript 规则，vitest 有 947 个测试，但所有检查均无自动化执行——既无 pre-commit hook（如 husky/lint-staged），也无 CI 管道。规则声明了意图，但实际执行完全依赖开发者是否记得手动运行。",
+      "expectedOutput": [
+        "pre-commit hook 在提交前自动执行 lint 和 typecheck",
+        "hook 失败时阻止提交并显示可操作的错误信息"
+      ],
+      "expectedArtifact": "pre-commit hook 配置",
+      "aiFixPrompt": "/better-harness fix this issue\n\n为项目添加最小的 pre-commit hook 执行机制，确保 lint 和 typecheck 在提交前自动运行。\n\n## 验证\n\n- 运行 `pnpm lint` 和 `pnpm typecheck` 确认通过\n- 确认 hook 配置正确注册",
+      "dimensionRefs": [
+        "controlled-execution",
+        "change-validation"
+      ]
+    },
+    {
+      "id": "observability-console-only",
+      "title": "可观测性仅依赖 console，缺乏结构化诊断能力",
+      "severity": "Medium",
+      "reason": "主进程全局错误处理（uncaughtException/unhandledRejection）仅使用 console.error。.env.example 声明了 LOG_LEVEL 但未发现实际的日志级别路由实现。对于依赖外部 LLM API、MCP 子进程、SQLite 的复杂桌面应用，诊断信息仅存在于终端输出中，无法持久化或结构化查询。",
+      "expectedOutput": [
+        "全局错误处理输出到持久化日志文件",
+        "日志级别可通过环境变量配置"
+      ],
+      "expectedArtifact": "结构化日志模块",
+      "aiFixPrompt": "/better-harness fix this issue\n\n引入结构化日志模块，替换 console 调用，支持日志级别路由和文件输出。\n\n## 验证\n\n- 运行 `pnpm typecheck` 确认类型安全\n- 确认日志文件在预期路径生成",
+      "dimensionRefs": [
+        "change-validation"
+      ]
+    },
+    {
+      "id": "agent-instructions-not-routed",
+      "title": "项目指导文档（AGENT.md）未接入 AI 代理路由层",
+      "severity": "Low",
+      "reason": "AGENT.md 包含关键项目约束（提交描述使用中文、TypeScript 暂不升级到 TS 7、版本升级注意事项），但项目无 AGENTS.md 或 .qoder 配置目录。AI 代理在此工作区工作时不会自动获得这些约束，可能导致行为与项目规范不一致。",
+      "expectedOutput": [
+        "AI 代理在工作区中可自动获取项目约束",
+        "关键规范（Git 提交格式、版本限制）作为 always-on 规则生效"
+      ],
+      "expectedArtifact": "AGENTS.md 或 Qoder Rules 配置",
+      "aiFixPrompt": "/better-harness fix this issue\n\n将 AGENT.md 中的关键约束注册为 AI 代理可路由的规则文件。\n\n## 验证\n\n- 确认规则文件在预期位置存在\n- 确认关键约束（Git 规范、版本限制）被包含",
+      "dimensionRefs": [
+        "task-understanding"
+      ]
+    },
+    {
+      "id": "db-migration-no-rollback",
+      "title": "数据库迁移无回滚路径，迁移出错时仅能手动操作 SQLite 文件",
+      "severity": "Low",
+      "reason": "src/main/db/index.ts 实现了 30+ 条幂等列迁移（COLUMN_MIGRATIONS 数组），设计为只向前推进。getSchemaVersion() 存在但迁移流程未调用它进行版本追踪。没有回滚 SQL、没有迁移测试验证升级/降级路径。如果某条迁移引入问题，唯一恢复方式是手动操作 SQLite 文件。",
+      "expectedOutput": [
+        "每次迁移后 schema_version 被更新",
+        "存在回滚路径或至少记录当前迁移版本用于诊断"
+      ],
+      "expectedArtifact": "迁移版本追踪与回滚机制",
+      "aiFixPrompt": "/better-harness fix this issue\n\n为数据库迁移添加版本追踪和回滚机制。\n\n## 验证\n\n- 运行 `pnpm test` 确认迁移相关测试通过\n- 确认迁移版本在每次执行后被正确记录",
+      "dimensionRefs": [
+        "reliable-delivery"
+      ]
+    }
+  ]
+}

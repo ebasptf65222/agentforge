@@ -82,6 +82,20 @@ function handleKeydown(event: KeyboardEvent): void {
     return
   }
 
+  // Cmd/Ctrl + Shift + M -> open model switcher
+  if (isMod && event.shiftKey && event.key.toLowerCase() === 'm') {
+    event.preventDefault()
+    uiStore.triggerModelSwitcher()
+    return
+  }
+
+  // Cmd/Ctrl + Shift + E -> open engine switcher config
+  if (isMod && event.shiftKey && event.key.toLowerCase() === 'e') {
+    event.preventDefault()
+    uiStore.triggerEngineSwitcher()
+    return
+  }
+
   // Cmd/Ctrl + , -> open settings
   if (isMod && event.key === ',') {
     event.preventDefault()
@@ -89,7 +103,21 @@ function handleKeydown(event: KeyboardEvent): void {
     return
   }
 
-  // Escape -> stop generation (if generating)
+    // Cmd/Ctrl + Enter -> approve pending approval
+  if (isMod && event.key === 'Enter' && agentStore.isWaitingApproval) {
+    event.preventDefault()
+    agentStore.respondApproval(true)
+    return
+  }
+  
+  // Cmd/Ctrl + Shift + X -> reject pending approval
+  if (isMod && event.shiftKey && event.key.toLowerCase() === 'x' && agentStore.isWaitingApproval) {
+    event.preventDefault()
+    agentStore.respondApproval(false, '用户拒绝（快捷键）')
+    return
+  }
+  
+// Escape -> stop generation (if generating)
   if (event.key === 'Escape' && isGenerating.value) {
     event.preventDefault()
     void handleStop()

@@ -1,4 +1,5 @@
 // P2-09: AgentStore - Pinia store for Agent execution state
+// Enhanced: auto-approval rules, approval history, remember choice
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
@@ -60,6 +61,23 @@ export const useAgentStore = defineStore('agent', () => {
 
   /** Last execution approvalMode (not in ExecutionResult, needed for audit) */
   const lastApprovalMode = ref<ApprovalMode | null>(null)
+
+  /**
+   * Auto-approval rules for current session.
+   * Key format: `${toolName}:${riskLevel}` — matching requests are auto-approved.
+   */
+  const autoApprovalRules = ref<Set<string>>(new Set())
+
+  /** Approval history for current session (audit trail) */
+  const approvalHistory = ref<
+    Array<{
+      request: ApprovalRequest
+      approved: boolean
+      reason?: string
+      respondedAt: number
+      autoApproved: boolean
+    }>
+  >([])
 
   // ─── Getters ─────────────────────────────────────────────────
 
@@ -126,11 +144,32 @@ export const useAgentStore = defineStore('agent', () => {
     status.value = 'cancelled'
   }
 
-  /** Respond to pending approval */
-  async function respondApproval(approved: boolean, reason?: string): Promise<void> {
+  /** Respond to pending approval (with optional "remember" flag) */
+  async function respondApproval(
+    approved: boolean,
+    reason?: string,
+    remember?: boolean,
+  ): Promise<void> {
     if (!pendingApproval.value) return
+    const request = pendingApproval.value
+
+    // If user chose to remember, add auto-approval rule for this tool+risk combo
+    if (remember && approved) {
+      const ruleKey = `${request.toolAction.toolName}:${request.toolAction.riskLevel}`
+      autoApprovalRules.value.add(ruleKey)
+    }
+
+    // Record in approval history
+    approvalHistory.value.push({
+      request,
+      approved,
+      reason,
+      respondedAt: Date.now(),
+      autoApproved: false,
+    })
+
     await window.electron.agent.approve({
-      executionId: pendingApproval.value.executionId,
+      executionId: request.executionId,
       approved,
       reason,
     })
@@ -141,7 +180,6 @@ export const useAgentStore = defineStore('agent', () => {
 
   /**
    * Trigger audit evaluation after execution completes.
-   * Uses lastResult + trajectories to build AuditInput and calls the audit engine via IPC.
    */
   async function runAudit(): Promise<void> {
     if (!lastResult.value || !lastConversationId.value || !lastApprovalMode.value) return
@@ -176,7 +214,6 @@ export const useAgentStore = defineStore('agent', () => {
 
   /** Handle trajectory event */
   function handleTrajectory(trajectory: TAOTrajectory): void {
-    // Update existing trajectory or add new one
     const idx = trajectories.value.findIndex((t) => t.step === trajectory.step)
     if (idx >= 0) {
       trajectories.value[idx] = trajectory
@@ -185,8 +222,24 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  /** Handle approval request event */
-  function handleApprovalRequest(request: ApprovalRequest): void {
+  /** Handle approval request event (with auto-approval check) */
+  async function handleApprovalRequest(request: ApprovalRequest): Promise<void> {
+    const ruleKey = `${request.toolAction.toolName}:${request.toolAction.riskLevel}`
+    if (autoApprovalRules.value.has(ruleKey)) {
+      approvalHistory.value.push({
+        request,
+        approved: true,
+        reason: '自动批准（用户已记住选择）',
+        respondedAt: Date.now(),
+        autoApproved: true,
+      })
+      await window.electron.agent.approve({
+        executionId: request.executionId,
+        approved: true,
+        reason: '自动批准（用户已记住选择）',
+      })
+      return
+    }
     pendingApproval.value = request
   }
 
@@ -197,7 +250,6 @@ export const useAgentStore = defineStore('agent', () => {
     } else if (chunk.type === 'thinking' && chunk.content) {
       streamingThinking.value += chunk.content
     } else if (chunk.type === 'usage-info' && chunk.content) {
-      // B8: 更新上下文使用量进度条（SDK session.usage_info 事件）
       try {
         const usage = JSON.parse(chunk.content) as {
           tokenLimit: number
@@ -209,14 +261,12 @@ export const useAgentStore = defineStore('agent', () => {
         // Ignore malformed usage-info payloads
       }
     } else if (chunk.type === 'ask-user' && chunk.content) {
-      // ask_user: AI 主动向用户提问
       try {
         pendingUserInput.value = JSON.parse(chunk.content) as UserInputRequest
       } catch {
         // Ignore malformed ask-user payloads
       }
     } else if (chunk.type === 'elicitation-request' && chunk.content) {
-      // elicitation: AI 请求用户填写表单
       try {
         pendingElicitation.value = JSON.parse(chunk.content) as ElicitationRequest
       } catch {
@@ -249,7 +299,7 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  /** Reset state (preserves auditReport so it remains visible after execution) */
+  /** Reset state (preserves auditReport + autoApprovalRules for session continuity) */
   function reset(): void {
     status.value = 'idle'
     executionId.value = null
@@ -263,6 +313,11 @@ export const useAgentStore = defineStore('agent', () => {
     error.value = null
     lastConversationId.value = null
     lastApprovalMode.value = null
+  }
+
+  /** Clear auto-approval rules (reset session trust) */
+  function clearAutoApprovalRules(): void {
+    autoApprovalRules.value.clear()
   }
 
   return {
@@ -279,6 +334,8 @@ export const useAgentStore = defineStore('agent', () => {
     error,
     auditReport,
     auditLoading,
+    autoApprovalRules,
+    approvalHistory,
     // Getters
     isRunning,
     isWaitingApproval,
@@ -292,6 +349,7 @@ export const useAgentStore = defineStore('agent', () => {
     respondUserInput,
     respondElicitation,
     runAudit,
+    clearAutoApprovalRules,
     // Handlers
     handleTrajectory,
     handleApprovalRequest,

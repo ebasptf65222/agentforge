@@ -17,6 +17,12 @@ export const useUiStore = defineStore('ui', () => {
   /** Whether the checkpoint timeline panel is visible (P2-02) */
   const checkpointPanelVisible = ref(false)
 
+  /** Incrementing trigger to open ModelSwitcher popover (Ctrl+Shift+M) */
+  const modelSwitcherTrigger = ref(0)
+
+  /** Incrementing trigger to open EngineSwitcher config (Ctrl+Shift+E) */
+  const engineSwitcherTrigger = ref(0)
+
   function setCurrentView(view: ViewName): void {
     currentView.value = view
   }
@@ -51,11 +57,23 @@ export const useUiStore = defineStore('ui', () => {
     checkpointPanelVisible.value = visible
   }
 
+  /** Trigger model switcher open (keyboard shortcut) */
+  function triggerModelSwitcher(): void {
+    modelSwitcherTrigger.value++
+  }
+
+  /** Trigger engine switcher config open (keyboard shortcut) */
+  function triggerEngineSwitcher(): void {
+    engineSwitcherTrigger.value++
+  }
+
   return {
     currentView,
     sidebarCollapsed,
     filePanelVisible,
     checkpointPanelVisible,
+    modelSwitcherTrigger,
+    engineSwitcherTrigger,
     setCurrentView,
     toggleSidebar,
     setSidebarCollapsed,
@@ -63,5 +81,7 @@ export const useUiStore = defineStore('ui', () => {
     setFilePanelVisible,
     toggleCheckpointPanel,
     setCheckpointPanelVisible,
+    triggerModelSwitcher,
+    triggerEngineSwitcher,
   }
 })

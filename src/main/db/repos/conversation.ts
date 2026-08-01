@@ -175,6 +175,32 @@ export function updateConversationTitle(id: string, title: string): void {
 }
 
 /**
+ * 更新会话绑定的模型 ID。
+ *
+ * @param id - 会话 ID
+ * @param modelId - 新模型 ID
+ * @throws {AppError} CONVERSATION_NOT_FOUND - 会话不存在
+ */
+export function updateConversationModel(id: string, modelId: string): void {
+  const db: Database.Database = getDatabase()
+  const now = Date.now()
+
+  const result = db
+    .prepare('UPDATE conversations SET model_id = ?, updated_at = ? WHERE id = ?')
+    .run(modelId, now, id)
+
+  if (result.changes === 0) {
+    throw new AppError(
+      ErrorCodes.CONVERSATION_NOT_FOUND,
+      `Conversation with id "${id}" not found.`,
+      {
+        id,
+      },
+    )
+  }
+}
+
+/**
  * 递增会话消息计数。
  *
  * @param id - 会话 ID

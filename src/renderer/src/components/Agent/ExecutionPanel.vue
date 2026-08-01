@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // P2-09: ExecutionPanel - Agent execution visualization
 // Shows real-time TAO trajectories, approval requests, and execution status
+// Enhanced: auto-scroll to approval card when it appears
 
-import { computed } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { useAgentStore } from '@/stores/agent'
 import type { TAOTrajectory } from '@shared/types'
 import ThinkingBlock from './ThinkingBlock.vue'
@@ -53,17 +54,40 @@ function getActionLabel(traj: TAOTrajectory): string {
   return traj.action.toolName
 }
 
-function handleApprove(): void {
-  agentStore.respondApproval(true)
+function handleApprove(remember: boolean): void {
+  agentStore.respondApproval(true, undefined, remember)
 }
 
 function handleReject(reason?: string): void {
   agentStore.respondApproval(false, reason)
 }
+
+// ─── Auto-scroll to approval card ────────────────────────────
+
+const panelRef = ref<HTMLElement | null>(null)
+const approvalRef = ref<InstanceType<typeof ApprovalCard> | null>(null)
+
+watch(
+  () => agentStore.pendingApproval,
+  async (approval) => {
+    if (approval) {
+      await nextTick()
+      if (panelRef.value) {
+        panelRef.value.scrollTo({
+          top: panelRef.value.scrollHeight,
+          behavior: 'smooth',
+        })
+      }
+    }
+  },
+)
+
+// Expose approval ref for keyboard shortcuts from parent
+defineExpose({ approvalRef })
 </script>
 
 <template>
-  <div v-if="agentStore.status !== 'idle'" class="execution-panel">
+  <div v-if="agentStore.status !== 'idle'" ref="panelRef" class="execution-panel">
     <!-- Status header -->
     <div class="panel-header">
       <div class="status-indicator">
@@ -140,15 +164,13 @@ function handleReject(reason?: string): void {
 
     <!-- Streaming thinking (SDK reasoning_delta) -->
     <div v-if="agentStore.streamingThinking && agentStore.isRunning" class="streaming-thinking">
-      <ThinkingBlock
-        :thought="agentStore.streamingThinking"
-        :is-streaming="true"
-      />
+      <ThinkingBlock :thought="agentStore.streamingThinking" :is-streaming="true" />
     </div>
 
-    <!-- Approval card -->
+    <!-- Approval card (auto-scrolled into view) -->
     <ApprovalCard
       v-if="agentStore.pendingApproval"
+      ref="approvalRef"
       :request="agentStore.pendingApproval"
       @approve="handleApprove"
       @reject="handleReject"
@@ -333,6 +355,10 @@ function handleReject(reason?: string): void {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.streaming-thinking {
+  margin: 8px 0;
 }
 
 .summary {

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // P2-09: ApprovalCard - tool approval request UI with enhanced previews (OPT-UI-11)
+// Enhanced: remember choice, reject reason input, amber breathing animation
 
 import { computed, ref } from 'vue'
-import { NIcon, NTag, NCollapse, NCollapseItem } from 'naive-ui'
+import { NIcon, NTag, NCollapse, NCollapseItem, NCheckbox, NInput } from 'naive-ui'
 import {
   FolderOpenOutlined,
   CodeOutlined,
@@ -20,7 +21,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  approve: []
+  approve: [remember: boolean]
   reject: [reason?: string]
 }>()
 
@@ -43,9 +44,18 @@ type ToolCategory = 'file-read' | 'file-write' | 'command' | 'http' | 'search' |
 const toolCategory = computed<ToolCategory>(() => {
   const name = props.request.toolAction.toolName.toLowerCase()
   if (name.includes('read') || name.includes('view') || name.includes('open')) return 'file-read'
-  if (name.includes('write') || name.includes('save') || name.includes('create_file')) return 'file-write'
-  if (name.includes('exec') || name.includes('run') || name.includes('command') || name.includes('shell') || name.includes('bash')) return 'command'
-  if (name.includes('http') || name.includes('fetch') || name.includes('request') || name.includes('api')) return 'http'
+  if (name.includes('write') || name.includes('save') || name.includes('create_file'))
+    return 'file-write'
+  if (
+    name.includes('exec') ||
+    name.includes('run') ||
+    name.includes('command') ||
+    name.includes('shell') ||
+    name.includes('bash')
+  )
+    return 'command'
+  if (name.includes('http') || name.includes('fetch') || name.includes('request') || name.includes('api'))
+    return 'http'
   if (name.includes('search') || name.includes('grep') || name.includes('find')) return 'search'
   if (name.includes('edit') || name.includes('replace') || name.includes('patch')) return 'edit'
   return 'generic'
@@ -54,11 +64,11 @@ const toolCategory = computed<ToolCategory>(() => {
 const categoryMeta: Record<ToolCategory, { label: string; icon: any; color: string }> = {
   'file-read': { label: '文件读取', icon: FolderOpenOutlined, color: '#60a5fa' },
   'file-write': { label: '文件写入', icon: EditNoteOutlined, color: '#f87171' },
-  'command': { label: '命令执行', icon: TerminalOutlined, color: '#fbbf24' },
-  'http': { label: '网络请求', icon: HttpOutlined, color: '#a78bfa' },
-  'search': { label: '搜索', icon: SearchOutlined, color: '#34d399' },
-  'edit': { label: '代码编辑', icon: CodeOutlined, color: '#f472b6' },
-  'generic': { label: '工具调用', icon: CodeOutlined, color: '#94a3b8' },
+  command: { label: '命令执行', icon: TerminalOutlined, color: '#fbbf24' },
+  http: { label: '网络请求', icon: HttpOutlined, color: '#a78bfa' },
+  search: { label: '搜索', icon: SearchOutlined, color: '#34d399' },
+  edit: { label: '代码编辑', icon: CodeOutlined, color: '#f472b6' },
+  generic: { label: '工具调用', icon: CodeOutlined, color: '#94a3b8' },
 }
 
 const meta = computed(() => categoryMeta[toolCategory.value])
@@ -69,7 +79,13 @@ const args = computed(() => props.request.toolAction.arguments)
 
 const filePath = computed(() => {
   const a = args.value
-  return (a.path as string) || (a.file_path as string) || (a.filePath as string) || (a.filename as string) || ''
+  return (
+    (a.path as string) ||
+    (a.file_path as string) ||
+    (a.filePath as string) ||
+    (a.filename as string) ||
+    ''
+  )
 })
 
 const commandPreview = computed(() => {
@@ -100,7 +116,8 @@ const searchPattern = computed(() => {
 const contentPreview = computed(() => {
   const a = args.value
   const content = (a.content as string) || (a.text as string) || (a.data as string) || ''
-  if (content.length > 500) return content.slice(0, 500) + '\n... (' + (content.length - 500) + ' more chars)'
+  if (content.length > 500)
+    return content.slice(0, 500) + '\n... (' + (content.length - 500) + ' more chars)'
   return content
 })
 
@@ -113,7 +130,13 @@ const diffOldCode = computed(() => {
 
 const diffNewCode = computed(() => {
   const a = args.value
-  return (a.newCode as string) || (a.new_content as string) || (a.replacement as string) || (a.content as string) || ''
+  return (
+    (a.newCode as string) ||
+    (a.new_content as string) ||
+    (a.replacement as string) ||
+    (a.content as string) ||
+    ''
+  )
 })
 
 const hasDiffData = computed(() => {
@@ -122,17 +145,37 @@ const hasDiffData = computed(() => {
 
 const expandedNames = ref<string[]>([])
 
+// ─── Remember choice & reject reason ────────────────────────
+
+const rememberChoice = ref(false)
+const showRejectReason = ref(false)
+const rejectReason = ref('')
+
 function handleApprove(): void {
-  emit('approve')
+  emit('approve', rememberChoice.value)
 }
 
-function handleReject(): void {
-  emit('reject', '用户拒绝')
+function handleRejectClick(): void {
+  showRejectReason.value = true
 }
+
+function handleRejectConfirm(): void {
+  emit('reject', rejectReason.value.trim() || '用户拒绝')
+  showRejectReason.value = false
+  rejectReason.value = ''
+}
+
+function handleRejectCancel(): void {
+  showRejectReason.value = false
+  rejectReason.value = ''
+}
+
+// Expose for keyboard shortcuts from parent
+defineExpose({ handleApprove, handleRejectConfirm })
 </script>
 
 <template>
-  <div class="approval-card">
+  <div class="approval-card approval-card--pending">
     <!-- Header -->
     <div class="approval-header">
       <div class="approval-header__left">
@@ -182,7 +225,11 @@ function handleReject(): void {
         <div class="preview-section">
           <span class="preview-label">请求</span>
           <div class="preview-http">
-            <NTag size="small" :type="httpMethod === 'GET' ? 'success' : 'warning'" class="http-method">
+            <NTag
+              size="small"
+              :type="httpMethod === 'GET' ? 'success' : 'warning'"
+              class="http-method"
+            >
               {{ httpMethod.toUpperCase() }}
             </NTag>
             <code class="preview-code">{{ httpUrl || '(未指定)' }}</code>
@@ -210,11 +257,7 @@ function handleReject(): void {
         </div>
         <div v-if="hasDiffData" class="preview-section">
           <span class="preview-label">代码变更 (Diff)</span>
-          <CodeDiffPreview
-            :old-code="diffOldCode"
-            :new-code="diffNewCode"
-            :filename="filePath"
-          />
+          <CodeDiffPreview :old-code="diffOldCode" :new-code="diffNewCode" :filename="filePath" />
         </div>
         <div v-else-if="contentPreview" class="preview-section">
           <span class="preview-label">变更预览</span>
@@ -238,13 +281,42 @@ function handleReject(): void {
       </NCollapse>
     </div>
 
+    <!-- Reject reason input (shown when user clicks reject) -->
+    <div v-if="showRejectReason" class="reject-reason-section">
+      <NInput
+        v-model:value="rejectReason"
+        type="textarea"
+        :rows="2"
+        placeholder="输入拒绝理由（可选，帮助 Agent 理解你的意图）..."
+        autofocus
+        @keydown.enter.ctrl="handleRejectConfirm"
+        @keydown.enter.meta="handleRejectConfirm"
+      />
+      <div class="reject-reason-actions">
+        <button class="btn-reject-confirm" @click="handleRejectConfirm">确认拒绝</button>
+        <button class="btn-reject-cancel" @click="handleRejectCancel">取消</button>
+      </div>
+    </div>
+
     <!-- Actions -->
-    <div class="approval-actions">
+    <div v-else class="approval-actions">
       <button class="btn-approve" @click="handleApprove">
         <NIcon :size="14"><ExpandMoreOutlined /></NIcon>
         批准
+        <kbd class="kbd-hint">Ctrl+↵</kbd>
       </button>
-      <button class="btn-reject" @click="handleReject">拒绝</button>
+      <button class="btn-reject" @click="handleRejectClick">
+        拒绝
+        <kbd class="kbd-hint">Ctrl+⇧+X</kbd>
+      </button>
+    </div>
+
+    <!-- Remember choice checkbox -->
+    <div class="approval-footer">
+      <NCheckbox v-model:checked="rememberChoice">
+        本次会话内自动批准同类操作（{{ props.request.toolAction.toolName }} ·
+        {{ riskLabels[props.request.toolAction.riskLevel] || '未知' }}）
+      </NCheckbox>
     </div>
   </div>
 </template>
@@ -256,6 +328,24 @@ function handleReject(): void {
   margin: 12px 0;
   overflow: hidden;
   background: var(--af-bg-surface, #1e293b);
+}
+
+/* Amber breathing animation when pending */
+.approval-card--pending {
+  border-color: var(--af-warning, #f59e0b);
+  animation: approval-breathe 2s ease-in-out infinite;
+}
+
+@keyframes approval-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+    border-color: rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 12px 2px rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.9);
+  }
 }
 
 .approval-header {
@@ -398,10 +488,58 @@ function handleReject(): void {
   padding: 8px 10px;
 }
 
+/* ─── Reject reason section ─────────────────────────────── */
+
+.reject-reason-section {
+  padding: 0 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reject-reason-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-reject-confirm {
+  padding: 6px 14px;
+  border-radius: var(--af-radius-sm, 6px);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: var(--af-error, #ef4444);
+  color: #fff;
+  transition: opacity 0.15s ease;
+}
+
+.btn-reject-confirm:hover {
+  opacity: 0.85;
+}
+
+.btn-reject-cancel {
+  padding: 6px 14px;
+  border-radius: var(--af-radius-sm, 6px);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--af-border, #334155);
+  background: transparent;
+  color: var(--af-text-secondary, #cbd5e1);
+  transition: opacity 0.15s ease;
+}
+
+.btn-reject-cancel:hover {
+  opacity: 0.85;
+}
+
+/* ─── Action buttons ────────────────────────────────────── */
+
 .approval-actions {
   display: flex;
   gap: 8px;
-  padding: 0 14px 12px;
+  padding: 0 14px 8px;
 }
 
 .btn-approve,
@@ -444,5 +582,27 @@ function handleReject(): void {
 .btn-approve:active,
 .btn-reject:active {
   transform: scale(0.97);
+}
+
+.kbd-hint {
+  font-size: 10px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  opacity: 0.7;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  margin-left: 4px;
+}
+
+/* ─── Footer (remember checkbox) ────────────────────────── */
+
+.approval-footer {
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--af-border, #334155);
+}
+
+:deep(.approval-footer .n-checkbox) {
+  font-size: 12px;
+  color: var(--af-text-tertiary, #94a3b8);
 }
 </style>

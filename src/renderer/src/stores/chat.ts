@@ -131,6 +131,23 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
+   * Update the model bound to a conversation.
+   */
+  async function updateConversationModel(id: string, modelId: string): Promise<void> {
+    try {
+      const updated = (await window.electron.chat.updateModel(id, modelId)) as Conversation
+      const idx = conversations.value.findIndex((c) => c.id === id)
+      if (idx !== -1) {
+        conversations.value[idx] = updated
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      showToast(`切换模型失败: ${message}`, 'error')
+      console.error('[ChatStore] updateConversationModel error:', error)
+    }
+  }
+
+  /**
    * Delete a single message from the current conversation.
    */
   async function deleteMessage(messageId: string): Promise<void> {
@@ -465,6 +482,7 @@ export const useChatStore = defineStore('chat', () => {
     newConversation,
     deleteConversation,
     renameConversation,
+    updateConversationModel,
     clearConversation,
     searchConversations,
     exportToMarkdown,

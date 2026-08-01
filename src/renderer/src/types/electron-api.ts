@@ -127,6 +127,8 @@ interface ChatAPI {
   getConversation(id: string): Promise<Conversation>
   deleteConversation(id: string): Promise<void>
   updateTitle(id: string, title: string): Promise<Conversation>
+  /** 更新会话绑定的模型 */
+  updateModel(id: string, modelId: string): Promise<Conversation>
   getMessages(conversationId: string): Promise<ChatMessage[]>
   send(conversationId: string, content: string, modelId: string, kbEnabled?: boolean): Promise<void>
   stop(): Promise<void>

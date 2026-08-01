@@ -29,6 +29,9 @@ const chat = {
   updateTitle: (id: string, title: string): Promise<unknown> =>
     ipcRenderer.invoke('chat:update-title', { id, title }),
 
+  updateModel: (id: string, modelId: string): Promise<unknown> =>
+    ipcRenderer.invoke('chat:update-model', { id, modelId }),
+
   getMessages: (conversationId: string): Promise<unknown[]> =>
     ipcRenderer.invoke('chat:get-messages', { conversationId }),
 

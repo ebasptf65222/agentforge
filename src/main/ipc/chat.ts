@@ -25,6 +25,7 @@ import {
   getConversationById,
   deleteConversation,
   updateConversationTitle,
+  updateConversationModel,
   incrementMessageCount,
   updateLastMessageAt,
   forkConversation,
@@ -623,6 +624,23 @@ const registrations: ChannelRegistration[] = [
   {
     channel: 'chat:search-conversations',
     handler: (_event, params: unknown) => handleSearchConversations(params),
+  },
+  {
+    channel: 'chat:update-model',
+    handler: (_event, params: unknown) => {
+      if (params === null || typeof params !== 'object') {
+        throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Update model params must be an object.')
+      }
+      const p = params as Record<string, unknown>
+      const id = validateNonEmptyString(p['id'], 'id')
+      const modelId = validateNonEmptyString(p['modelId'], 'modelId')
+      // 验证模型配置存在
+      if (!modelConfigExists(modelId)) {
+        throw new AppError(ErrorCodes.MODEL_NOT_FOUND, `Model with id "${modelId}" not found.`)
+      }
+      updateConversationModel(id, modelId)
+      return getConversationById(id)
+    },
   },
   // P3-01: 对话分支
   {

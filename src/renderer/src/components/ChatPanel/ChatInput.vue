@@ -8,11 +8,12 @@ import { BookOutlined, CloseOutlined, ImageOutlined } from '@vicons/material'
 import AppButton from '@/components/common/AppButton.vue'
 import VoiceInputButton from './VoiceInputButton.vue'
 import VoiceModeToggle from './VoiceModeToggle.vue'
+import ModelSwitcher from './ModelSwitcher.vue'
+import EngineSwitcher from './EngineSwitcher.vue'
+import WorkspaceSwitcher from './WorkspaceSwitcher.vue'
 import { useSkillStore } from '@/stores/skill'
 import { useChatStore } from '@/stores/chat'
 import { useVoiceStore } from '@/stores/voice'
-import { useSettingsStore } from '@/stores/settings'
-import { useModelStore } from '@/stores/model'
 import type { Skill } from '@shared/types'
 
 const props = defineProps<{
@@ -28,8 +29,6 @@ const emit = defineEmits<{
 const skillStore = useSkillStore()
 const chatStore = useChatStore()
 const voiceStore = useVoiceStore()
-const settingsStore = useSettingsStore()
-const modelStore = useModelStore()
 
 onMounted(() => {
   void skillStore.loadSkills()
@@ -54,22 +53,6 @@ const selectedSkillInfo = computed(() => {
 
 /** Whether to show the skill mode banner */
 const showSkillBanner = computed(() => selectedSkillInfo.value !== null)
-
-/** Current engine label for the status indicator */
-const engineLabel = computed(() => {
-  const engineType = settingsStore.settings?.engineType ?? 'builtin'
-  if (engineType === 'copilot-sdk') return 'Copilot SDK'
-  if (engineType === 'langgraph') return 'LangGraph'
-  return '内置引擎'
-})
-
-/** Current model name for the status indicator */
-const currentModelName = computed(() => {
-  const conv = chatStore.currentConversation
-  if (!conv?.modelId) return null
-  const model = modelStore.models.find((m) => m.id === conv.modelId)
-  return model?.name ?? null
-})
 
 function clearSkill(): void {
   selectedSkill.value = null
@@ -226,7 +209,7 @@ function handleDragLeave(event: DragEvent): void {
 
 <template>
   <div class="chat-input">
-    <!-- Skill 选择器 + 知识库关联 + 语音模式 -->
+    <!-- Skill 选择器 + 引擎切换 + 工作区 + 知识库关联 + 模型切换 + 语音模式 -->
     <div class="chat-input__toolbar">
       <div class="chat-input__toolbar-left">
         <NSelect
@@ -235,8 +218,10 @@ function handleDragLeave(event: DragEvent): void {
           size="small"
           :consistent-menu-width="false"
           placeholder="普通对话"
-          style="width: 160px"
+          style="width: 140px"
         />
+        <EngineSwitcher />
+        <WorkspaceSwitcher />
         <div class="kb-toggle" title="关联知识库：开启后 AI 会参考知识库内容回答">
           <BookOutlined class="kb-toggle__icon" />
           <NSwitch
@@ -246,11 +231,7 @@ function handleDragLeave(event: DragEvent): void {
         </div>
       </div>
       <div class="chat-input__toolbar-right">
-        <div class="engine-indicator" :title="`执行引擎: ${engineLabel}`">
-          <span class="engine-indicator__dot" />
-          <span class="engine-indicator__text">{{ engineLabel }}</span>
-          <span v-if="currentModelName" class="engine-indicator__model">{{ currentModelName }}</span>
-        </div>
+        <ModelSwitcher />
         <VoiceModeToggle />
       </div>
     </div>
@@ -341,12 +322,14 @@ function handleDragLeave(event: DragEvent): void {
   gap: 8px;
   margin-bottom: 8px;
   justify-content: space-between;
+  flex-wrap: wrap;
 }
 
 .chat-input__toolbar-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .kb-toggle {
@@ -375,40 +358,6 @@ function handleDragLeave(event: DragEvent): void {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-/* Engine status indicator */
-.engine-indicator {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  background-color: var(--af-bg-input, #1f2937);
-  border: 1px solid var(--af-border, #374151);
-  border-radius: var(--af-radius-sm, 6px);
-  font-size: 11px;
-  color: var(--af-text-muted, #9ca3af);
-}
-
-.engine-indicator__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: var(--af-brand, #4f46e5);
-  flex-shrink: 0;
-}
-
-.engine-indicator__text {
-  white-space: nowrap;
-}
-
-.engine-indicator__model {
-  white-space: nowrap;
-  color: var(--af-text-secondary, #d1d5db);
-  font-weight: 500;
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .chat-input__wrapper {
@@ -590,5 +539,16 @@ function handleDragLeave(event: DragEvent): void {
 .chat-input__wrapper.is-dragging {
   border-color: var(--af-brand, #4f46e5);
   background-color: color-mix(in srgb, var(--af-brand, #4f46e5) 5%, var(--af-bg-input, #1f2937));
+}
+
+/* Responsive: narrow screens hide text labels, keep icons */
+@media (max-width: 720px) {
+  .chat-input__toolbar-left {
+    gap: 4px;
+  }
+
+  .kb-toggle {
+    padding: 2px 4px;
+  }
 }
 </style>
