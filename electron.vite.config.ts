@@ -13,6 +13,7 @@ export default defineConfig({
         external: [
           'electron',
           'better-sqlite3',
+          'croner',
         ],
       },
     },

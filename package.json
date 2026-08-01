@@ -39,6 +39,7 @@
     "@vicons/ionicons5": "^0.13.0",
     "@vicons/material": "^0.13.0",
     "better-sqlite3": "^13.0.1",
+    "croner": "^10.0.1",
     "dompurify": "^3.4.12",
     "exceljs": "^4.4.0",
     "langchain-mcp-adapters": "^0.6.0",

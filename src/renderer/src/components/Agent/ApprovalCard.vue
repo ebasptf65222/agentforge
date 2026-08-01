@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// P2-09: ApprovalCard - tool approval request UI with enhanced previews (OPT-UI-11)
-// Enhanced: remember choice, reject reason input, amber breathing animation
+// ApprovalCard - Enhanced tool approval UI
+// Design principles: clear visual hierarchy, prominent primary action, risk-aware styling
+// Inspired by: Codex CLI (y/N/a quick keys), Cursor (diff review), Windsurf (Apply button)
 
-import { computed, ref } from 'vue'
-import { NIcon, NTag, NCollapse, NCollapseItem, NCheckbox, NInput } from 'naive-ui'
+import { computed, ref, onMounted, onUnmounted, type Component } from 'vue'
+import { NIcon, NTag, NCollapse, NCollapseItem, NCheckbox, NInput, NTooltip } from 'naive-ui'
 import {
   FolderOpenOutlined,
   CodeOutlined,
@@ -11,7 +12,11 @@ import {
   SearchOutlined,
   TerminalOutlined,
   EditNoteOutlined,
+  CheckCircleOutlined,
+  CancelOutlined,
   ExpandMoreOutlined,
+  ShieldOutlined,
+  TimerOutlined,
 } from '@vicons/material'
 import CodeDiffPreview from './CodeDiffPreview.vue'
 import type { ApprovalRequest } from '@shared/types'
@@ -25,17 +30,35 @@ const emit = defineEmits<{
   reject: [reason?: string]
 }>()
 
-const riskColors: Record<string, string> = {
-  low: 'var(--af-success, #10b981)',
-  medium: 'var(--af-warning, #f59e0b)',
-  high: 'var(--af-error, #ef4444)',
+// ─── Risk level configuration ──────────────────────────────────
+
+const riskConfig: Record<string, { color: string; label: string; icon: Component; description: string }> = {
+  low: {
+    color: 'var(--af-success, #10b981)',
+    label: '低风险',
+    icon: ShieldOutlined,
+    description: '此操作仅读取信息，不会修改系统',
+  },
+  medium: {
+    color: 'var(--af-warning, #f59e0b)',
+    label: '中风险',
+    icon: ShieldOutlined,
+    description: '此操作会修改文件或执行本地命令',
+  },
+  high: {
+    color: 'var(--af-error, #ef4444)',
+    label: '高风险',
+    icon: ShieldOutlined,
+    description: '此操作可能影响系统配置或执行不可逆变更',
+  },
 }
 
-const riskLabels: Record<string, string> = {
-  low: '低风险',
-  medium: '中风险',
-  high: '高风险',
-}
+const risk = computed(() => riskConfig[props.request.toolAction.riskLevel] || {
+  color: '#999',
+  label: '未知',
+  icon: ShieldOutlined as Component,
+  description: '风险等级未知',
+})
 
 // ─── Tool type detection ─────────────────────────────────────
 
@@ -61,7 +84,7 @@ const toolCategory = computed<ToolCategory>(() => {
   return 'generic'
 })
 
-const categoryMeta: Record<ToolCategory, { label: string; icon: any; color: string }> = {
+const categoryMeta: Record<ToolCategory, { label: string; icon: Component; color: string }> = {
   'file-read': { label: '文件读取', icon: FolderOpenOutlined, color: '#60a5fa' },
   'file-write': { label: '文件写入', icon: EditNoteOutlined, color: '#f87171' },
   command: { label: '命令执行', icon: TerminalOutlined, color: '#fbbf24' },
@@ -145,14 +168,29 @@ const hasDiffData = computed(() => {
 
 const expandedNames = ref<string[]>([])
 
-// ─── Remember choice & reject reason ────────────────────────
+// ─── Approval actions ────────────────────────────────────────
 
 const rememberChoice = ref(false)
 const showRejectReason = ref(false)
 const rejectReason = ref('')
+const approving = ref(false)
 
 function handleApprove(): void {
+  approving.value = true
   emit('approve', rememberChoice.value)
+  // Reset after a short delay for visual feedback
+  setTimeout(() => {
+    approving.value = false
+  }, 300)
+}
+
+function handleApproveAll(): void {
+  rememberChoice.value = true
+  approving.value = true
+  emit('approve', true)
+  setTimeout(() => {
+    approving.value = false
+  }, 300)
 }
 
 function handleRejectClick(): void {
@@ -172,30 +210,87 @@ function handleRejectCancel(): void {
 
 // Expose for keyboard shortcuts from parent
 defineExpose({ handleApprove, handleRejectConfirm })
+
+// ─── Approval timeout countdown ──────────────────────────────
+
+const remainingSeconds = ref<number | null>(null)
+let countdownInterval: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  // Default 120s approval timeout
+  const timeoutMs = 120_000
+  const startTime = Date.now()
+  remainingSeconds.value = Math.floor(timeoutMs / 1000)
+
+  countdownInterval = setInterval(() => {
+    const elapsed = Date.now() - startTime
+    const remaining = Math.max(0, Math.floor((timeoutMs - elapsed) / 1000))
+    remainingSeconds.value = remaining
+
+    if (remaining <= 0) {
+      if (countdownInterval) {
+        clearInterval(countdownInterval)
+        countdownInterval = null
+      }
+    }
+  }, 1000)
+})
+
+onUnmounted(() => {
+  if (countdownInterval) {
+    clearInterval(countdownInterval)
+    countdownInterval = null
+  }
+})
+
+const timeoutProgress = computed(() => {
+  if (remainingSeconds.value === null) return 100
+  return Math.max(0, (remainingSeconds.value / 120) * 100)
+})
+
+const isUrgent = computed(() => remainingSeconds.value !== null && remainingSeconds.value <= 30)
 </script>
 
 <template>
-  <div class="approval-card approval-card--pending">
-    <!-- Header -->
+  <div class="approval-card" :class="`approval-card--${props.request.toolAction.riskLevel}`">
+    <!-- Header with tool info and risk badge -->
     <div class="approval-header">
       <div class="approval-header__left">
-        <NIcon :size="16" :color="meta.color">
-          <component :is="meta.icon" />
-        </NIcon>
-        <span class="approval-title">{{ meta.label }}</span>
+        <div class="approval-tool-icon" :style="{ backgroundColor: meta.color + '20', color: meta.color }">
+          <NIcon :size="16">
+            <component :is="meta.icon" />
+          </NIcon>
+        </div>
+        <div class="approval-header__info">
+          <span class="approval-title">{{ meta.label }}</span>
+          <span class="approval-tool-name">{{ props.request.toolAction.toolName }}</span>
+        </div>
       </div>
-      <span
-        class="risk-badge"
-        :style="{ backgroundColor: riskColors[props.request.toolAction.riskLevel] || '#999' }"
-      >
-        {{ riskLabels[props.request.toolAction.riskLevel] || '未知' }}
-      </span>
+
+      <!-- Risk badge -->
+      <div class="risk-indicator" :style="{ '--risk-color': risk.color }">
+        <NIcon :size="12">
+          <component :is="risk.icon" />
+        </NIcon>
+        <span class="risk-label">{{ risk.label }}</span>
+      </div>
+    </div>
+
+    <!-- Risk description banner -->
+    <div v-if="risk.description" class="risk-description" :style="{ '--risk-color': risk.color }">
+      <NIcon :size="12" class="risk-desc-icon">
+        <ShieldOutlined />
+      </NIcon>
+      {{ risk.description }}
     </div>
 
     <!-- Reason -->
-    <div class="approval-body">
-      <p v-if="props.request.reason" class="approval-reason">{{ props.request.reason }}</p>
+    <div v-if="props.request.reason" class="approval-reason">
+      {{ props.request.reason }}
+    </div>
 
+    <!-- Preview content -->
+    <div class="approval-body">
       <!-- File read/write preview -->
       <template v-if="toolCategory === 'file-read' || toolCategory === 'file-write'">
         <div class="preview-section">
@@ -293,30 +388,67 @@ defineExpose({ handleApprove, handleRejectConfirm })
         @keydown.enter.meta="handleRejectConfirm"
       />
       <div class="reject-reason-actions">
-        <button class="btn-reject-confirm" @click="handleRejectConfirm">确认拒绝</button>
+        <button class="btn-reject-confirm" @click="handleRejectConfirm">
+          <NIcon :size="13"><CancelOutlined /></NIcon>
+          确认拒绝
+        </button>
         <button class="btn-reject-cancel" @click="handleRejectCancel">取消</button>
       </div>
     </div>
 
-    <!-- Actions -->
-    <div v-else class="approval-actions">
-      <button class="btn-approve" @click="handleApprove">
-        <NIcon :size="14"><ExpandMoreOutlined /></NIcon>
-        批准
-        <kbd class="kbd-hint">Ctrl+↵</kbd>
-      </button>
-      <button class="btn-reject" @click="handleRejectClick">
-        拒绝
-        <kbd class="kbd-hint">Ctrl+⇧+X</kbd>
-      </button>
-    </div>
+    <!-- Sticky action bar -->
+    <div v-else class="approval-actions-bar">
+      <!-- Timeout progress bar -->
+      <div v-if="remainingSeconds !== null" class="timeout-bar" :class="{ 'timeout-bar--urgent': isUrgent }">
+        <div class="timeout-bar__fill" :style="{ width: timeoutProgress + '%' }"></div>
+        <div class="timeout-bar__label">
+          <NIcon :size="10"><TimerOutlined /></NIcon>
+          <span>{{ remainingSeconds }}s</span>
+        </div>
+      </div>
 
-    <!-- Remember choice checkbox -->
-    <div class="approval-footer">
-      <NCheckbox v-model:checked="rememberChoice">
-        本次会话内自动批准同类操作（{{ props.request.toolAction.toolName }} ·
-        {{ riskLabels[props.request.toolAction.riskLevel] || '未知' }}）
-      </NCheckbox>
+      <!-- Primary actions -->
+      <div class="approval-actions">
+        <!-- Approve Once -->
+        <button
+          class="btn-action btn-approve"
+          :class="{ 'btn-approve--active': approving }"
+          @click="handleApprove"
+        >
+          <NIcon :size="15"><CheckCircleOutlined /></NIcon>
+          <span class="btn-text">批准</span>
+          <kbd class="kbd-hint kbd-hint--approve">Ctrl+↵</kbd>
+        </button>
+
+        <!-- Approve All Similar -->
+        <NTooltip placement="top" :delay="300">
+          <template #trigger>
+            <button class="btn-action btn-approve-all" @click="handleApproveAll">
+              <NIcon :size="14"><ExpandMoreOutlined /></NIcon>
+              <span class="btn-text">全部批准</span>
+              <kbd class="kbd-hint">Ctrl+⇧+↵</kbd>
+            </button>
+          </template>
+          <span>本次会话内自动批准同类操作</span>
+        </NTooltip>
+
+        <!-- Reject -->
+        <button class="btn-action btn-reject" @click="handleRejectClick">
+          <NIcon :size="14"><CancelOutlined /></NIcon>
+          <span class="btn-text">拒绝</span>
+          <kbd class="kbd-hint">Ctrl+⇧+X</kbd>
+        </button>
+      </div>
+
+      <!-- Remember choice checkbox -->
+      <div class="approval-remember">
+        <NCheckbox v-model:checked="rememberChoice">
+          <span class="remember-text">
+            本次会话内自动批准同类操作（{{ props.request.toolAction.toolName }} ·
+            {{ risk.label }}）
+          </span>
+        </NCheckbox>
+      </div>
     </div>
   </div>
 </template>
@@ -324,70 +456,138 @@ defineExpose({ handleApprove, handleRejectConfirm })
 <style scoped>
 .approval-card {
   border: 1px solid var(--af-border, #334155);
-  border-radius: var(--af-radius, 8px);
+  border-radius: 10px;
   margin: 12px 0;
   overflow: hidden;
   background: var(--af-bg-surface, #1e293b);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
-/* Amber breathing animation when pending */
-.approval-card--pending {
-  border-color: var(--af-warning, #f59e0b);
-  animation: approval-breathe 2s ease-in-out infinite;
+/* Risk-based left border accent */
+.approval-card--low {
+  border-left: 3px solid var(--af-success, #10b981);
 }
 
-@keyframes approval-breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
-    border-color: rgba(245, 158, 11, 0.4);
+.approval-card--medium {
+  border-left: 3px solid var(--af-warning, #f59e0b);
+  animation: approval-breathe-medium 2.5s ease-in-out infinite;
+}
+
+.approval-card--high {
+  border-left: 3px solid var(--af-error, #ef4444);
+  animation: approval-breathe-high 1.8s ease-in-out infinite;
+}
+
+@keyframes approval-breathe-medium {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0), 0 2px 8px rgba(0, 0, 0, 0.15);
   }
   50% {
-    box-shadow: 0 0 12px 2px rgba(245, 158, 11, 0.15);
-    border-color: rgba(245, 158, 11, 0.9);
+    box-shadow: 0 0 12px 2px rgba(245, 158, 11, 0.12), 0 2px 8px rgba(0, 0, 0, 0.15);
   }
 }
+
+@keyframes approval-breathe-high {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0), 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 16px 4px rgba(239, 68, 68, 0.18), 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+}
+
+/* ─── Header ──────────────────────────────────────────────── */
 
 .approval-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: var(--af-bg-hover, #334155);
-  border-bottom: 1px solid var(--af-border, #334155);
+  background: var(--af-bg-hover, rgba(51, 65, 85, 0.3));
+  border-bottom: 1px solid var(--af-border, rgba(51, 65, 85, 0.5));
 }
 
 .approval-header__left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+
+.approval-tool-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.approval-header__info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .approval-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--af-text-primary, #f1f5f9);
+  line-height: 1.3;
 }
 
-.risk-badge {
+.approval-tool-name {
+  font-size: 11px;
+  color: var(--af-text-muted, #64748b);
+  font-family: 'Fira Code', 'Consolas', monospace;
+}
+
+/* Risk indicator */
+.risk-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
   font-size: 11px;
   font-weight: 600;
-  padding: 2px 8px;
-  border-radius: var(--af-radius-sm, 6px);
-  color: #fff;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--risk-color);
+  background: color-mix(in srgb, var(--risk-color) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--risk-color) 30%, transparent);
+}
+
+.risk-label {
+  letter-spacing: 0.3px;
+}
+
+/* Risk description banner */
+.risk-description {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--risk-color);
+  background: color-mix(in srgb, var(--risk-color) 6%, transparent);
+  border-bottom: 1px solid var(--af-border, rgba(51, 65, 85, 0.3));
+}
+
+.risk-desc-icon {
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+
+/* ─── Body ──────────────────────────────────────────────── */
+
+.approval-reason {
+  padding: 10px 14px 0;
+  font-size: 13px;
+  color: var(--af-text-secondary, #cbd5e1);
+  line-height: 1.5;
 }
 
 .approval-body {
   padding: 12px 14px;
-}
-
-.approval-reason {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--af-text-secondary, #cbd5e1);
-  line-height: 1.5;
 }
 
 .preview-section {
@@ -414,7 +614,7 @@ defineExpose({ handleApprove, handleRejectConfirm })
   font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
   color: var(--af-text-primary, #e5e7eb);
   background: var(--af-bg-input, #1f2937);
-  border-radius: var(--af-radius-sm, 6px);
+  border-radius: 6px;
   padding: 6px 8px;
   word-break: break-all;
   white-space: pre-wrap;
@@ -426,7 +626,7 @@ defineExpose({ handleApprove, handleRejectConfirm })
   font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
   color: #fca5a5;
   background: var(--af-bg-input, #1f2937);
-  border-radius: var(--af-radius-sm, 6px);
+  border-radius: 6px;
   padding: 8px 10px;
   margin: 0;
   white-space: pre-wrap;
@@ -440,7 +640,7 @@ defineExpose({ handleApprove, handleRejectConfirm })
   font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
   color: var(--af-text-secondary, #cbd5e1);
   background: var(--af-bg-input, #1f2937);
-  border-radius: var(--af-radius-sm, 6px);
+  border-radius: 6px;
   padding: 8px 10px;
   margin: 0;
   white-space: pre-wrap;
@@ -454,7 +654,7 @@ defineExpose({ handleApprove, handleRejectConfirm })
   align-items: center;
   gap: 8px;
   background: var(--af-bg-input, #1f2937);
-  border-radius: var(--af-radius-sm, 6px);
+  border-radius: 6px;
   padding: 6px 8px;
 }
 
@@ -484,7 +684,7 @@ defineExpose({ handleApprove, handleRejectConfirm })
   overflow-x: auto;
   max-height: 200px;
   background: var(--af-bg-input, #1f2937);
-  border-radius: var(--af-radius-sm, 6px);
+  border-radius: 6px;
   padding: 8px 10px;
 }
 
@@ -503,8 +703,11 @@ defineExpose({ handleApprove, handleRejectConfirm })
 }
 
 .btn-reject-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 6px 14px;
-  border-radius: var(--af-radius-sm, 6px);
+  border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -520,7 +723,7 @@ defineExpose({ handleApprove, handleRejectConfirm })
 
 .btn-reject-cancel {
   padding: 6px 14px;
-  border-radius: var(--af-radius-sm, 6px);
+  border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -534,75 +737,187 @@ defineExpose({ handleApprove, handleRejectConfirm })
   opacity: 0.85;
 }
 
-/* ─── Action buttons ────────────────────────────────────── */
+/* ─── Sticky action bar ──────────────────────────────────── */
 
-.approval-actions {
-  display: flex;
-  gap: 8px;
-  padding: 0 14px 8px;
+.approval-actions-bar {
+  position: sticky;
+  bottom: 0;
+  background: var(--af-bg-surface, #1e293b);
+  border-top: 1px solid var(--af-border, rgba(51, 65, 85, 0.5));
+  padding: 10px 14px 12px;
+  z-index: 5;
 }
 
-.btn-approve,
-.btn-reject {
+/* Timeout progress bar */
+.timeout-bar {
+  position: relative;
+  height: 3px;
+  background: var(--af-bg-hover, rgba(51, 65, 85, 0.5));
+  border-radius: 2px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.timeout-bar__fill {
+  height: 100%;
+  background: var(--af-info, #0ea5e9);
+  border-radius: 2px;
+  transition: width 1s linear, background-color 0.3s ease;
+}
+
+.timeout-bar--urgent .timeout-bar__fill {
+  background: var(--af-error, #ef4444);
+  animation: timeout-pulse 1s ease-in-out infinite;
+}
+
+@keyframes timeout-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.timeout-bar__label {
+  position: absolute;
+  right: 0;
+  top: -16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--af-text-muted, #64748b);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Action buttons */
+.approval-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-action {
   flex: 1;
-  padding: 8px 16px;
-  border-radius: var(--af-radius-sm, 6px);
+  padding: 9px 12px;
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   border: none;
-  transition:
-    opacity 0.15s ease,
-    transform 0.1s ease;
+  transition: all 0.15s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
+  position: relative;
+  overflow: hidden;
 }
 
+.btn-action::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transform: translate(-50%, -50%);
+  transition: width 0.3s ease, height 0.3s ease;
+}
+
+.btn-action:active::after {
+  width: 200px;
+  height: 200px;
+}
+
+/* Approve - prominent green with glow */
 .btn-approve {
   background: var(--af-success, #10b981);
   color: #fff;
+  flex: 2;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.3);
+  animation: approve-glow 2s ease-in-out infinite;
+}
+
+@keyframes approve-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 12px 2px rgba(16, 185, 129, 0.25);
+  }
 }
 
 .btn-approve:hover {
-  opacity: 0.85;
+  background: color-mix(in srgb, var(--af-success, #10b981) 90%, #ffffff 10%);
+  transform: translateY(-1px);
 }
 
+.btn-approve--active {
+  transform: scale(0.96);
+}
+
+/* Approve All - secondary style */
+.btn-approve-all {
+  background: color-mix(in srgb, var(--af-success, #10b981) 15%, transparent);
+  color: var(--af-success, #10b981);
+  border: 1px solid color-mix(in srgb, var(--af-success, #10b981) 30%, transparent);
+  flex: 1.2;
+}
+
+.btn-approve-all:hover {
+  background: color-mix(in srgb, var(--af-success, #10b981) 25%, transparent);
+  border-color: color-mix(in srgb, var(--af-success, #10b981) 50%, transparent);
+}
+
+/* Reject - subtle but clear */
 .btn-reject {
   background: var(--af-bg-hover, #334155);
-  color: var(--af-text-primary, #f1f5f9);
-  border: 1px solid var(--af-border, #334155);
+  color: var(--af-text-secondary, #cbd5e1);
+  border: 1px solid var(--af-border, #475569);
+  flex: 1;
 }
 
 .btn-reject:hover {
-  opacity: 0.85;
+  background: color-mix(in srgb, var(--af-error, #ef4444) 15%, var(--af-bg-hover, #334155));
+  color: var(--af-error, #ef4444);
+  border-color: var(--af-error, #ef4444);
 }
 
-.btn-approve:active,
-.btn-reject:active {
+.btn-action:active {
   transform: scale(0.97);
 }
 
+.btn-text {
+  white-space: nowrap;
+}
+
+/* Keyboard hint */
 .kbd-hint {
   font-size: 10px;
   font-family: 'SF Mono', 'Consolas', monospace;
   opacity: 0.7;
   padding: 1px 4px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   margin-left: 4px;
 }
 
-/* ─── Footer (remember checkbox) ────────────────────────── */
-
-.approval-footer {
-  padding: 10px 14px 12px;
-  border-top: 1px solid var(--af-border, #334155);
+.kbd-hint--approve {
+  background: rgba(255, 255, 255, 0.2);
 }
 
-:deep(.approval-footer .n-checkbox) {
+/* Remember choice */
+.approval-remember {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--af-border-subtle, rgba(51, 65, 85, 0.3));
+}
+
+:deep(.approval-remember .n-checkbox) {
   font-size: 12px;
   color: var(--af-text-tertiary, #94a3b8);
+}
+
+.remember-text {
+  font-size: 12px;
 }
 </style>
