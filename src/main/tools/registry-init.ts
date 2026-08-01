@@ -19,6 +19,7 @@ import { allCheckpointTools } from './checkpoint-tools'
 import { wikiIngestTool } from './wiki-ingest'
 import { wikiQueryTool } from './wiki-query'
 import { wikiLintTool } from './wiki-lint'
+import { scheduleTaskTool } from './schedule-task'
 
 /**
  * 初始化并注册所有内置工具到全局 ToolRegistry。
@@ -62,4 +63,7 @@ export function initBuiltinTools(): void {
   for (const tool of allCheckpointTools) {
     registry.registerBuiltin(tool)
   }
+
+  // 注册定时任务工具
+  registry.registerBuiltin(scheduleTaskTool)
 }

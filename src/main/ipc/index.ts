@@ -22,6 +22,7 @@ import { registerCodebaseHandlers } from './codebase'
 import { registerGitHandlers } from './git'
 import { registerBrowserHandlers } from './browser'
 import { registerCheckpointHandlers } from './checkpoint'
+import { registerSchedulerHandlers } from './scheduler'
 
 /**
  * 注册所有 IPC handlers。
@@ -88,4 +89,7 @@ export function registerIpcHandlers(): void {
 
   // ─── Checkpoint 域 (快照回滚) ──────────────────────────────
   registerCheckpointHandlers()
+
+  // ─── Scheduler 域 (定时任务) ──────────────────────────────
+  registerSchedulerHandlers()
 }

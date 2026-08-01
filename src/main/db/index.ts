@@ -349,7 +349,72 @@ const INDEX_MIGRATIONS: readonly string[] = [
 ] as const
 
 /**
- * 条件迁移：为已存在的数据库添加缺失的列或索引。
+ * 检查表是否存在。
+ */
+function hasTable(db: Database.Database, tableName: string): boolean {
+  const row = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
+    .get(tableName) as { name: string } | undefined
+  return row !== undefined
+}
+
+/**
+ * 表创建迁移（幂等，通过 hasTable 检查）。
+ */
+const TABLE_MIGRATIONS: readonly { table: string; sql: string }[] = [
+  {
+    table: 'scheduled_tasks',
+    sql: `CREATE TABLE IF NOT EXISTS scheduled_tasks (
+      id              TEXT PRIMARY KEY,
+      name            TEXT NOT NULL,
+      enabled         INTEGER NOT NULL DEFAULT 1,
+      schedule_type   TEXT NOT NULL,
+      cron_expr       TEXT,
+      at_ms           INTEGER,
+      every_ms        INTEGER,
+      anchor_ms       INTEGER,
+      timezone        TEXT,
+      agent_config    TEXT NOT NULL,
+      session_target  TEXT NOT NULL DEFAULT 'isolated',
+      next_run_at_ms  INTEGER,
+      running_at_ms   INTEGER,
+      last_run_at_ms  INTEGER,
+      last_status     TEXT,
+      last_duration_ms INTEGER,
+      run_count       INTEGER NOT NULL DEFAULT 0,
+      error_count     INTEGER NOT NULL DEFAULT 0,
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+    )`,
+  },
+  {
+    table: 'scheduled_task_runs',
+    sql: `CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+      id              TEXT PRIMARY KEY,
+      task_id         TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+      started_at_ms   INTEGER NOT NULL,
+      finished_at_ms  INTEGER,
+      status          TEXT NOT NULL DEFAULT 'running',
+      conversation_id TEXT,
+      summary         TEXT,
+      error           TEXT,
+      duration_ms     INTEGER
+    )`,
+  },
+] as const
+
+/**
+ * 调度器相关索引（幂等）。
+ */
+const SCHEDULER_INDEXES: readonly string[] = [
+  `CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled)`,
+  `CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_task ON scheduled_task_runs(task_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_status ON scheduled_task_runs(status)`,
+] as const
+
+/**
+ * 条件迁移：为已存在的数据库添加缺失的列、表或索引。
  * 所有操作都是幂等的。
  *
  * 采用数据驱动方式：遍历 COLUMN_MIGRATIONS 数组，
@@ -363,8 +428,20 @@ function runConditionalMigrations(db: Database.Database): void {
     }
   })
 
+  // 表迁移：幂等地创建缺失的表
+  TABLE_MIGRATIONS.forEach((migration) => {
+    if (!hasTable(db, migration.table)) {
+      db.exec(migration.sql)
+    }
+  })
+
   // 索引迁移：幂等地创建缺失的索引
   INDEX_MIGRATIONS.forEach((sql) => {
+    db.exec(sql)
+  })
+
+  // 调度器索引
+  SCHEDULER_INDEXES.forEach((sql) => {
     db.exec(sql)
   })
 }

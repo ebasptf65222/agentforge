@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, session, Menu } from 'electron'
+import { app, BrowserWindow, shell, session, Menu, powerMonitor } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import {
@@ -14,6 +14,7 @@ import { getSettings } from './db/repos/app-settings'
 import { setEmbeddingConfig } from './knowledge-base/embedding'
 import { getMcpServerManager } from './mcp/manager'
 import { scanAndResetCorruptApiKeys } from './db/repos/model-config'
+import { getSchedulerService } from './services/scheduler-service'
 
 // ─── 全局未捕获错误处理 ───────────────────────────────────────────────
 // 防止应用崩溃后静默退出，至少记录错误日志
@@ -57,6 +58,11 @@ registerCleanup(async () => {
 registerCleanup(async () => {
   const { closeAllSessions } = await import('./browser')
   closeAllSessions()
+})
+
+// 注册调度器关闭
+registerCleanup(() => {
+  getSchedulerService().shutdown()
 })
 
 // ─── CSP 策略（生产环境注入） ──────────────────────────────────────
@@ -294,6 +300,21 @@ if (!gotTheLock) {
 
     // 设置原生菜单（隐藏菜单栏 / macOS 最小化菜单）
     setupMenu()
+
+    // 初始化定时任务调度器
+    try {
+      getSchedulerService().initialize()
+    } catch (error) {
+      console.error('[AgentForge] Scheduler initialization failed:', error)
+    }
+
+    // 电源管理：系统休眠恢复后检查错过的任务
+    powerMonitor.on('resume', () => {
+      console.info('[AgentForge] System resumed. Checking missed scheduled tasks...')
+      void getSchedulerService().checkMissedRuns().then(() => {
+        getSchedulerService().rearm()
+      })
+    })
 
     // 生产环境注入 CSP（开发环境跳过以支持 Vite HMR）
     if (app.isPackaged) {

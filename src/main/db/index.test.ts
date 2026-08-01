@@ -203,7 +203,7 @@ describe('Database Initialization', () => {
 
   // ─── 辅助验证 ────────────────────────────────────────────────
 
-  it('should create 15 tables (5 P1 + mcp_servers + skills + kb_documents + kb_chunks + kg_entities + kg_relations + prompt_templates + codebase_files + codebase_symbols + codebase_chunks)', () => {
+  it('should create 17 tables (5 P1 + mcp_servers + skills + kb_documents + kb_chunks + kg_entities + kg_relations + prompt_templates + codebase_files + codebase_symbols + codebase_chunks + scheduled_tasks + scheduled_task_runs)', () => {
     const db = initDatabase(dbPath)
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
@@ -223,6 +223,8 @@ describe('Database Initialization', () => {
       'messages',
       'model_configs',
       'prompt_templates',
+      'scheduled_task_runs',
+      'scheduled_tasks',
       'schema_version',
       'skills',
     ])

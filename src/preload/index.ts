@@ -417,6 +417,40 @@ const checkpoint = {
     ipcRenderer.invoke('checkpoint:delete', params),
 }
 
+// ─── Scheduler 命名空间 (定时任务) ────────────────────────────
+
+const scheduler = {
+  create: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('scheduler:create', params),
+
+  list: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('scheduler:list'),
+
+  update: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('scheduler:update', params),
+
+  delete: (id: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('scheduler:delete', { id }),
+
+  toggle: (id: string, enabled: boolean): Promise<unknown> =>
+    ipcRenderer.invoke('scheduler:toggle', { id, enabled }),
+
+  runNow: (id: string): Promise<unknown> =>
+    ipcRenderer.invoke('scheduler:run-now', { id }),
+
+  history: (id: string, limit?: number): Promise<unknown[]> =>
+    ipcRenderer.invoke('scheduler:history', { id, limit }),
+
+  recentRuns: (limit?: number): Promise<unknown[]> =>
+    ipcRenderer.invoke('scheduler:recent-runs', { limit }),
+
+  onTaskCompleted: (callback: (data: unknown) => void): (() => void) =>
+    onEvent('scheduler:task-completed', callback),
+
+  onTaskDisabled: (callback: (data: unknown) => void): (() => void) =>
+    onEvent('scheduler:task-disabled', callback),
+}
+
 // ─── 暴露到渲染进程 ─────────────────────────────────────────────
 // 与 Spec v0.2 §15.2 一致：渲染进程不直接访问 Node.js
 
@@ -442,6 +476,7 @@ if (process.contextIsolated) {
       git,
       browser,
       checkpoint,
+      scheduler,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)
