@@ -377,6 +377,7 @@ export function updateModelConfig(params: UpdateModelParams): void {
 /**
  * 删除模型配置。
  * - 删除默认模型时抛出 MODEL_DELETE_DEFAULT
+ * - 自动将引用该模型的会话迁移到默认模型（或最近创建的其他模型）
  *
  * @param id - 模型 ID
  * @throws {AppError} MODEL_NOT_FOUND - 模型不存在
@@ -398,6 +399,24 @@ export function deleteModelConfig(id: string): void {
       `Cannot delete the default model (id="${id}"). Set another model as default first.`,
       { id },
     )
+  }
+
+  // 查找替代模型：优先使用默认模型，否则使用最近创建的其他模型
+  const fallbackModel = db
+    .prepare(
+      'SELECT id FROM model_configs WHERE id != ? ORDER BY is_default DESC, created_at DESC LIMIT 1',
+    )
+    .get(id) as { id: string } | undefined
+
+  if (fallbackModel !== undefined) {
+    // 将引用被删除模型的会话迁移到替代模型
+    db.prepare('UPDATE conversations SET model_id = ? WHERE model_id = ?').run(
+      fallbackModel.id,
+      id,
+    )
+  } else {
+    // 没有其他模型可迁移，删除关联的会话（级联删除消息）
+    db.prepare('DELETE FROM conversations WHERE model_id = ?').run(id)
   }
 
   db.prepare('DELETE FROM model_configs WHERE id = ?').run(id)

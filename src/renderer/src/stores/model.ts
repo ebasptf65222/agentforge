@@ -64,6 +64,9 @@ export const useModelStore = defineStore('model', () => {
     } catch (error) {
       if (isAppErrorCode(error, MODEL_DELETE_DEFAULT_CODE)) {
         showToast('无法删除默认模型，请先设置其他模型为默认', 'error')
+      } else {
+        const message = error instanceof Error ? error.message : String(error)
+        showToast(`删除失败: ${message}`, 'error')
       }
       throw error
     }

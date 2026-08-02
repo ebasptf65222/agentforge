@@ -211,19 +211,32 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
     const skillResolution = await resolveSkill(request.userInput, request.skillName, adapter)
     if (skillResolution.skill !== null) {
       const skill = skillResolution.skill
-      const skillCtx = buildSkillExecutionContext(skill, tools)
-      skillPrompt = skillCtx.skillPrompt
 
-      // Skill 指定 modelId 时切换模型适配器
-      if (skill.modelId !== undefined) {
-        adapter = getModelAdapter(skill.modelId)
-      }
+      try {
+        const skillCtx = buildSkillExecutionContext(skill, tools)
+        skillPrompt = skillCtx.skillPrompt
 
-      // 过滤工具（清除后重新填充，避免冗余操作）
-      const filteredTools = filterTools(tools, skill.allowedTools)
-      tools.clear()
-      for (const [key, value] of filteredTools) {
-        tools.set(key, value)
+        // Skill 指定 modelId 时切换模型适配器
+        if (skill.modelId !== undefined) {
+          adapter = getModelAdapter(skill.modelId)
+        }
+
+        // 过滤工具（清除后重新填充，避免冗余操作）
+        const filteredTools = filterTools(tools, skill.allowedTools)
+        tools.clear()
+        for (const [key, value] of filteredTools) {
+          tools.set(key, value)
+        }
+      } catch (err) {
+        // 自动匹配的 Skill 如果有必填变量缺失，降级为无 Skill（不阻断对话）
+        if (skillResolution.source === 'auto') {
+          console.warn(
+            `[Agent LangGraph] Auto-matched skill "${skill.name}" failed to build context, skipping:`,
+            err instanceof Error ? err.message : err,
+          )
+        } else {
+          throw err
+        }
       }
     }
 
@@ -576,12 +589,25 @@ async function executeWithBuiltin(
         executorConfig.adapter = getModelAdapter(skill.modelId)
       }
 
-      // 构建执行上下文（替换变量、过滤工具）
-      const skillCtx = buildSkillExecutionContext(skill, executorConfig.tools)
-      executorConfig.skillPrompt = skillCtx.skillPrompt
+      try {
+        // 构建执行上下文（替换变量、过滤工具）
+        const skillCtx = buildSkillExecutionContext(skill, executorConfig.tools)
+        executorConfig.skillPrompt = skillCtx.skillPrompt
 
-      // 过滤工具列表
-      executorConfig.tools = filterTools(executorConfig.tools, skill.allowedTools)
+        // 过滤工具列表
+        executorConfig.tools = filterTools(executorConfig.tools, skill.allowedTools)
+      } catch (err) {
+        // 自动匹配的 Skill 如果有必填变量缺失，降级为无 Skill（不阻断对话）
+        if (skillResolution.source === 'auto') {
+          console.warn(
+            `[Agent Builtin] Auto-matched skill "${skill.name}" failed to build context, skipping:`,
+            err instanceof Error ? err.message : err,
+          )
+        } else {
+          // 手动指定的 Skill 变量缺失，抛出错误提示用户
+          throw err
+        }
+      }
     }
 
     // 执行 Agent

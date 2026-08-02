@@ -4,6 +4,7 @@
 // and delete (with default-model guard).
 
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useDialog } from 'naive-ui'
 import type { ModelConfig, ModelProvider } from '@shared/types'
 import type { ModelTestResult } from '@/types/electron-api'
 import { useModelStore, PROVIDER_OPTIONS, getProviderMeta } from '@/stores/model'
@@ -13,6 +14,7 @@ import AppInput from '@/components/common/AppInput.vue'
 import AppModal from '@/components/common/AppModal.vue'
 
 const modelStore = useModelStore()
+const dialog = useDialog()
 
 onMounted(() => {
   void modelStore.loadModels()
@@ -251,21 +253,27 @@ async function testFromForm(): Promise<void> {
 
 // ─── Delete ────────────────────────────────────────────────────
 
-async function handleDelete(model: ModelConfig): Promise<void> {
+function handleDelete(model: ModelConfig): void {
   if (model.isDefault) {
     // The store will also toast on the IPC error, but we short-circuit here
     // for a snappier UX when we already know it is the default model.
     showToast('无法删除默认模型，请先设置其他模型为默认', 'error')
     return
   }
-  const confirmed = window.confirm(`确定删除模型「${model.name}」吗？`)
-  if (!confirmed) return
-  try {
-    await modelStore.deleteModel(model.id)
-    showToast('模型已删除', 'success')
-  } catch {
-    // Error already toasted by the store for MODEL_DELETE_DEFAULT.
-  }
+  dialog.warning({
+    title: '删除模型',
+    content: `确定删除模型「${model.name}」吗？此操作不可撤销。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await modelStore.deleteModel(model.id)
+        showToast('模型已删除', 'success')
+      } catch {
+        // Error already toasted by the store.
+      }
+    },
+  })
 }
 
 // ─── Temperature slider helper ─────────────────────────────────
