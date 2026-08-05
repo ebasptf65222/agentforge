@@ -16,6 +16,7 @@ import type { AgentEventCallbacks } from '../agent/types'
 import type { AgentExecutionRequest, ExecutionResult } from '../../shared/types'
 import type { ModelAdapter } from '../models/adapter'
 import { CopilotAgentBridge } from '../copilot/agent-bridge'
+import type { SessionExtras } from '../copilot/types'
 import { getSettings } from '../db/repos/app-settings'
 import { generateId } from '../utils/id'
 
@@ -87,6 +88,15 @@ export function createCodingNodeTool(options: CodingNodeOptions): WrappedTool {
           approvalTimeoutMs: options.approvalTimeoutMs ?? settings.approvalTimeoutMs,
         })
 
+        // 解析工作目录：工具参数 > 节点选项 > 设置中的工作区路径
+        // 修复：此前未向 Copilot SDK 传递 workingDirectory，导致 SDK 使用
+        // process.cwd() 作为工作目录，生成的文件落在应用目录而非用户工作区
+        const argDir = args.workingDirectory
+        const workingDir =
+          typeof argDir === 'string' && argDir.trim() !== ''
+            ? argDir.trim()
+            : (options.workingDirectory ?? settings.workspace.path ?? undefined)
+
         // 构建执行请求
         const request: AgentExecutionRequest = {
           conversationId: `coding-${generateId()}`,
@@ -96,8 +106,12 @@ export function createCodingNodeTool(options: CodingNodeOptions): WrappedTool {
           maxSteps: 20,
         }
 
-        // 执行编码任务
-        const result: ExecutionResult = await bridge.execute(request)
+        // 执行编码任务（传入工作目录，确保文件写入用户工作区）
+        const extras: SessionExtras = {}
+        if (workingDir) {
+          extras.workingDirectory = workingDir
+        }
+        const result: ExecutionResult = await bridge.execute(request, extras)
 
         // 返回结果摘要
         if (result.status === 'completed') {

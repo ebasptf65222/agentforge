@@ -36,6 +36,7 @@ import { createElicitationTool } from './elicitation-tool'
 import { createSkillsTool } from './skills-tool'
 import { createCommandsTool } from './commands-tool'
 import { getModelContextWindow } from '../agent/context-manager'
+import { getWorkspacePath } from '../ipc/workspace'
 import { generateId } from '../utils/id'
 import type { LangGraphBridgeConfig, LangGraphExecuteParams, DelegationToolContext } from './types'
 
@@ -95,6 +96,20 @@ export class LangGraphAgentBridge {
       }
     } catch (err) {
       console.warn('[LangGraph Bridge] Memory Store unavailable:', err)
+    }
+
+    // ─── 注入工作区路径上下文 ────────────────────────
+    // 让模型明确知道文件操作的根目录，避免 AI 声称已生成文件
+    // 但用户无法在工作区找到（相对路径均相对于该工作区解析）
+    try {
+      const workspacePath = getWorkspacePath()
+      enhancedSkillPrompt =
+        (enhancedSkillPrompt ?? '') +
+        `\n\n[Workspace]\nCurrent workspace root (absolute path): ${workspacePath}\n` +
+        `All file tool paths are relative to this workspace. ` +
+        `When reporting created files, give the full path under this workspace.\n`
+    } catch {
+      // 工作区未设置时不注入（工具层会报 WORKSPACE_NOT_SET）
     }
 
     // ─── 构建委托工具上下文 ────────────────────────────────
