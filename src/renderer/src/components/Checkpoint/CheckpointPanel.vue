@@ -197,7 +197,7 @@ async function handleRefresh(): Promise<void> {
           <HistoryOutlined />
         </NIcon>
         <h2 class="checkpoint-panel__title">文件快照时间线</h2>
-        <span v-if="checkpointStore.totalCount > 0" class="checkpoint-panel__count">
+        <span v-if="checkpointStore?.totalCount > 0" class="checkpoint-panel__count">
           {{ checkpointStore.totalCount }}
         </span>
       </div>
