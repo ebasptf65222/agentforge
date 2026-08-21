@@ -50,18 +50,35 @@ export async function getHighlighter(): Promise<Highlighter> {
 
 // ─── Configure marked ───────────────────────────────────────────
 
+/** Lines above which a code block is rendered collapsed by default */
+const CODE_COLLAPSE_THRESHOLD = 30
+
+/** Build the code block header: language badge + collapse toggle + copy button */
+function buildCodeHeader(language: string, escapedCode: string, lineCount: number): string {
+  const collapsible = lineCount > CODE_COLLAPSE_THRESHOLD
+  const collapseBtn = collapsible
+    ? `<button class="code-block__collapse" data-collapsed="true">展开全部 (${lineCount} 行)</button>`
+    : ''
+  return `<div class="code-block__header">
+    <span class="code-block__lang">${escapeHtml(language)}</span>
+    <div class="code-block__header-actions">
+      ${collapseBtn}
+      <button class="code-block__copy" data-code="${escapedCode}">复制</button>
+    </div>
+  </div>`
+}
+
 const renderer = {
   code({ text, lang }: Tokens.Code): string {
     const language = lang || 'plaintext'
     const escapedCode = escapeHtml(text)
+    const lineCount = text.split('\n').length
+    const header = buildCodeHeader(language, escapedCode, lineCount)
 
     // Mermaid 图表：生成占位 div，由 MarkdownRenderer 异步渲染
     if (language.toLowerCase() === 'mermaid') {
       return `<div class="mermaid-block" data-mermaid="${encodeURIComponent(text)}">
-  <div class="mermaid-block__header">
-    <span class="code-block__lang">mermaid</span>
-    <button class="code-block__copy" data-code="${escapedCode}">复制</button>
-  </div>
+  ${header}
   <div class="mermaid-block__loading">渲染图表中...</div>
 </div>`
     }
@@ -81,11 +98,8 @@ const renderer = {
           defaultColor: 'dark',
         })
 
-        return `<div class="code-block">
-  <div class="code-block__header">
-    <span class="code-block__lang">${escapeHtml(language)}</span>
-    <button class="code-block__copy" data-code="${escapedCode}">复制</button>
-  </div>
+        return `<div class="code-block${lineCount > CODE_COLLAPSE_THRESHOLD ? ' is-collapsed' : ''}">
+  ${header}
   ${highlighted}
 </div>`
       } catch {
@@ -94,11 +108,8 @@ const renderer = {
     }
 
     // Fallback: no highlighting available
-    return `<div class="code-block">
-  <div class="code-block__header">
-    <span class="code-block__lang">${escapeHtml(language)}</span>
-    <button class="code-block__copy" data-code="${escapedCode}">复制</button>
-  </div>
+    return `<div class="code-block${lineCount > CODE_COLLAPSE_THRESHOLD ? ' is-collapsed' : ''}">
+  ${header}
   <pre><code>${escapedCode}</code></pre>
 </div>`
   },

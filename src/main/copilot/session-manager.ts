@@ -454,6 +454,174 @@ function getSystemNodePath(): string {
 }
 
 /**
+ * 获取当前平台的 Copilot CLI 包名。
+ */
+function getCliPlatformPackageNames(): string[] {
+  const arch = process.arch
+  const variants =
+    process.platform === 'linux' ? ['linux', 'linuxmusl'] : [process.platform]
+  return variants.map((v) => `@github/copilot-${v}-${arch}`)
+}
+
+/**
+ * 解析 Copilot CLI 入口文件路径。
+ *
+ * 搜索策略（按优先级）：
+ * 1. createRequire(import.meta.url) — 开发环境下最可靠
+ * 2. import.meta.resolve — ESM 标准方式
+ * 3. 遍历 node_modules 搜索路径 — 打包后的 Electron 应用 fallback
+ * 4. Electron 打包后 app.asar.unpacked 路径 — 最终 fallback
+ *
+ * @returns CLI 入口文件路径，或 undefined（未找到）
+ */
+function resolveCopilotCliPath(): string | undefined {
+  const packageNames = getCliPlatformPackageNames()
+
+  // 策略 1: createRequire（开发环境最佳）
+  try {
+    const req = createRequire(import.meta.url)
+    for (const packageName of packageNames) {
+      try {
+        const resolved = req.resolve(packageName)
+        const pkgDir = dirname(resolved)
+        const cliPath = join(pkgDir, 'index.js')
+        if (existsSync(cliPath)) {
+          return cliPath
+        }
+      } catch {
+        // Package not found, try next
+      }
+    }
+  } catch {
+    // createRequire not available
+  }
+
+  // 策略 2: import.meta.resolve（ESM）
+  if (typeof import.meta.resolve === 'function') {
+    for (const packageName of packageNames) {
+      try {
+        const resolvedUrl = import.meta.resolve(packageName)
+        const resolvedPath = fileURLToPath(resolvedUrl)
+        const pkgDir = dirname(resolvedPath)
+        const cliPath = join(pkgDir, 'index.js')
+        if (existsSync(cliPath)) {
+          return cliPath
+        }
+      } catch {
+        // Package not found, try next
+      }
+    }
+  }
+
+  // 策略 3: 遍历 node_modules 搜索路径（打包后 fallback）
+  try {
+    const req = createRequire(import.meta.url)
+    const searchPaths = req.resolve.paths('@github/copilot') ?? []
+    for (const base of searchPaths) {
+      for (const packageName of packageNames) {
+        const cliPath = join(base, ...packageName.split('/'), 'index.js')
+        if (existsSync(cliPath)) {
+          return cliPath
+        }
+      }
+    }
+  } catch {
+    // Search paths not available
+  }
+
+  // 策略 4: Electron 打包后，app.asar.unpacked 路径
+  // electron-builder 将 node_modules/@github/copilot-* 解压到 app.asar.unpacked/
+  // 路径结构: resources/app.asar/dist/main/xxx.js -> resources/app.asar.unpacked/node_modules/...
+  if (process.versions?.electron) {
+    try {
+      // 从当前文件位置向上找到 resources 目录
+      // __dirname = .../resources/app.asar/dist/main (打包后)
+      // 或 .../resources/app.asar/dist/main/copilot (开发环境)
+      const resourcesDir = dirname(dirname(dirname(__dirname))) // 向上找到 resources
+      for (const packageName of packageNames) {
+        // 优先检查 app.asar.unpacked（打包后）
+        const unpackedPath = join(
+          resourcesDir,
+          'app.asar.unpacked',
+          'node_modules',
+          ...packageName.split('/'),
+          'index.js',
+        )
+        if (existsSync(unpackedPath)) {
+          return unpackedPath
+        }
+        // 也检查普通 node_modules（开发环境）
+        const devPath = join(
+          resourcesDir,
+          'app.asar',
+          'node_modules',
+          ...packageName.split('/'),
+          'index.js',
+        )
+        if (existsSync(devPath)) {
+          return devPath
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return undefined
+}
+
+/** CLI 可用性检查结果 */
+export interface CliAvailabilityResult {
+  /** CLI 是否可用 */
+  available: boolean
+  /** 解析到的 CLI 路径 */
+  cliPath?: string
+  /** 不可用时的原因描述 */
+  reason?: string
+}
+
+/**
+ * 预检测 Copilot CLI 的可用性。
+ *
+ * 在创建 SDK client 之前调用，避免 SDK 内部 30 秒超时等待。
+ * 检测内容：
+ * 1. CLI 入口文件是否存在
+ * 2. Node.js 是否可用（CLI 依赖 Node.js 运行）
+ *
+ * @returns CLI 可用性检查结果
+ */
+export function checkCopilotCliAvailability(): CliAvailabilityResult {
+  const packageNames = getCliPlatformPackageNames()
+  const cliPath = resolveCopilotCliPath()
+
+  if (!cliPath) {
+    return {
+      available: false,
+      reason:
+        `Copilot CLI binary not found. ` +
+        `Searched for package: ${packageNames.join(', ')}. ` +
+        `Ensure @github/copilot and the platform package are installed.`,
+    }
+  }
+
+  // 检查 Node.js 是否可用（CLI 依赖 Node.js 运行）
+  if (process.versions?.electron) {
+    const nodePath = getSystemNodePath()
+    if (!nodePath || nodePath === process.execPath) {
+      // 在 Electron 环境下，如果 getSystemNodePath 返回的就是 electron.exe，
+      // 则 Node.js 可能不可用，但这不一定是问题（ELECTRON_RUN_AS_NODE=1 可以解决）
+      // 所以这里不做严格检查，只记录警告
+      console.warn('[SessionManager] System Node.js path not found, relying on ELECTRON_RUN_AS_NODE')
+    }
+  }
+
+  return {
+    available: true,
+    cliPath,
+  }
+}
+
+/**
  * 构建 CopilotClient 实例（统一配置，避免重复代码）。
  * - 注入 ELECTRON_RUN_AS_NODE=1 修复 Electron 环境下 CLI 进程立即退出的问题
  * - CLI 路径解析失败时抛出明确错误
@@ -465,13 +633,15 @@ function getSystemNodePath(): string {
  * 在构造函数阶段修补没有效果。
  */
 function buildCopilotClient(options?: { hasCustomProvider?: boolean }): CopilotClient {
-  const cliPath = resolveCopilotCliPath()
-  if (!cliPath) {
+  // 预检测 CLI 可用性，避免 30 秒超时等待
+  const cliCheck = checkCopilotCliAvailability()
+  if (!cliCheck.available || !cliCheck.cliPath) {
     throw new AppError(
       ErrorCodes.CLI_START_ERROR,
-      'Copilot CLI binary not found. Ensure @github/copilot and the platform package (@github/copilot-win32-x64 etc.) are installed.',
+      cliCheck.reason ?? 'Copilot CLI is not available.',
     )
   }
+  const cliPath = cliCheck.cliPath
 
   // 从环境变量或设置中获取 GitHub token
   const gitHubToken = process.env.GITHUB_TOKEN || process.env.COPILOT_TOKEN || undefined
@@ -570,64 +740,4 @@ async function startClientWithRetry(client: CopilotClient): Promise<void> {
   }
 }
 
-/**
- * Resolve the Copilot CLI entry point path for the current platform.
- * (从 agent-bridge.ts 移植)
- */
-function resolveCopilotCliPath(): string | undefined {
-  const arch = process.arch
-  const variants =
-    process.platform === 'linux' ? ['linux', 'linuxmusl'] : [process.platform]
-  const packageNames = variants.map((v) => `@github/copilot-${v}-${arch}`)
 
-  try {
-    const req = createRequire(import.meta.url)
-    for (const packageName of packageNames) {
-      try {
-        const resolved = req.resolve(packageName)
-        const pkgDir = dirname(resolved)
-        const cliPath = join(pkgDir, 'index.js')
-        if (existsSync(cliPath)) {
-          return cliPath
-        }
-      } catch {
-        // Package not found, try next
-      }
-    }
-  } catch {
-    // createRequire not available
-  }
-
-  if (typeof import.meta.resolve === 'function') {
-    for (const packageName of packageNames) {
-      try {
-        const resolvedUrl = import.meta.resolve(packageName)
-        const resolvedPath = fileURLToPath(resolvedUrl)
-        const pkgDir = dirname(resolvedPath)
-        const cliPath = join(pkgDir, 'index.js')
-        if (existsSync(cliPath)) {
-          return cliPath
-        }
-      } catch {
-        // Package not found, try next
-      }
-    }
-  }
-
-  try {
-    const req = createRequire(import.meta.url)
-    const searchPaths = req.resolve.paths('@github/copilot') ?? []
-    for (const base of searchPaths) {
-      for (const packageName of packageNames) {
-        const cliPath = join(base, ...packageName.split('/'), 'index.js')
-        if (existsSync(cliPath)) {
-          return cliPath
-        }
-      }
-    }
-  } catch {
-    // Search paths not available
-  }
-
-  return undefined
-}

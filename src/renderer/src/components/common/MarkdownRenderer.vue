@@ -1,5 +1,8 @@
 <script setup lang="ts">
 // P1-14: MarkdownRenderer - renders markdown as HTML with code copy support
+// UI-REDESIGN v0.3: + rAF-throttled re-render for streaming content
+//   (full marked+shiki parse per chunk is expensive; coalesce to one
+//    render per animation frame)
 
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { renderMarkdown, getHighlighter } from '@/utils/markdown'
@@ -27,13 +30,56 @@ onMounted(() => {
   initHighlighter()
 })
 
-const renderedHtml = computed(() => renderMarkdown(props.content))
+// ─── rAF-throttled rendering (UI-REDESIGN v0.3) ─────────────────
+
+/** Last rendered source content */
+const throttledContent = ref(props.content)
+
+let rafId: number | null = null
+
+/**
+ * Schedule a throttled re-render. Multiple content changes within the
+ * same frame are coalesced into a single render pass.
+ */
+function scheduleRender(): void {
+  if (rafId !== null) return
+  rafId = requestAnimationFrame(() => {
+    rafId = null
+    throttledContent.value = props.content
+  })
+}
+
+// Watch raw content and throttle updates to one render per frame
+watch(
+  () => props.content,
+  (newContent, oldContent) => {
+    // 流结束/内容清空时立即同步渲染，避免最后一帧被节流丢弃
+    if (newContent.length < oldContent.length) {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      throttledContent.value = newContent
+      return
+    }
+    scheduleRender()
+  },
+)
+
+onUnmounted(() => {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId)
+    rafId = null
+  }
+})
+
+const renderedHtml = computed(() => renderMarkdown(throttledContent.value))
 
 // Re-render once the highlighter is loaded to get syntax highlighting
 const finalHtml = computed(() => {
   // When the highlighter becomes ready, re-render to apply syntax highlighting
   if (ready.value) {
-    return renderMarkdown(props.content)
+    return renderMarkdown(throttledContent.value)
   }
   return renderedHtml.value
 })
@@ -68,7 +114,7 @@ watch(finalHtml, () => {
   })
 })
 
-// ─── Event delegation for copy buttons ─────────────────────────
+// ─── Event delegation for copy & collapse buttons ───────────────
 
 function handleCopyClick(event: MouseEvent): void {
   const target = event.target as HTMLElement
@@ -92,12 +138,34 @@ function handleCopyClick(event: MouseEvent): void {
   })
 }
 
+/**
+ * Toggle collapsed state of long code blocks (>30 lines).
+ * The collapse button lives in the block header; the visual
+ * clamping is done via the .is-collapsed CSS class.
+ */
+function handleCollapseClick(event: MouseEvent): void {
+  const target = event.target as HTMLElement
+  const button = target.closest('.code-block__collapse') as HTMLButtonElement | null
+  if (!button) return
+
+  const block = button.closest('.code-block')
+  if (!block) return
+
+  const isCollapsed = block.classList.toggle('is-collapsed')
+  button.setAttribute('data-collapsed', String(isCollapsed))
+  button.textContent = isCollapsed
+    ? `展开全部 (${button.textContent?.match(/\d+/)?.[0] ?? ''} 行)`
+    : '收起'
+}
+
 onMounted(() => {
   rootRef.value?.addEventListener('click', handleCopyClick)
+  rootRef.value?.addEventListener('click', handleCollapseClick)
 })
 
 onUnmounted(() => {
   rootRef.value?.removeEventListener('click', handleCopyClick)
+  rootRef.value?.removeEventListener('click', handleCollapseClick)
 })
 </script>
 
@@ -198,6 +266,60 @@ onUnmounted(() => {
   background-color: var(--af-code-header-bg, #1a1a2e);
   border-bottom: 1px solid var(--af-code-border, #374151);
 }
+
+/* Language badge (UI-REDESIGN v0.3) */
+.markdown-renderer :deep(.code-block__lang) {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: lowercase;
+  color: var(--af-brand, #818cf8);
+  background-color: color-mix(in srgb, var(--af-brand, #6366f1) 12%, transparent);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+.markdown-renderer :deep(.code-block__header-actions) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Collapse toggle for long code blocks */
+.markdown-renderer :deep(.code-block__collapse) {
+  background: none;
+  border: none;
+  color: var(--af-text-muted, #9ca3af);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.markdown-renderer :deep(.code-block__collapse:hover) {
+  color: var(--af-text-primary, #e5e7eb);
+  background-color: var(--af-bg-hover, #374151);
+}
+
+/* Collapsed state: clamp visible height with fade-out gradient */
+.markdown-renderer :deep(.code-block.is-collapsed pre) {
+  max-height: 200px;
+  overflow: hidden;
+  position: relative;
+}
+
+.markdown-renderer :deep(.code-block.is-collapsed pre::after) {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 48px;
+  background: linear-gradient(transparent, var(--af-code-bg, #1f2937));
+  pointer-events: none;
+}
 .markdown-renderer :deep(.code-block__lang) {
   font-size: 12px;
   color: var(--af-text-muted, #9ca3af);
@@ -216,6 +338,18 @@ onUnmounted(() => {
 .markdown-renderer :deep(.code-block__copy:hover) {
   background-color: var(--af-code-border, #374151);
   border-color: var(--af-text-muted, #9ca3af);
+}
+
+/* Mermaid header reuses lang badge styling */
+.markdown-renderer :deep(.mermaid-block .code-block__lang) {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--af-brand, #818cf8);
+  background-color: color-mix(in srgb, var(--af-brand, #6366f1) 12%, transparent);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
 }
 .markdown-renderer :deep(blockquote) {
   border-left: 3px solid var(--af-blockquote-border, #4b5563);

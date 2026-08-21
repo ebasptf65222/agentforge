@@ -77,16 +77,25 @@ export const wsWriteTool: BuiltinTool = {
     const path = args['path']
     const content = args['content']
     if (typeof path !== 'string' || path.trim() === '') {
+      console.error('[ws_write] 参数校验失败: path 无效', { path })
       throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Path must be a non-empty string.', { path })
     }
     if (typeof content !== 'string') {
+      console.error('[ws_write] 参数校验失败: content 不是字符串', { contentType: typeof content })
       throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Content must be a string.', { content })
     }
-    const bytes = await handleWsWrite(path, content)
-    return {
-      isError: false,
-      content: `File written successfully: ${path} (${bytes} bytes)`,
-      metadata: { path, bytes },
+    console.warn('[ws_write] 写入', { path, contentLength: content.length })
+    try {
+      const bytes = await handleWsWrite(path, content)
+      console.warn('[ws_write] 写入成功', { path, bytes })
+      return {
+        isError: false,
+        content: `File written successfully: ${path} (${bytes} bytes)`,
+        metadata: { path, bytes },
+      }
+    } catch (error) {
+      console.error('[ws_write] ========== 写入失败 ==========', { path, error: error instanceof Error ? error.message : String(error) })
+      throw error
     }
   },
 }

@@ -296,11 +296,12 @@ function handleEditMessage(message: ChatMessage): void {
 
 /** Confirm edit: delete subsequent messages and re-send */
 async function handleConfirmEdit(): Promise<void> {
-  if (!editingMessage.value) return
+  const editing = editingMessage.value
+  if (!editing) return
   const newContent = editContent.value.trim()
   if (!newContent) return
 
-  const idx = chatStore.messages.findIndex((m) => m.id === editingMessage.value!.id)
+  const idx = chatStore.messages.findIndex((m) => m.id === editing.id)
   if (idx !== -1) {
     // Remove this message and everything after it
     chatStore.messages = chatStore.messages.slice(0, idx)
@@ -318,6 +319,16 @@ function handleCancelEdit(): void {
 
 async function handleDeleteMessage(messageId: string): Promise<void> {
   await chatStore.deleteMessage(messageId)
+}
+
+// ─── Inline permission card handlers (UI-REDESIGN v0.3) ─────────
+
+function handleInlineApprove(remember: boolean): void {
+  agentStore.respondApproval(true, undefined, remember)
+}
+
+function handleInlineReject(reason?: string): void {
+  agentStore.respondApproval(false, reason)
 }
 
 // OPT2-11: Agent 模式下流式内容在 agentStore 中累积，
@@ -404,6 +415,8 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
         :messages="chatStore.messages"
         :streaming-content="activeStreamingContent"
         :is-generating="isGenerating"
+        :pending-approval="agentStore.pendingApproval"
+        :approval-resolved="agentStore.approvalResolved"
         @copy="handleCopyMessage"
         @retry="handleRetryMessage"
         @edit="handleEditMessage"
@@ -412,6 +425,8 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
         @open-settings="handleOpenSettings"
         @open-kb="handleOpenKb"
         @send-prompt="handleSendPrompt"
+        @approve="handleInlineApprove"
+        @reject="handleInlineReject"
       />
       <ExecutionPanel />
       <AuditReportPanel />

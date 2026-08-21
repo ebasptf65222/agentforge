@@ -89,11 +89,81 @@ interface ParsedOutput {
 }
 
 /**
+ * 从 LLM 输出文本中提取 JSON 对象。
+ * 支持：直接 JSON、```json 代码块、花括号提取。
+ */
+function extractJson(text: string): Record<string, unknown> | null {
+  const trimmed = text.trim()
+  try {
+    return JSON.parse(trimmed) as Record<string, unknown>
+  } catch { /* continue */ }
+  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (codeBlockMatch?.[1]) {
+    try {
+      return JSON.parse(codeBlockMatch[1].trim()) as Record<string, unknown>
+    } catch { /* continue */ }
+  }
+  const firstBrace = trimmed.indexOf('{')
+  const lastBrace = trimmed.lastIndexOf('}')
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>
+    } catch { /* continue */ }
+  }
+  return null
+}
+
+/**
  * 解析 LLM 输出，提取 Action 或 Final Answer。
+ *
+ * 兼容两种格式：
+ * 格式 A (builtin 引擎):
+ *   Thought: <推理>
+ *   Action: {"type": "tool", "tool": "工具名", "arguments": {...}}
+ *   Action: {"type": "finish", "summary": "..."}
+ *
+ * 格式 B (LangGraph 原始):
+ *   Action: <tool_name>
+ *   Arguments: {"key": "value"}
+ *   Final Answer: <回答>
  */
 function parseOutput(output: string): ParsedOutput {
+  console.warn('[parseOutput] LLM 原始输出:', output.substring(0, 500))
+
+  // ── 优先级 1: 格式 A — 提取 Action 后的 JSON（与 builtin parser 一致）──
+  const actionJsonMatch = output.match(/(?:Action|行动)[:：]\s*([\s\S]*?)$/i)
+  if (actionJsonMatch?.[1]) {
+    const actionJson = extractJson(actionJsonMatch[1])
+    if (actionJson) {
+      const actionType = actionJson['type'] as string | undefined
+      if (actionType === 'finish') {
+        const thoughtMatch = output.match(/(?:Thought|思考)[:：]\s*([\s\S]*?)(?=(?:Action|行动)[:：]|$)/i)
+        console.warn('[parseOutput] 解析结果: Finish (JSON 格式)')
+        return {
+          thought: thoughtMatch?.[1]?.trim() || 'Task completed.',
+          actionType: 'finish',
+          summary: (actionJson['summary'] as string) || 'Task completed.',
+        }
+      }
+      if (actionType === 'tool' || actionJson['tool']) {
+        const toolName = (actionJson['tool'] as string) || ''
+        const args = (actionJson['arguments'] as Record<string, unknown>) || {}
+        const thoughtMatch = output.match(/(?:Thought|思考)[:：]\s*([\s\S]*?)(?=(?:Action|行动)[:：]|$)/i)
+        console.warn('[parseOutput] 解析结果: Tool Call (JSON 格式)', { toolName, args })
+        return {
+          thought: thoughtMatch?.[1]?.trim() || `Using tool ${toolName}.`,
+          actionType: 'tool',
+          toolName,
+          args,
+        }
+      }
+    }
+  }
+
+  // ── 优先级 2: Final Answer 格式 ──
   const finalMatch = output.match(/Final Answer:\s*([\s\S]*?)(?:$)/i)
   if (finalMatch) {
+    console.warn('[parseOutput] 解析结果: Final Answer')
     return {
       thought: output.slice(0, finalMatch.index).trim() || 'Providing final answer.',
       actionType: 'finish',
@@ -101,6 +171,7 @@ function parseOutput(output: string): ParsedOutput {
     }
   }
 
+  // ── 优先级 3: 格式 B — Action: <tool_name> + Arguments: <json> ──
   const actionMatch = output.match(/Action:\s*(\w+)[\s\S]*?Arguments:\s*(\{[\s\S]*?\})/i)
   if (actionMatch) {
     const toolName = actionMatch[1]
@@ -108,14 +179,36 @@ function parseOutput(output: string): ParsedOutput {
     try {
       args = JSON.parse(actionMatch[2])
     } catch {
-      // JSON 解析失败，使用空参数
+      console.error('[parseOutput] JSON 解析失败:', actionMatch[2])
     }
     const thought = output.slice(0, actionMatch.index).trim() || `Using tool ${toolName}.`
+    console.warn('[parseOutput] 解析结果: Tool Call (Action+Arguments 格式)', { toolName, args })
     return { thought, actionType: 'tool', toolName, args }
   }
 
+  // ── 优先级 4: 整段文本尝试提取 JSON ──
+  const wholeJson = extractJson(output)
+  if (wholeJson) {
+    const actionType = wholeJson['type'] as string | undefined
+    if (actionType === 'finish') {
+      console.warn('[parseOutput] 解析结果: Finish (整段 JSON)')
+      return { thought: '', actionType: 'finish', summary: (wholeJson['summary'] as string) || output.trim() }
+    }
+    if (actionType === 'tool' || wholeJson['tool']) {
+      console.warn('[parseOutput] 解析结果: Tool Call (整段 JSON)', { toolName: wholeJson['tool'] })
+      return {
+        thought: '',
+        actionType: 'tool',
+        toolName: (wholeJson['tool'] as string) || '',
+        args: (wholeJson['arguments'] as Record<string, unknown>) || {},
+      }
+    }
+  }
+
+  // ── 优先级 5: 无法解析，视为直接回复 ──
+  console.warn('[parseOutput] 未检测到明确动作，返回 finish')
   return {
-    thought: 'No clear action detected, providing response.',
+    thought: output.trim(),
     actionType: 'finish',
     summary: output.trim(),
   }
@@ -628,11 +721,13 @@ function buildSystemPrompt(tools: WrappedTool[], skillPrompt?: string, projectRu
     ? toolDefs.join('\n\n')
     : '（暂无可用工具，请直接回复用户）'
 
-  let prompt = `You are a helpful AI assistant with access to the following tools:\n\n${toolSection}\n\n`
-  prompt += `When you want to use a tool, output EXACTLY this format:\n`
-  prompt += `Action: <tool_name>\nArguments: <json_arguments>\n\n`
-  prompt += `When you are done, output:\n`
-  prompt += `Final Answer: <your response>\n\n`
+  let prompt = `你是一个自主执行 Agent。你可以使用以下工具来完成任务：\n\n${toolSection}\n\n`
+  prompt += `执行规则：\n`
+  prompt += `1. 每次输出一个 Thought（推理过程）和一个 Action（工具调用）\n`
+  prompt += `2. Action 格式为 JSON: {"type": "tool", "tool": "工具名", "arguments": {...}}\n`
+  prompt += `3. 任务完成时输出: {"type": "finish", "summary": "总结"}\n`
+  prompt += `4. 不要编造工具结果，等待系统返回 Observation\n`
+  prompt += `5. 文件操作请使用 ws_write（工作区写入）工具，不要直接回复说已创建文件\n\n`
 
   if (skillPrompt) {
     prompt += `\n${skillPrompt}\n`

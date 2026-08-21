@@ -1,5 +1,9 @@
 <script setup lang="ts">
 // P1-17: MessageItem - renders a single chat message
+// UI-REDESIGN v0.3: Copilot-style full-width layout
+//  - Assistant messages: flat full-width markdown (no bubble/avatar)
+//  - User messages: right-aligned light rounded block
+//  - Action toolbar floats at top-right on hover
 
 import { computed, ref } from 'vue'
 import { NIcon, NTooltip } from 'naive-ui'
@@ -86,10 +90,58 @@ function handleDelete(): void {
     class="message-item"
     :class="{ 'message-item--user': isUser, 'message-item--assistant': !isUser }"
   >
-    <div class="message-item__avatar">
-      <span class="message-item__role">{{ isUser ? 'U' : 'A' }}</span>
+    <!-- Role label (Copilot style: small text label instead of avatar) -->
+    <div class="message-item__role-label">
+      {{ isUser ? '你' : 'AgentForge' }}
     </div>
+
     <div class="message-item__body">
+      <!-- Floating action toolbar (top-right, hover reveal) -->
+      <div v-if="showToolbar" class="message-item__toolbar">
+        <NTooltip placement="top" :delay="500">
+          <template #trigger>
+            <button class="toolbar-btn" @click="handleCopy">
+              <NIcon :size="14">
+                <ContentCopyOutlined />
+              </NIcon>
+              <span v-if="copied" class="toolbar-btn__feedback">已复制</span>
+            </button>
+          </template>
+          <span>复制</span>
+        </NTooltip>
+
+        <template v-if="isUser">
+          <NTooltip placement="top" :delay="500">
+            <template #trigger>
+              <button class="toolbar-btn" @click="handleEdit">
+                <NIcon :size="14"><EditOutlined /></NIcon>
+              </button>
+            </template>
+            <span>编辑</span>
+          </NTooltip>
+        </template>
+
+        <template v-if="!isUser">
+          <NTooltip placement="top" :delay="500">
+            <template #trigger>
+              <button class="toolbar-btn" @click="handleRetry">
+                <NIcon :size="14"><RefreshOutlined /></NIcon>
+              </button>
+            </template>
+            <span>重试</span>
+          </NTooltip>
+        </template>
+
+        <NTooltip placement="top" :delay="500">
+          <template #trigger>
+            <button class="toolbar-btn toolbar-btn--danger" @click="handleDelete">
+              <NIcon :size="14"><DeleteOutlined /></NIcon>
+            </button>
+          </template>
+          <span>删除</span>
+        </NTooltip>
+      </div>
+
       <!-- Message content -->
       <div v-if="isUser" class="message-item__text">{{ message.content }}</div>
       <template v-else>
@@ -117,115 +169,68 @@ function handleDelete(): void {
           <span class="meta-value">{{ message.metadata.modelId }}</span>
         </span>
       </div>
-
-      <!-- Message action toolbar (OPT-UI-02) -->
-      <div v-if="showToolbar" class="message-item__toolbar">
-        <NTooltip placement="bottom" :delay="500">
-          <template #trigger>
-            <button class="toolbar-btn" @click="handleCopy">
-              <NIcon :size="14">
-                <ContentCopyOutlined />
-              </NIcon>
-              <span v-if="copied" class="toolbar-btn__feedback">已复制</span>
-            </button>
-          </template>
-          <span>复制</span>
-        </NTooltip>
-
-        <template v-if="isUser">
-          <NTooltip placement="bottom" :delay="500">
-            <template #trigger>
-              <button class="toolbar-btn" @click="handleEdit">
-                <NIcon :size="14"><EditOutlined /></NIcon>
-              </button>
-            </template>
-            <span>编辑</span>
-          </NTooltip>
-        </template>
-
-        <template v-if="!isUser">
-          <NTooltip placement="bottom" :delay="500">
-            <template #trigger>
-              <button class="toolbar-btn" @click="handleRetry">
-                <NIcon :size="14"><RefreshOutlined /></NIcon>
-              </button>
-            </template>
-            <span>重试</span>
-          </NTooltip>
-        </template>
-
-        <NTooltip placement="bottom" :delay="500">
-          <template #trigger>
-            <button class="toolbar-btn toolbar-btn--danger" @click="handleDelete">
-              <NIcon :size="14"><DeleteOutlined /></NIcon>
-            </button>
-          </template>
-          <span>删除</span>
-        </NTooltip>
-      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* ─── Copilot-style full-width row layout ───────────────────── */
+
 .message-item {
+  position: relative;
   display: flex;
-  gap: 12px;
-  padding: 12px 16px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 24px;
   max-width: 100%;
 }
 
-.message-item--user {
-  flex-direction: row-reverse;
-}
-
-.message-item--assistant {
-  flex-direction: row;
-}
-
-.message-item__avatar {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
+/* Role label: small muted text above the message */
+.message-item__role-label {
+  font-size: 12px;
   font-weight: 600;
+  color: var(--af-text-tertiary, #94a3b8);
+  letter-spacing: 0.3px;
+  user-select: none;
 }
 
-.message-item--user .message-item__avatar {
-  background-color: var(--af-brand, #4f46e5);
-  color: #fff;
+.message-item--user .message-item__role-label {
+  text-align: right;
+  color: var(--af-brand, #818cf8);
 }
 
-.message-item--assistant .message-item__avatar {
-  background-color: var(--af-bg-hover, #374151);
-  color: var(--af-text-secondary, #d1d5db);
-}
-
+/* Body: full width for assistant, right-aligned block for user */
 .message-item__body {
-  max-width: 75%;
+  position: relative;
   min-width: 0;
 }
 
+.message-item--assistant .message-item__body {
+  max-width: 100%;
+}
+
+.message-item--user .message-item__body {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* User message: light rounded block (right-aligned) */
 .message-item__text {
-  background-color: var(--af-brand, #4f46e5);
-  color: #fff;
+  background-color: var(--af-bg-input, #1f2937);
+  color: var(--af-text-primary, #e5e7eb);
+  border: 1px solid var(--af-border-light, #1f2937);
   padding: 10px 14px;
-  border-radius: 12px 12px 4px 12px;
+  border-radius: 12px;
   font-size: 14px;
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+  max-width: 85%;
 }
 
+/* Assistant message: transparent flat markdown, full width */
 .message-item--assistant .message-item__body {
-  background-color: var(--af-bg-surface, #1e293b);
   color: var(--af-text-primary, #e5e7eb);
-  padding: 10px 14px;
-  border-radius: 12px 12px 12px 4px;
   font-size: 14px;
 }
 
@@ -258,18 +263,30 @@ function handleDelete(): void {
   align-items: center;
 }
 
-/* Message action toolbar (OPT-UI-02) */
+/* Message action toolbar: floats top-right, revealed on hover */
 .message-item__toolbar {
+  position: absolute;
+  top: -22px;
+  right: 0;
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-top: 6px;
+  padding: 2px;
+  background-color: var(--af-bg-surface, #1e293b);
+  border: 1px solid var(--af-border, #334155);
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transform: translateY(2px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  z-index: 5;
 }
 
 .message-item:hover .message-item__toolbar {
   opacity: 1;
+  transform: translateY(0);
 }
 
 .toolbar-btn {

@@ -1,14 +1,23 @@
 <script setup lang="ts">
 // P1-17: MessageList - renders all messages with smart auto-scroll
+// UI-REDESIGN v0.3: + message enter animation, thinking indicator,
+//                    inline permission card + permission banner
 
 import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue'
-import type { ChatMessage } from '@shared/types'
+import type { ApprovalRequest, ChatMessage } from '@shared/types'
 import MessageItem from '@/components/MessageItem/MessageItem.vue'
+import ThinkingIndicator from './ThinkingIndicator.vue'
+import PermissionInlineCard from './PermissionInlineCard.vue'
+import PermissionBanner from './PermissionBanner.vue'
 
 const props = defineProps<{
   messages: ChatMessage[]
   streamingContent: string
   isGenerating: boolean
+  /** Pending approval request (rendered inline in the flow) */
+  pendingApproval?: ApprovalRequest | null
+  /** Resolution feedback for the last approval */
+  approvalResolved?: 'approved' | 'rejected' | null
 }>()
 
 const emit = defineEmits<{
@@ -20,6 +29,8 @@ const emit = defineEmits<{
   'open-settings': []
   'open-kb': []
   'send-prompt': [prompt: string]
+  approve: [remember: boolean]
+  reject: [reason?: string]
 }>()
 
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -62,6 +73,39 @@ const streamingMessage = computed<ChatMessage | null>(() => {
 
 /** Whether to show the "back to bottom" floating button */
 const showScrollToBottom = computed(() => !isAtBottom.value && props.messages.length > 0)
+
+/**
+ * Whether to show the thinking indicator: generating but no streamed
+ * content has arrived yet (waiting for first token).
+ */
+const showThinking = computed(
+  () => props.isGenerating && props.streamingContent.trim().length === 0,
+)
+
+// ─── Inline permission card (UI-REDESIGN v0.3) ──────────────────
+
+/** Anchor element for the inline permission card */
+const permCardRef = ref<HTMLElement | null>(null)
+
+/**
+ * Scroll the inline permission card into view.
+ * Called when the banner is clicked or a new approval arrives.
+ */
+function locatePermissionCard(): void {
+  nextTick(() => {
+    permCardRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  })
+}
+
+// Auto-locate when a new approval request arrives
+watch(
+  () => props.pendingApproval,
+  (approval) => {
+    if (approval && isAtBottom.value) {
+      locatePermissionCard()
+    }
+  },
+)
 
 /** Example prompt cards shown in the welcome screen (OPT-UI-01) */
 const examplePrompts = [
@@ -144,6 +188,13 @@ onUnmounted(() => {
 
 <template>
   <div class="message-list__container">
+    <!-- Permission pending banner (non-blocking, above the list) -->
+    <PermissionBanner
+      v-if="pendingApproval"
+      :request="pendingApproval"
+      @locate="locatePermissionCard"
+    />
+
     <div ref="scrollContainer" class="message-list">
       <!-- Empty state with welcome screen (OPT-UI-01) -->
       <div v-if="messages.length === 0" class="message-list__welcome">
@@ -204,17 +255,31 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Rendered messages -->
+      <!-- Rendered messages (with enter animation) -->
       <template v-else>
-        <MessageItem
-          v-for="msg in displayMessages"
-          :key="msg.id"
-          :message="msg"
-          @copy="emit('copy', $event)"
-          @retry="emit('retry', $event)"
-          @edit="emit('edit', $event)"
-          @delete="emit('delete-message', $event)"
-        />
+        <TransitionGroup name="msg" tag="div">
+          <MessageItem
+            v-for="msg in displayMessages"
+            :key="msg.id"
+            :message="msg"
+            @copy="emit('copy', $event)"
+            @retry="emit('retry', $event)"
+            @edit="emit('edit', $event)"
+            @delete="emit('delete-message', $event)"
+          />
+        </TransitionGroup>
+        <!-- Thinking indicator: shown while waiting for the first token -->
+        <ThinkingIndicator v-if="showThinking" />
+        <!-- Inline permission card (UI-REDESIGN v0.3) -->
+        <div v-if="pendingApproval" ref="permCardRef" class="message-list__perm-card">
+          <PermissionInlineCard
+            :request="pendingApproval"
+            :resolved="approvalResolved"
+            @approve="emit('approve', $event)"
+            @reject="emit('reject', $event)"
+            @open-settings="emit('open-settings')"
+          />
+        </div>
         <!-- Streaming message (shown separately for reactivity) -->
         <MessageItem
           v-if="streamingMessage"
@@ -252,6 +317,29 @@ onUnmounted(() => {
   flex: 1;
   overflow-y: auto;
   padding: 16px 0;
+}
+
+/* ─── Message enter animation (UI-REDESIGN v0.3) ────────────── */
+/* GPU-friendly: only transform + opacity */
+
+.msg-enter-active {
+  transition:
+    opacity 0.18s ease-out,
+    transform 0.18s ease-out;
+}
+
+.msg-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.msg-leave-active {
+  display: none;
+}
+
+/* Inline permission card container */
+.message-list__perm-card {
+  padding: 0 24px;
 }
 
 .message-list__empty {

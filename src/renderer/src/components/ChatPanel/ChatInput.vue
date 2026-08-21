@@ -11,6 +11,7 @@ import VoiceModeToggle from './VoiceModeToggle.vue'
 import ModelSwitcher from './ModelSwitcher.vue'
 import EngineSwitcher from './EngineSwitcher.vue'
 import WorkspaceSwitcher from './WorkspaceSwitcher.vue'
+import SlashCommandMenu from './SlashCommandMenu.vue'
 import { useSkillStore } from '@/stores/skill'
 import { useChatStore } from '@/stores/chat'
 import { useVoiceStore } from '@/stores/voice'
@@ -58,6 +59,51 @@ function clearSkill(): void {
   selectedSkill.value = null
 }
 
+// ─── Slash command menu (UI-REDESIGN v0.3) ──────────────────────
+
+/** Whether the "/" skill menu is open */
+const showSlashMenu = ref(false)
+
+/** Text typed after "/" used as filter */
+const slashFilter = ref('')
+
+const slashMenuRef = ref<InstanceType<typeof SlashCommandMenu> | null>(null)
+
+/** Manual skills available for slash selection */
+const manualSkills = computed(() => skillStore.skills.filter((s) => s.trigger === 'manual'))
+
+/**
+ * Detect "/" trigger at the start of input (or after whitespace).
+ * Updates menu visibility and filter text.
+ */
+function updateSlashState(): void {
+  const value = inputContent.value
+  if (value.startsWith('/')) {
+    showSlashMenu.value = true
+    slashFilter.value = value.slice(1)
+  } else {
+    showSlashMenu.value = false
+    slashFilter.value = ''
+  }
+}
+
+/** User picked a skill from the slash menu */
+function handleSlashSelect(skill: Skill): void {
+  selectedSkill.value = skill.name
+  inputContent.value = ''
+  showSlashMenu.value = false
+  slashFilter.value = ''
+  nextTick(() => {
+    textareaRef.value?.focus()
+    autoResize()
+  })
+}
+
+function closeSlashMenu(): void {
+  showSlashMenu.value = false
+  slashFilter.value = ''
+}
+
 /** Maximum allowed characters in the input (P1-13 spec) */
 const MAX_CHARS = 32000
 
@@ -92,6 +138,7 @@ function handleSend(): void {
   emit('send', content, selectedSkill.value ?? undefined, images.length > 0 ? images : undefined)
   inputContent.value = ''
   attachedImages.value = []
+  closeSlashMenu()
   // Reset textarea height after sending
   nextTick(() => {
     autoResize()
@@ -107,6 +154,30 @@ function handleVoiceSubmit(text: string): void {
 }
 
 function handleKeydown(event: KeyboardEvent): void {
+  // Slash menu keyboard navigation takes priority when open
+  if (showSlashMenu.value) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      slashMenuRef.value?.moveDown()
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      slashMenuRef.value?.moveUp()
+      return
+    }
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      slashMenuRef.value?.confirmActive()
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeSlashMenu()
+      return
+    }
+  }
+
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
     handleSend()
@@ -128,6 +199,7 @@ function autoResize(): void {
 
 function handleInput(): void {
   autoResize()
+  updateSlashState()
 }
 
 function handleImageSelect(event: Event): void {
@@ -209,46 +281,30 @@ function handleDragLeave(event: DragEvent): void {
 
 <template>
   <div class="chat-input">
-    <!-- Skill 选择器 + 引擎切换 + 工作区 + 知识库关联 + 模型切换 + 语音模式 -->
-    <div class="chat-input__toolbar">
-      <div class="chat-input__toolbar-left">
-        <NSelect
-          v-model:value="selectedSkill"
-          :options="skillOptions"
-          size="small"
-          :consistent-menu-width="false"
-          placeholder="普通对话"
-          style="width: 140px"
-        />
-        <EngineSwitcher />
-        <WorkspaceSwitcher />
-        <div class="kb-toggle" title="关联知识库：开启后 AI 会参考知识库内容回答">
-          <BookOutlined class="kb-toggle__icon" />
-          <NSwitch
-            v-model:value="chatStore.kbEnabled"
-            size="small"
-          />
-        </div>
-      </div>
-      <div class="chat-input__toolbar-right">
-        <ModelSwitcher />
-        <VoiceModeToggle />
-      </div>
-    </div>
-    <!-- Skill mode banner (OPT-UI-03) -->
-    <div v-if="showSkillBanner" class="skill-mode-banner">
-      <span class="skill-mode-banner__text">
-        当前模式：<strong>{{ selectedSkillInfo?.displayName }}</strong>
-        <span v-if="selectedSkillInfo?.description" class="skill-mode-banner__desc">
-          — {{ selectedSkillInfo.description }}
+    <!-- Unified rounded container (Copilot style): textarea + inline toolbar -->
+    <div class="chat-input__shell" :class="{ 'is-dragging': isDragging }">
+      <!-- Slash command menu (positioned above the shell) -->
+      <SlashCommandMenu
+        v-if="showSlashMenu && manualSkills.length > 0"
+        ref="slashMenuRef"
+        :skills="manualSkills"
+        :filter="slashFilter"
+        @select="handleSlashSelect"
+        @close="closeSlashMenu"
+      />
+      <!-- Skill mode banner (OPT-UI-03) -->
+      <div v-if="showSkillBanner" class="skill-mode-banner">
+        <span class="skill-mode-banner__text">
+          当前模式：<strong>{{ selectedSkillInfo?.displayName }}</strong>
+          <span v-if="selectedSkillInfo?.description" class="skill-mode-banner__desc">
+            — {{ selectedSkillInfo.description }}
+          </span>
         </span>
-      </span>
-      <button class="skill-mode-banner__close" title="关闭 Skill 模式" @click="clearSkill">
-        <NIcon :size="14"><CloseOutlined /></NIcon>
-      </button>
-    </div>
+        <button class="skill-mode-banner__close" title="关闭 Skill 模式" @click="clearSkill">
+          <NIcon :size="14"><CloseOutlined /></NIcon>
+        </button>
+      </div>
 
-    <div class="chat-input__wrapper" :class="{ 'is-dragging': isDragging }">
       <!-- Image attachments preview -->
       <div v-if="attachedImages.length > 0" class="chat-input__images">
         <div v-for="(img, idx) in attachedImages" :key="idx" class="image-thumb">
@@ -258,11 +314,12 @@ function handleDragLeave(event: DragEvent): void {
           </button>
         </div>
       </div>
+
       <textarea
         ref="textareaRef"
         v-model="inputContent"
         class="chat-input__textarea"
-        :placeholder="showSkillBanner ? '输入消息，使用当前 Skill 执行...' : '输入消息... (Shift+Enter 换行)'"
+        :placeholder="showSkillBanner ? '输入消息，使用当前 Skill 执行... (Shift+Enter 换行)' : '输入消息... (Shift+Enter 换行)'"
         :disabled="disabled"
         :maxlength="MAX_CHARS"
         rows="1"
@@ -273,30 +330,55 @@ function handleDragLeave(event: DragEvent): void {
         @dragover="handleDragOver"
         @dragleave="handleDragLeave"
       />
-      <div class="chat-input__actions">
-        <button
-          class="chat-input__image-btn"
-          title="添加图片"
-          :disabled="attachedImages.length >= 5"
-          @click="fileInputRef?.click()"
-        >
-          <NIcon :size="18"><ImageOutlined /></NIcon>
-        </button>
-        <input
-          ref="fileInputRef"
-          type="file"
-          accept="image/*"
-          multiple
-          style="display: none"
-          @change="handleImageSelect"
-        />
-        <VoiceInputButton v-if="showVoiceButton && !isGenerating" @submit="handleVoiceSubmit" />
-        <AppButton v-if="isGenerating" variant="danger" size="sm" @click="emit('stop')">
-          停止生成
-        </AppButton>
-        <AppButton v-else variant="primary" size="sm" :disabled="!canSend" @click="handleSend">
-          发送
-        </AppButton>
+
+      <!-- Inline bottom toolbar: selectors left, actions right -->
+      <div class="chat-input__inline-toolbar">
+        <div class="chat-input__inline-toolbar-left">
+          <NSelect
+            v-model:value="selectedSkill"
+            :options="skillOptions"
+            size="tiny"
+            :consistent-menu-width="false"
+            placeholder="普通对话"
+            style="width: 130px"
+          />
+          <EngineSwitcher />
+          <WorkspaceSwitcher />
+          <div class="kb-toggle" title="关联知识库：开启后 AI 会参考知识库内容回答">
+            <BookOutlined class="kb-toggle__icon" />
+            <NSwitch
+              v-model:value="chatStore.kbEnabled"
+              size="small"
+            />
+          </div>
+        </div>
+        <div class="chat-input__inline-toolbar-right">
+          <ModelSwitcher />
+          <VoiceModeToggle />
+          <button
+            class="chat-input__image-btn"
+            title="添加图片"
+            :disabled="attachedImages.length >= 5"
+            @click="fileInputRef?.click()"
+          >
+            <NIcon :size="18"><ImageOutlined /></NIcon>
+          </button>
+          <input
+            ref="fileInputRef"
+            type="file"
+            accept="image/*"
+            multiple
+            style="display: none"
+            @change="handleImageSelect"
+          />
+          <VoiceInputButton v-if="showVoiceButton && !isGenerating" @submit="handleVoiceSubmit" />
+          <AppButton v-if="isGenerating" variant="danger" size="sm" @click="emit('stop')">
+            停止生成
+          </AppButton>
+          <AppButton v-else variant="primary" size="sm" :disabled="!canSend" @click="handleSend">
+            发送
+          </AppButton>
+        </div>
       </div>
     </div>
     <div
@@ -312,24 +394,51 @@ function handleDragLeave(event: DragEvent): void {
 <style scoped>
 .chat-input {
   padding: 8px 16px 12px;
-  border-top: 1px solid var(--af-border, #374151);
-  background-color: var(--af-bg-surface, #111827);
+  background-color: var(--af-bg, #0f172a);
 }
 
-.chat-input__toolbar {
+/* ─── Unified rounded shell (Copilot style) ─────────────────── */
+
+.chat-input__shell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background-color: var(--af-bg-input, #1f2937);
+  border: 1px solid var(--af-border, #374151);
+  border-radius: var(--af-radius-lg, 12px);
+  padding: 10px 12px 8px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.chat-input__shell:focus-within {
+  border-color: var(--af-brand, #6366f1);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--af-brand, #6366f1) 15%, transparent);
+}
+
+/* Inline bottom toolbar */
+.chat-input__inline-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
   justify-content: space-between;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
-.chat-input__toolbar-left {
+.chat-input__inline-toolbar-left {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+.chat-input__inline-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .kb-toggle {
@@ -337,7 +446,7 @@ function handleDragLeave(event: DragEvent): void {
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background-color: var(--af-bg-input, #1f2937);
+  background-color: var(--af-bg-surface, #1e293b);
   border: 1px solid var(--af-border, #374151);
   border-radius: var(--af-radius-sm, 6px);
   cursor: pointer;
@@ -354,23 +463,6 @@ function handleDragLeave(event: DragEvent): void {
   color: var(--af-text-muted, #6b7280);
 }
 
-.chat-input__toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.chat-input__wrapper {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-  background-color: var(--af-bg-input, #1f2937);
-  border: 1px solid var(--af-border, #374151);
-  border-radius: var(--af-radius, 8px);
-  padding: 8px 12px;
-}
-
 .chat-input__textarea {
   flex: 1;
   background: none;
@@ -384,6 +476,7 @@ function handleDragLeave(event: DragEvent): void {
   max-height: 160px;
   overflow-y: auto;
   font-family: inherit;
+  padding: 2px 0;
 }
 
 .chat-input__textarea::placeholder {
@@ -392,13 +485,6 @@ function handleDragLeave(event: DragEvent): void {
 
 .chat-input__textarea:disabled {
   opacity: 0.5;
-}
-
-.chat-input__actions {
-  flex-shrink: 0;
-  display: flex;
-  gap: 8px;
-  align-items: center;
 }
 
 /* Character counter (P1-13) */
@@ -420,7 +506,6 @@ function handleDragLeave(event: DragEvent): void {
   justify-content: space-between;
   gap: 8px;
   padding: 6px 10px;
-  margin-bottom: 8px;
   background: color-mix(in srgb, var(--af-brand, #4f46e5) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--af-brand, #4f46e5) 30%, transparent);
   border-radius: 8px;
@@ -536,14 +621,15 @@ function handleDragLeave(event: DragEvent): void {
   background: rgba(239, 68, 68, 0.8);
 }
 
-.chat-input__wrapper.is-dragging {
+.chat-input__wrapper.is-dragging,
+.chat-input__shell.is-dragging {
   border-color: var(--af-brand, #4f46e5);
   background-color: color-mix(in srgb, var(--af-brand, #4f46e5) 5%, var(--af-bg-input, #1f2937));
 }
 
 /* Responsive: narrow screens hide text labels, keep icons */
 @media (max-width: 720px) {
-  .chat-input__toolbar-left {
+  .chat-input__inline-toolbar-left {
     gap: 4px;
   }
 

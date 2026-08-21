@@ -37,6 +37,7 @@ import { createSkillsTool } from './skills-tool'
 import { createCommandsTool } from './commands-tool'
 import { getModelContextWindow } from '../agent/context-manager'
 import { getWorkspacePath } from '../ipc/workspace'
+import { checkCopilotCliAvailability } from '../copilot/session-manager'
 import { generateId } from '../utils/id'
 import type { LangGraphBridgeConfig, LangGraphExecuteParams, DelegationToolContext } from './types'
 
@@ -66,7 +67,7 @@ export class LangGraphAgentBridge {
   }
 
   /**
-   * 执行 Agent 请求。
+   * 执行 Agent 请求。 
    *
    * 流程：
    * 1. 创建 EventConverter、ModelWrapper
@@ -85,6 +86,18 @@ export class LangGraphAgentBridge {
     const eventConverter = new EventConverter(this.config.callbacks)
 
     const modelWrapper = new ModelWrapper(params.adapter, this.config.callbacks)
+
+    // ─── 预检测 Copilot CLI 可用性 ────────────────────────────
+    // 编码节点依赖 Copilot CLI，在执行前检测可避免 SDK 内部 30 秒超时等待
+    try {
+      const cliCheck = checkCopilotCliAvailability()
+      if (!cliCheck.available) {
+        console.warn('[LangGraph Bridge] Copilot CLI not available:', cliCheck.reason)
+        // 不阻断执行，仅记录警告 — 编码节点调用时会自行报错
+      }
+    } catch {
+      // 非致命错误，继续执行
+    }
 
     // ─── 加载跨对话上下文摘要 ────────────────────────────────
     let enhancedSkillPrompt = params.skillPrompt

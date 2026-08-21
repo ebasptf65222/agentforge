@@ -117,4 +117,32 @@ body {
 ::selection {
   background: rgba(99, 102, 241, 0.3);
 }
+
+/* ─── Action toast buttons (UI-REDESIGN v0.3) ─────────────────── */
+/* Rendered imperatively by showActionToast() into notification action slot */
+
+.af-toast-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.af-toast-actions__btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--af-border, #334155);
+  background: var(--af-bg-surface, #1e293b);
+  color: var(--af-brand, #818cf8);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.af-toast-actions__btn:hover {
+  background: color-mix(in srgb, var(--af-brand, #6366f1) 12%, transparent);
+  border-color: var(--af-brand, #6366f1);
+}
 </style>

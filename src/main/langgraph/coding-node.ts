@@ -16,6 +16,7 @@ import type { AgentEventCallbacks } from '../agent/types'
 import type { AgentExecutionRequest, ExecutionResult } from '../../shared/types'
 import type { ModelAdapter } from '../models/adapter'
 import { CopilotAgentBridge } from '../copilot/agent-bridge'
+import { checkCopilotCliAvailability } from '../copilot/session-manager'
 import type { SessionExtras } from '../copilot/types'
 import { getSettings } from '../db/repos/app-settings'
 import { generateId } from '../utils/id'
@@ -74,6 +75,15 @@ export function createCodingNodeTool(options: CodingNodeOptions): WrappedTool {
         return 'Error: No coding task specified.'
       }
 
+      // 预检测 CLI 可用性，避免 30 秒超时等待
+      const cliCheck = checkCopilotCliAvailability()
+      if (!cliCheck.available) {
+        return (
+          'Error: Copilot CLI is not available. ' +
+          (cliCheck.reason ?? 'Please install @github/copilot to use this feature.')
+        )
+      }
+
       try {
         // 创建 Copilot SDK bridge
         const callbacks: AgentEventCallbacks = options.callbacks ?? {
@@ -89,8 +99,6 @@ export function createCodingNodeTool(options: CodingNodeOptions): WrappedTool {
         })
 
         // 解析工作目录：工具参数 > 节点选项 > 设置中的工作区路径
-        // 修复：此前未向 Copilot SDK 传递 workingDirectory，导致 SDK 使用
-        // process.cwd() 作为工作目录，生成的文件落在应用目录而非用户工作区
         const argDir = args.workingDirectory
         const workingDir =
           typeof argDir === 'string' && argDir.trim() !== ''
@@ -121,6 +129,18 @@ export function createCodingNodeTool(options: CodingNodeOptions): WrappedTool {
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
+        // 优化错误消息：对 CLI 相关错误提供更友好的提示
+        if (errMsg.includes('Timeout waiting for CLI') || errMsg.includes('CLI server')) {
+          return (
+            'Error: Copilot CLI failed to start. This may be due to:\n' +
+            '1. Copilot CLI is not installed\n' +
+            '2. Node.js is not in the system PATH\n' +
+            '3. The CLI binary is corrupted\n\n' +
+            'Please install @github/copilot and ensure Node.js is available.\n' +
+            'You can also set COPILOT_CLI_PATH environment variable to specify the CLI path.\n' +
+            `Original error: ${errMsg}`
+          )
+        }
         return `Coding node error: ${errMsg}`
       }
     },

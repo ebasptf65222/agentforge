@@ -521,6 +521,17 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
   } catch (error) {
     // 保存错误信息到消息（透传真实错误信息，而非吞掉为 "Execution failed"）
     console.error('[Agent SDK] Execution error:', error)
+
+    // 对 CLI 相关错误提供更友好的提示
+    const errMsg = error instanceof Error ? error.message : String(error)
+    if (errMsg.includes('CLI_START_ERROR') || errMsg.includes('CLI binary not found') || errMsg.includes('Timeout waiting for CLI')) {
+      console.error(
+        '[Agent SDK] Copilot CLI is not available. ' +
+        'Ensure @github/copilot and the platform package are installed. ' +
+        'You can also set COPILOT_CLI_PATH environment variable.'
+      )
+    }
+
     saveAgentError(request.conversationId, error)
     throw error
   } finally {

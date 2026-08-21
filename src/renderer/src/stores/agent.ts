@@ -32,6 +32,12 @@ export const useAgentStore = defineStore('agent', () => {
   /** Current pending approval request */
   const pendingApproval = ref<ApprovalRequest | null>(null)
 
+  /**
+   * UI-REDESIGN v0.3: resolution feedback for the inline permission card.
+   * Set when the user approves/rejects; cleared when the next request arrives.
+   */
+  const approvalResolved = ref<'approved' | 'rejected' | null>(null)
+
   /** Pending ask_user request (AI is asking the user a question) */
   const pendingUserInput = ref<UserInputRequest | null>(null)
 
@@ -174,6 +180,7 @@ export const useAgentStore = defineStore('agent', () => {
       reason,
     })
     pendingApproval.value = null
+    approvalResolved.value = approved ? 'approved' : 'rejected'
   }
 
   // ─── Event Handlers ──────────────────────────────────────────
@@ -240,6 +247,7 @@ export const useAgentStore = defineStore('agent', () => {
       })
       return
     }
+    approvalResolved.value = null
     pendingApproval.value = request
   }
 
@@ -305,6 +313,7 @@ export const useAgentStore = defineStore('agent', () => {
     executionId.value = null
     trajectories.value = []
     pendingApproval.value = null
+    approvalResolved.value = null
     pendingUserInput.value = null
     pendingElicitation.value = null
     streamingContent.value = ''
@@ -326,6 +335,7 @@ export const useAgentStore = defineStore('agent', () => {
     executionId,
     trajectories,
     pendingApproval,
+    approvalResolved,
     pendingUserInput,
     pendingElicitation,
     streamingContent,
