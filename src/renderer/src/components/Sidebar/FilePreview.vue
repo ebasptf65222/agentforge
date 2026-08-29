@@ -1,19 +1,39 @@
 <script setup lang="ts">
-// WS-05: FilePreview - previews text file content from the workspace.
-// Shows content for text files, error for unsupported types or large files.
+// WS-05: FilePreview - previews workspace file content.
+// 预览模式分流：
+// - viewer 模式（办公格式）：使用 File Viewer（@file-viewer/vue3 + preset-office）渲染，
+//   通过 agentfile:// 协议流式加载，支持 PDF/Word/Excel/PPT/OFD 等。
+// - text 模式（文本/代码）：保留简单语法高亮预览。
+// - none 模式：提示不支持预览。
 
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { NIcon, NSpin, NTag } from 'naive-ui'
 import { CloseOutlined, WarningAmberOutlined } from '@vicons/material'
+import { FileViewer } from '@file-viewer/vue3'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useTheme } from '@/composables/use-theme'
 
 const workspaceStore = useWorkspaceStore()
+const { effectiveTheme } = useTheme()
 
 const hasPreview = computed(() => workspaceStore.previewPath !== null)
 const isError = computed(() => workspaceStore.previewError !== null)
 const isLoading = computed(() => workspaceStore.previewLoading)
+const isViewerMode = computed(() => workspaceStore.previewMode === 'viewer')
+const viewerUrl = computed(() => workspaceStore.previewFileUrl)
+const viewerFilename = computed(() => workspaceStore.previewFilename)
 
-/** Detect language from file path for highlighting */
+/** File Viewer 配置：office preset（由 vite 插件自动注册），跟随应用主题 */
+const viewerOptions = computed(() => ({
+  preset: 'office' as const,
+  rendererMode: 'replace' as const,
+  theme: effectiveTheme.value,
+  toolbar: {
+    position: 'bottom-right' as const,
+  },
+}))
+
+/** Detect language from file path for text highlighting */
 const previewLanguage = computed(() => {
   const path = workspaceStore.previewPath ?? ''
   const ext = path.split('.').pop()?.toLowerCase() ?? ''
@@ -82,8 +102,8 @@ function simpleHighlight(code: string, _lang: string): string {
     <!-- Header -->
     <div class="file-preview__header">
       <div class="file-preview__meta">
-        <NTag size="tiny" type="info" class="file-preview__lang">
-          {{ previewLanguage }}
+        <NTag size="tiny" :type="isViewerMode ? 'success' : 'info'" class="file-preview__lang">
+          {{ isViewerMode ? '文档' : previewLanguage }}
         </NTag>
         <span class="file-preview__filename" :title="workspaceStore.previewPath ?? ''">
           {{ workspaceStore.previewPath }}
@@ -103,26 +123,39 @@ function simpleHighlight(code: string, _lang: string): string {
 
     <!-- Body -->
     <div class="file-preview__body">
-      <!-- Loading -->
-      <div v-if="isLoading" class="file-preview__loading">
-        <NSpin size="small" />
+      <!-- viewer 模式：File Viewer 渲染办公文档 -->
+      <div v-if="isViewerMode && viewerUrl" class="file-preview__viewer">
+        <FileViewer
+          :key="viewerUrl"
+          :url="viewerUrl"
+          :filename="viewerFilename"
+          :options="viewerOptions"
+        />
       </div>
 
-      <!-- Error -->
-      <div v-else-if="isError" class="file-preview__error">
-        <NIcon :size="32" class="file-preview__error-icon">
-          <WarningAmberOutlined />
-        </NIcon>
-        <p class="file-preview__error-text">{{ workspaceStore.previewError }}</p>
-      </div>
+      <!-- 文本/代码模式 -->
+      <template v-else>
+        <!-- Loading -->
+        <div v-if="isLoading" class="file-preview__loading">
+          <NSpin size="small" />
+        </div>
 
-      <!-- Content -->
-      <pre
-        v-else
-        class="file-preview__content"
-        :data-language="previewLanguage"
-        v-html="highlightedContent"
-      />
+        <!-- Error -->
+        <div v-else-if="isError" class="file-preview__error">
+          <NIcon :size="32" class="file-preview__error-icon">
+            <WarningAmberOutlined />
+          </NIcon>
+          <p class="file-preview__error-text">{{ workspaceStore.previewError }}</p>
+        </div>
+
+        <!-- Content -->
+        <pre
+          v-else
+          class="file-preview__content"
+          :data-language="previewLanguage"
+          v-html="highlightedContent"
+        />
+      </template>
     </div>
   </div>
 </template>
@@ -197,6 +230,14 @@ function simpleHighlight(code: string, _lang: string): string {
 .file-preview__body {
   flex: 1;
   overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* File Viewer 渲染区：占满剩余空间 */
+.file-preview__viewer {
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;

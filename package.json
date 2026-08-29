@@ -28,6 +28,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
+    "@file-viewer/preset-office": "^3.0.0",
+    "@file-viewer/vue3": "^3.0.0",
     "@github/copilot": "^1.0.75",
     "@github/copilot-sdk": "^1.0.8",
     "@langchain/anthropic": "^1.5.2",
@@ -52,6 +54,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@file-viewer/vite-plugin": "^3.0.0",
+    "@fontsource-variable/noto-sans-sc": "5.2.10",
     "@types/node": "^26.1.1",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/devtools-api": "^8.2.1",
@@ -66,6 +70,7 @@
     "globals": "^17.7.0",
     "happy-dom": "^20.11.6",
     "naive-ui": "^2.44.1",
+    "pdfjs-dist": "5.4.624",
     "pinia": "^4.0.2",
     "prettier": "^3.9.6",
     "typescript": "~6.0.3",
@@ -111,7 +116,8 @@
     ],
     "asarUnpack": [
       "**/*.{node,dll}",
-      "**/node_modules/@github/copilot-*/**"
+      "**/node_modules/@github/copilot-*/**",
+      "out/renderer/vendor/**"
     ],
     "linux": {
       "target": [

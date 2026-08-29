@@ -16,8 +16,49 @@ const TEXT_EXTENSIONS = new Set([
   'csv', 'tsv', 'log', 'diff', 'patch', 'svg', 'vue',
 ])
 
-/** Maximum file size for preview (1MB) */
+/** Maximum file size for text preview (1MB) */
 const MAX_PREVIEW_SIZE = 1024 * 1024
+
+/**
+ * 办公文档扩展名集合。这些格式由 File Viewer（@file-viewer/preset-office）渲染，
+ * 优先使用 agentfile:// 协议流式加载，不经过文本读取。
+ */
+const OFFICE_EXTENSIONS = new Set([
+  // PDF / OFD
+  'pdf', 'ofd',
+  // Word
+  'docx', 'doc', 'rtf', 'odt', 'wps',
+  // Excel
+  'xlsx', 'xls', 'xlsm', 'ods', 'csv', 'et',
+  // PowerPoint
+  'pptx', 'ppt', 'pps', 'ppsx', 'odp', 'dps',
+])
+
+/** 预览模式：使用 File Viewer 渲染办公文档，还是回退文本预览 */
+export type PreviewMode = 'viewer' | 'text' | 'none'
+
+/**
+ * 判断文件应使用哪种预览模式。
+ * 独立纯函数，便于单元测试。
+ */
+export function getPreviewMode(
+  relativePath: string,
+  filename: string,
+  size: number,
+): PreviewMode {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+
+  // 办公文档 → File Viewer
+  if (OFFICE_EXTENSIONS.has(ext)) return 'viewer'
+
+  // 文本/代码 → 文本预览
+  if (TEXT_EXTENSIONS.has(ext)) return 'text'
+
+  // 超出文本预览大小时，非文本格式回退：超大文件直接给 none
+  if (size > MAX_PREVIEW_SIZE) return 'none'
+
+  return 'none'
+}
 
 export const useWorkspaceStore = defineStore('workspace', () => {
   const settingsStore = useSettingsStore()
@@ -47,6 +88,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   /** Preview error message (null if no error) */
   const previewError = ref<string | null>(null)
+
+  /** 预览模式：'viewer'(File Viewer) / 'text'(文本) / 'none'(无) */
+  const previewMode = ref<PreviewMode>('none')
+
+  /** 当前预览文件的 agentfile:// URL（仅 viewer 模式使用） */
+  const previewFileUrl = ref<string | null>(null)
+
+  /** 当前预览文件名（供 File Viewer 显示） */
+  const previewFilename = ref<string>('')
 
   /** Search query for filtering file tree */
   const searchQuery = ref('')
@@ -195,40 +245,51 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   /**
    * Preview a file's content.
+   * - 办公文档（viewer 模式）：构建 agentfile:// URL，由 FileViewer 组件流式渲染
+   * - 文本/代码（text 模式）：读取内容并展示
+   * - 其他：提示不支持
    * @param node - the file node to preview
    */
   async function previewFile(node: FileTreeNode): Promise<void> {
     if (node.isDirectory) return
 
-    // Check file extension
-    const ext = node.name.split('.').pop()?.toLowerCase() ?? ''
-    if (!TEXT_EXTENSIONS.has(ext)) {
-      previewPath.value = node.relativePath
-      previewContent.value = ''
-      previewError.value = '不支持预览此文件类型'
-      return
-    }
+    const mode = getPreviewMode(node.relativePath, node.name, node.size)
 
-    // Check file size
-    if (node.size > MAX_PREVIEW_SIZE) {
-      previewPath.value = node.relativePath
-      previewContent.value = ''
-      previewError.value = `文件过大（${(node.size / 1024 / 1024).toFixed(2)} MB），不支持预览（最大 1MB）`
-      return
-    }
-
-    previewLoading.value = true
-    previewError.value = null
+    // 重置前置状态
     previewPath.value = node.relativePath
+    previewFilename.value = node.name
+    previewContent.value = ''
+    previewError.value = null
+    previewLoading.value = false
+    previewMode.value = mode
+    previewFileUrl.value = null
 
-    try {
-      previewContent.value = await window.electron.workspace.read(node.relativePath)
-    } catch (error) {
-      previewContent.value = ''
-      previewError.value = error instanceof Error ? error.message : String(error)
-    } finally {
-      previewLoading.value = false
+    // viewer 模式：直接构建 URL，交给 FileViewer 加载（无需 IPC 读取全文）
+    if (mode === 'viewer') {
+      previewFileUrl.value = window.electron.workspace.buildFileUrl(node.relativePath)
+      return
     }
+
+    // text 模式：检查大小限制后读取
+    if (mode === 'text') {
+      if (node.size > MAX_PREVIEW_SIZE) {
+        previewError.value = `文件过大（${(node.size / 1024 / 1024).toFixed(2)} MB），不支持预览（最大 1MB）`
+        return
+      }
+      previewLoading.value = true
+      try {
+        previewContent.value = await window.electron.workspace.read(node.relativePath)
+      } catch (error) {
+        previewContent.value = ''
+        previewError.value = error instanceof Error ? error.message : String(error)
+      } finally {
+        previewLoading.value = false
+      }
+      return
+    }
+
+    // none 模式：提示不支持预览
+    previewError.value = '不支持预览此文件类型'
   }
 
   /**
@@ -236,8 +297,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    */
   function closePreview(): void {
     previewPath.value = null
+    previewFilename.value = ''
     previewContent.value = ''
     previewError.value = null
+    previewMode.value = 'none'
+    previewFileUrl.value = null
   }
 
   /**
@@ -258,6 +322,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     previewContent,
     previewLoading,
     previewError,
+    previewMode,
+    previewFileUrl,
+    previewFilename,
     isWorkspaceSet,
     searchQuery,
     // Computed

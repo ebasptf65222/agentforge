@@ -270,6 +270,11 @@ const workspace = {
 
   tree: (path?: string, maxDepth?: number): Promise<unknown> =>
     ipcRenderer.invoke('ws:tree', { path, maxDepth }),
+
+  // 构建工作区文件的本地预览 URL（供 File Viewer 加载）
+  // 返回 agentfile:///workspace/<relativePath>，由主进程自定义协议解析
+  buildFileUrl: (relativePath: string): string =>
+    `agentfile:///workspace/${String(relativePath).replace(/\\/g, '/').replace(/^\/+/, '')}`,
 }
 
 // ─── Wiki 命名空间 (LLM Wiki / Karpathy 模式) ─────────────────

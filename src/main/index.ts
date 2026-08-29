@@ -15,6 +15,13 @@ import { setEmbeddingConfig } from './knowledge-base/embedding'
 import { getMcpServerManager } from './mcp/manager'
 import { scanAndResetCorruptApiKeys } from './db/repos/model-config'
 import { getSchedulerService } from './services/scheduler-service'
+import {
+  registerLocalFileSchemePrivileges,
+  registerLocalFileProtocol,
+} from './protocols/local-file'
+
+// 必须在 app ready 前注册自定义协议的特权配置
+registerLocalFileSchemePrivileges()
 
 // ─── 全局未捕获错误处理 ───────────────────────────────────────────────
 // 防止应用崩溃后静默退出，至少记录错误日志
@@ -67,13 +74,16 @@ registerCleanup(() => {
 
 // ─── CSP 策略（生产环境注入） ──────────────────────────────────────
 // 与 Spec v0.2 §2 CSP 配置一致
+// agentfile: 协议用于 File Viewer 加载工作区内文件；wasm/worker 资产同源加载
 const CSP_POLICY = [
-  "default-src 'self'",
-  "script-src 'self'",
+  "default-src 'self' agentfile:",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
+  "img-src 'self' data: agentfile: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' https://api.openai.com https://api.deepseek.com",
+  "connect-src 'self' agentfile: blob: https://api.openai.com https://api.deepseek.com",
+  "worker-src 'self' blob:",
+  "media-src 'self' agentfile: blob:",
 ].join('; ')
 
 /**
@@ -308,6 +318,13 @@ if (!gotTheLock) {
 
     // 注册所有内置工具到全局 ToolRegistry（Agent 依赖此注册表获取工具）
     initBuiltinTools()
+
+    // 注册本地文件预览协议（File Viewer 加载工作区文件所用）
+    try {
+      registerLocalFileProtocol()
+    } catch (error) {
+      console.error('[AgentForge] Local file protocol registration failed:', error)
+    }
 
     // P2-08 / Step 4: 初始化 MCP Server 管理器
     // 从 DB 加载已安装的 MCP Server 配置 + 连接所有已启用的 Server（builtin 模式）

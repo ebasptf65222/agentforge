@@ -396,6 +396,8 @@ interface WorkspaceAPI {
   rename(from: string, to: string): Promise<void>
   /** 获取文件树 */
   tree(path?: string, maxDepth?: number): Promise<FileTreeNode>
+  /** 构建工作区文件的本地预览 URL（agentfile:// 协议，供 File Viewer 加载） */
+  buildFileUrl(relativePath: string): string
 }
 
 /** 语音 API（TTS + STT） */

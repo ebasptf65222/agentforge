@@ -1,6 +1,7 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'node:path'
+import { fileViewerRenderers } from '@file-viewer/vite-plugin'
 
 export default defineConfig({
   main: {
@@ -49,6 +50,13 @@ export default defineConfig({
             isCustomElement: (tag) => tag === 'webview',
           },
         },
+      }),
+      // File Viewer 渲染器装配 + Worker/WASM 资产复制
+      // preset-office 已在依赖中，插件自动发现并注册
+      fileViewerRenderers({
+        preset: 'office',
+        copyAssets: true,
+        chunkStrategy: 'renderer',
       }),
     ],
     build: {
