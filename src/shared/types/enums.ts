@@ -20,7 +20,7 @@ export type ModelProvider = 'openai' | 'deepseek' | 'anthropic' | 'custom'
 export type TransportType = 'stdio' | 'http'
 
 /** Agent 执行引擎类型 */
-export type EngineType = 'builtin' | 'copilot-sdk' | 'langgraph'
+export type EngineType = 'copilot-sdk' | 'langgraph'
 
 /** 工具风险等级 */
 export type ToolRiskLevel = 'low' | 'medium' | 'high'

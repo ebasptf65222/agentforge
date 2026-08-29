@@ -38,7 +38,6 @@ const APPROVAL_OPTIONS: ReadonlyArray<{ value: ApprovalMode; label: string }> = 
 ]
 
 const ENGINE_OPTIONS: ReadonlyArray<{ value: EngineType; label: string; desc: string }> = [
-  { value: 'builtin', label: '内置引擎', desc: 'AgentForge 原生 ReAct 循环' },
   { value: 'copilot-sdk', label: 'Copilot SDK', desc: 'GitHub Copilot SDK 驱动' },
   { value: 'langgraph', label: 'LangGraph', desc: 'LangChain + LangGraph 编排引擎' },
 ]
@@ -566,7 +565,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
         </div>
         <div class="setting-row__control">
           <NRadioGroup
-            :value="settings?.engineType ?? 'builtin'"
+            :value="settings?.engineType ?? 'copilot-sdk'"
             @update:value="(v) => updateEngineType(v as EngineType)"
           >
             <NRadioButton

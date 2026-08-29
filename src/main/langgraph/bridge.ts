@@ -1,6 +1,6 @@
 // AgentForge LangGraph 引擎: LangGraphAgentBridge 核心类
 //
-// 对标 AgentExecutor (builtin) 和 CopilotAgentBridge (copilot-sdk)：
+// 对标 CopilotAgentBridge (copilot-sdk)：
 // - execute(): 接收 AgentExecutionRequest，返回 ExecutionResult
 // - cancel(): 中止当前执行（AbortController + ApprovalManager + UserInputManager）
 // - respondApproval(): 响应审批请求

@@ -111,7 +111,7 @@ const DEFAULT_WORKSPACE_CONFIG: WorkspaceConfig = {
 /**
  * 默认引擎类型（与 schema.sql 中的 DEFAULT 一致）。
  */
-const DEFAULT_ENGINE_TYPE: EngineType = 'builtin'
+const DEFAULT_ENGINE_TYPE: EngineType = 'copilot-sdk'
 
 /**
  * 默认 wire API 模式（'auto' 表示根据模型类型自动判断）。

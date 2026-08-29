@@ -444,6 +444,10 @@ function runConditionalMigrations(db: Database.Database): void {
   SCHEDULER_INDEXES.forEach((sql) => {
     db.exec(sql)
   })
+
+  // 008: 移除 builtin 引擎，存量 'builtin' 设置迁移到 'copilot-sdk'
+  // （幂等：执行后库中不存在 engine_type='builtin' 的行）
+  db.exec(`UPDATE app_settings SET engine_type = 'copilot-sdk' WHERE engine_type = 'builtin'`)
 }
 
 /**

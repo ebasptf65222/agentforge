@@ -1,9 +1,9 @@
 // AgentForge 架构优化批次二 - 任务1: EngineDispatcher
 //
-// 从 ipc/agent.ts 中提取的三引擎路由分发逻辑。
+// 从 ipc/agent.ts 中提取的双引擎路由分发逻辑。
 // 职责：
-// 1. 三引擎路由分发（builtin / copilot-sdk / langgraph）
-// 2. 并发控制（currentExecutor / currentBridge / currentLangGraphBridge）
+// 1. 双引擎路由分发（copilot-sdk / langgraph）
+// 2. 并发控制（currentBridge / currentLangGraphBridge）
 // 3. 主窗口事件推送（trajectory / approval-request / stream-chunk）
 // 4. 微批次回调构建（createBatchedCallbacks）
 //
@@ -25,7 +25,6 @@ import {
   updateConversationTitle,
 } from '../db/repos/conversation'
 import { getToolRegistry } from '../tools/registry'
-import { AgentExecutor, type AgentExecutorConfig } from './executor'
 import { CopilotAgentBridge } from '../copilot/agent-bridge'
 import { LangGraphAgentBridge } from '../langgraph/bridge'
 import type { SessionExtras } from '../copilot/types'
@@ -48,20 +47,11 @@ import { ExecutionLock } from './execution-lock'
  * 锁持有时存储当前活跃引擎的类型和引用。
  */
 type EngineHandle =
-  | { readonly type: 'builtin'; readonly executor: AgentExecutor }
   | { readonly type: 'copilot-sdk'; readonly bridge: CopilotAgentBridge }
   | { readonly type: 'langgraph'; readonly bridge: LangGraphAgentBridge }
 
-/** 全局执行锁，替代三个独立的模块级变量 */
+/** 全局执行锁，替代独立的模块级变量 */
 const executionLock = new ExecutionLock<EngineHandle>()
-
-/**
- * 获取当前 AgentExecutor（仅供测试使用）。
- */
-export function getCurrentExecutor(): AgentExecutor | null {
-  const handle = executionLock.getCurrent()
-  return handle?.type === 'builtin' ? handle.executor : null
-}
 
 /**
  * 重置当前执行锁（仅供测试使用）。
@@ -544,109 +534,11 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
 }
 
 /**
- * 使用内置 ReAct 引擎执行 Agent 请求。
- *
- * 流程：
- * 1. 验证会话存在
- * 2. 加载历史对话消息并进行上下文窗口管理
- * 3. 保存用户消息
- * 4. 解析 Skill（用户指定或意图匹配）
- * 5. 创建 AgentExecutor 并执行
- * 6. 保存执行结果到消息表
- */
-async function executeWithBuiltin(
-  request: AgentExecutionRequest,
-  settings: ReturnType<typeof getSettings>,
-): Promise<ExecutionResult> {
-  // 根据模型配置获取上下文窗口大小（替代硬编码的 4096）
-  const contextWindow = getModelContextWindow(request.modelId)
-  const { callbacks: batchedCallbacks, flush: flushBatcher, destroy: destroyBatcher } = createBatchedCallbacks()
-  const executorConfig: AgentExecutorConfig = {
-    adapter: getModelAdapter(request.modelId),
-    tools: getToolsMap(),
-    callbacks: batchedCallbacks,
-    approvalTimeoutMs: settings.approvalTimeoutMs,
-    maxContextLength: contextWindow,
-    skillPrompt: undefined,
-  }
-
-  // 在任何 await 之前创建执行器并持有锁
-  const executor = new AgentExecutor(executorConfig)
-  executionLock.acquire({ type: 'builtin', executor })
-
-  // 所有后续操作包入 try/finally，确保锁在异常时也能释放
-  let result: ExecutionResult
-  try {
-    // 加载历史对话消息并进行上下文窗口管理
-    //    在保存当前用户消息之前加载，避免重复包含当前输入
-    const contextResult = loadHistoryAndTruncate(
-      request.conversationId,
-      contextWindow,
-      '[Agent Builtin]',
-    )
-    executorConfig.historyMessages = contextResult.messages
-
-    // 验证会话存在 + 保存用户消息
-    validateConversationAndSaveUserMessage(request.conversationId, request.userInput)
-
-    // 解析 Skill（用户指定或意图匹配）
-    const skillResolution = await resolveSkill(request.userInput, request.skillName, executorConfig.adapter)
-
-    if (skillResolution.skill !== null) {
-      const skill = skillResolution.skill
-
-      // 如果 Skill 指定了 modelId，使用该模型
-      if (skill.modelId !== undefined) {
-        executorConfig.adapter = getModelAdapter(skill.modelId)
-      }
-
-      try {
-        // 构建执行上下文（替换变量、过滤工具）
-        const skillCtx = buildSkillExecutionContext(skill, executorConfig.tools)
-        executorConfig.skillPrompt = skillCtx.skillPrompt
-
-        // 过滤工具列表
-        executorConfig.tools = filterTools(executorConfig.tools, skill.allowedTools)
-      } catch (err) {
-        // 自动匹配的 Skill 如果有必填变量缺失，降级为无 Skill（不阻断对话）
-        if (skillResolution.source === 'auto') {
-          console.warn(
-            `[Agent Builtin] Auto-matched skill "${skill.name}" failed to build context, skipping:`,
-            err instanceof Error ? err.message : err,
-          )
-        } else {
-          // 手动指定的 Skill 变量缺失，抛出错误提示用户
-          throw err
-        }
-      }
-    }
-
-    // 执行 Agent
-    result = await executor.execute(request)
-
-    // 保存助手回复
-    saveAgentResult(request.conversationId, result)
-  } catch (error) {
-    // 保存错误信息到消息（透传真实错误信息，而非吞掉为 "Execution failed"）
-    console.error('[Agent Builtin] Execution error:', error)
-    saveAgentError(request.conversationId, error)
-    throw error
-  } finally {
-    flushBatcher()
-    destroyBatcher()
-    executionLock.release()
-  }
-
-  return result
-}
-
-/**
- * 三引擎路由分发入口。
+ * 双引擎路由分发入口。
  *
  * 根据设置中的 engineType 分发到对应引擎执行：
- * - 'builtin'    → 内置 ReAct 引擎（AgentExecutor）
- * - 'copilot-sdk' → Copilot SDK 引擎（CopilotAgentBridge）
  * - 'langgraph'  → LangGraph 引擎（LangGraphAgentBridge）
+ * - 其余（默认 'copilot-sdk'，含旧值容错）→ Copilot SDK 引擎（CopilotAgentBridge）
  *
  * 包含并发控制：在任何 await 之前检查并设置锁，防止竞态条件。
  *
@@ -664,16 +556,11 @@ export async function executeAgentFlow(request: AgentExecutionRequest): Promise<
   // 获取设置，判断引擎类型
   const settings = getSettings()
 
-  // SDK 引擎路径：使用 Copilot SDK
-  if (settings.engineType === 'copilot-sdk') {
-    return executeWithCopilotSdk(request)
-  }
-
   // LangGraph 引擎路径：使用 LangChain + LangGraph
   if (settings.engineType === 'langgraph') {
     return executeWithLangGraph(request)
   }
 
-  // 内置引擎路径：使用 AgentExecutor
-  return executeWithBuiltin(request, settings)
+  // 默认路径：使用 Copilot SDK（含旧值 'builtin' 的容错回退）
+  return executeWithCopilotSdk(request)
 }

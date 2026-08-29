@@ -17,16 +17,15 @@ import { validateNonEmptyString } from '../utils/ipc-validator'
 import { getSessionManager } from '../copilot/session-manager'
 import {
   executeAgentFlow,
-  getCurrentExecutor,
   resetCurrentExecutor,
   getCurrentBridge,
   getCurrentLangGraphBridge,
 } from '../agent/engine-dispatcher'
 
 // ─── 测试辅助函数（保持公共 API 不变） ─────────────────────────
-// getCurrentExecutor / resetCurrentExecutor 直接从 engine-dispatcher 重导出，
+// resetCurrentExecutor 直接从 engine-dispatcher 重导出，
 // 避免在此文件维护并发状态副本。
-export { getCurrentExecutor, resetCurrentExecutor }
+export { resetCurrentExecutor }
 
 // ─── 参数校验 ─────────────────────────────────────────────────────
 
@@ -47,7 +46,7 @@ function assertApprovalMode(value: unknown): asserts value is ApprovalMode {
 /**
  * agent:execute - 启动 Agent 执行。
  *
- * 本函数仅负责参数校验，核心执行流程（三引擎路由、并发控制、
+ * 本函数仅负责参数校验，核心执行流程（双引擎路由、并发控制、
  * 保存用户消息→执行→保存助手回复→错误处理）由 engine-dispatcher.ts 的
  * executeAgentFlow 实现。
  */
@@ -88,12 +87,8 @@ export async function handleExecute(
  * agent:stop - 取消当前 Agent 执行。
  */
 export function handleStop(): void {
-  const executor = getCurrentExecutor()
   const bridge = getCurrentBridge()
   const lgBridge = getCurrentLangGraphBridge()
-  if (executor) {
-    executor.cancel()
-  }
   if (bridge) {
     void bridge.cancel()
   }
@@ -125,12 +120,8 @@ export function handleApprove(params: unknown): void {
   const reason = typeof p['reason'] === 'string' ? p['reason'] : undefined
   const executionId = p['executionId'] as string
 
-  const executor = getCurrentExecutor()
   const bridge = getCurrentBridge()
   const lgBridge = getCurrentLangGraphBridge()
-  if (executor) {
-    executor.respondApproval(approved, reason, executionId)
-  }
   if (bridge) {
     bridge.respondApproval(approved, reason, executionId)
   }

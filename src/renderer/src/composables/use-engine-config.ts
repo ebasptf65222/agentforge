@@ -10,7 +10,6 @@ import { showToast } from '@/utils/toast'
 // ─── Option constants ─────────────────────────────────────────
 
 export const ENGINE_OPTIONS: ReadonlyArray<{ value: EngineType; label: string; short: string }> = [
-  { value: 'builtin', label: '内置引擎', short: '内置' },
   { value: 'copilot-sdk', label: 'Copilot SDK', short: 'SDK' },
   { value: 'langgraph', label: 'LangGraph', short: 'LangGraph' },
 ]
@@ -48,7 +47,7 @@ export function useEngineConfig() {
   const settingsStore = useSettingsStore()
 
   const settings = computed<AppSettings | null>(() => settingsStore.settings)
-  const currentEngine = computed<EngineType>(() => settings.value?.engineType ?? 'builtin')
+  const currentEngine = computed<EngineType>(() => settings.value?.engineType ?? 'copilot-sdk')
   const isCopilotEngine = computed(() => currentEngine.value === 'copilot-sdk')
 
   // ─── Engine switch ──────────────────────────────────────────

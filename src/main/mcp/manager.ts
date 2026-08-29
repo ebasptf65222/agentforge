@@ -73,8 +73,9 @@ export class MCPServerManager {
       tools: [],
     })
 
-    // 3. 自动连接（如果 enabled 且使用内置引擎）
-    if (config.enabled && this.getCurrentEngineType() === 'builtin') {
+    // 3. 自动连接（如果 enabled 且使用 LangGraph 引擎）
+    //    Copilot SDK 引擎下，MCP 连接由 SDK 自行管理（mcp-bridge 传配置）
+    if (config.enabled && this.getCurrentEngineType() === 'langgraph') {
       try {
         await this.connectServer(config.id)
       } catch (error) {
@@ -138,8 +139,8 @@ export class MCPServerManager {
       })
     }
 
-    // 1. 断开旧连接 + 注销旧工具（仅内置引擎）
-    if (this.getCurrentEngineType() === 'builtin') {
+    // 1. 断开旧连接 + 注销旧工具（仅 LangGraph 引擎；SDK 引擎连接由 SDK 管理）
+    if (this.getCurrentEngineType() === 'langgraph') {
       await this.disconnectServer(id)
       getToolRegistry().unregisterMcpServer(id)
     }
@@ -152,8 +153,8 @@ export class MCPServerManager {
     server.tools = []
     server.status = 'disconnected'
 
-    // 4. 如果 enabled 且使用内置引擎，重新连接
-    if (updatedConfig.enabled && this.getCurrentEngineType() === 'builtin') {
+    // 4. 如果 enabled 且使用 LangGraph 引擎，重新连接
+    if (updatedConfig.enabled && this.getCurrentEngineType() === 'langgraph') {
       try {
         await this.connectServer(id)
       } catch (error) {
@@ -209,8 +210,8 @@ export class MCPServerManager {
     // 更新 DB
     server.config = updateMcpServer(id, { enabled: newEnabled })
 
-    // 内置引擎下需要管理连接；SDK 引擎下连接由 SDK 管理
-    if (this.getCurrentEngineType() === 'builtin') {
+    // LangGraph 引擎下需要管理连接；SDK 引擎下连接由 SDK 管理
+    if (this.getCurrentEngineType() === 'langgraph') {
       if (newEnabled) {
         // 启用 -> 连接
         try {
@@ -283,8 +284,9 @@ export class MCPServerManager {
   /**
    * 初始化管理器：从 DB 加载配置 + 连接所有已启用的 Server。
    *
-   * 当 engineType === 'copilot-sdk' 时，仅加载配置到内存，
-   * 跳过连接管理（SDK 会自行管理 MCP Server 连接）。
+   * 仅当 engineType === 'langgraph' 时建立自建连接并把工具注册到 ToolRegistry；
+   * copilot-sdk（默认）引擎下仅加载配置到内存，跳过连接管理
+   * （SDK 会通过 mcp-bridge 自行管理 MCP Server 连接）。
    *
    * 应在应用启动时调用。
    */
@@ -292,7 +294,7 @@ export class MCPServerManager {
     this.loadFromDatabase()
 
     const engineType = this.getCurrentEngineType()
-    if (engineType === 'copilot-sdk') {
+    if (engineType !== 'langgraph') {
       console.warn('[MCP Manager] Copilot SDK engine active, skipping MCP connections')
       return
     }
@@ -317,10 +319,10 @@ export class MCPServerManager {
    */
   private getCurrentEngineType(): EngineType {
     try {
-      return getSettings().engineType ?? 'builtin'
+      return getSettings().engineType ?? 'copilot-sdk'
     } catch {
-      // Settings may not be available during early init; default to builtin
-      return 'builtin'
+      // Settings may not be available during early init; default to copilot-sdk
+      return 'copilot-sdk'
     }
   }
 

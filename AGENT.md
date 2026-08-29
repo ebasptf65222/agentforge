@@ -6,8 +6,8 @@
 |------|------|
 | 当前阶段 | P5 - 发布打磨 (完成) |
 | 当前任务 | 全部 P5 任务完成 |
-| 上次完成任务 | P5-07: 类型检查 + 端到端打包验证 |
-| 测试总数 | 947 passed (43 files) |
+| 上次完成任务 | 引擎精简：移除 builtin 引擎，三引擎精简为双引擎（copilot-sdk 默认 / langgraph） |
+| 测试总数 | 1576 passed (67 files) |
 | Git 远程 | Gitee (私有仓库) |
 
 ## 必读文档
@@ -27,7 +27,7 @@
 
 ### P2 - Agent 引擎 + MCP 工具 (done)
 
-- P2-01: done - Agent ReAct 执行引擎 (executor.ts)
+- P2-01: done - Agent ReAct 执行引擎 (executor.ts，已于引擎精简时移除，功能由 Copilot SDK 引擎覆盖)
 - P2-02: done - 工具注册与内置工具 (file-read/write, web-search/scrape, directory-list)
 - P2-03: done - 审批机制 (approval.ts)
 - P2-04: done - MCP 客户端 (client.ts, transport.ts, manager.ts)
@@ -59,6 +59,15 @@
 - P5-05: done - 配置 electron-builder 打包
 - P5-06: done - 项目 README 与发布文档
 - P5-07: done - 类型检查 + 端到端打包验证
+
+## 引擎精简记录 (2026-08-29)
+
+- 移除 builtin 引擎（自研 ReAct 循环），三引擎精简为双引擎：`copilot-sdk`（默认）/ `langgraph`
+- 删除文件：`src/main/agent/executor.ts`、`parser.ts`、`prompt-builder.ts` 及对应测试
+- 分发逻辑：`engine-dispatcher.ts` 显式双分支，旧值 `'builtin'` 容错回退 copilot-sdk
+- 数据迁移：`008-remove-builtin-engine.sql` + `db/index.ts` 幂等 UPDATE，存量 `'builtin'` 刷为 `'copilot-sdk'`
+- MCP 耦合重构：`mcp/manager.ts` 连接管理判断改为 `=== 'langgraph'`（langgraph 自建连接注册工具；copilot-sdk 走 mcp-bridge 传 SDK）
+- 注意：`tools/*.ts` 中的 `source: 'builtin'` 是工具来源标记（内置工具 vs MCP 工具），与引擎无关，保留
 
 ## 版本升级注意事项 (2026-07-26)
 

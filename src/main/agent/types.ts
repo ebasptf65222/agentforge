@@ -1,5 +1,4 @@
 // AgentForge P2-02: Agent 内部类型定义
-// 与 Spec v0.2 §9 ReAct 执行引擎规格一致
 
 import type {
   AgentExecutionRequest,
@@ -15,27 +14,6 @@ import type {
   ApprovalResponse,
 } from '@shared/types'
 import type { AdapterMessage } from '../models/adapter'
-
-// ─── LLM 输出解析类型 ───────────────────────────────────────────
-
-/** LLM 解析出的 Action 类型 */
-export type ParsedActionType = 'tool' | 'finish'
-
-/** 解析后的 LLM 输出 */
-export interface ParsedLLMResponse {
-  /** Thought（推理过程） */
-  thought: string
-  /** Action 类型 */
-  actionType: ParsedActionType
-  /** 工具名（actionType === 'tool' 时） */
-  toolName?: string
-  /** 工具参数（actionType === 'tool' 时） */
-  arguments?: Record<string, unknown>
-  /** 完成总结（actionType === 'finish' 时） */
-  summary?: string
-  /** 原始 LLM 输出 */
-  rawOutput: string
-}
 
 // ─── 上下文管理类型 ─────────────────────────────────────────────
 
