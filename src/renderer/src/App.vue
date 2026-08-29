@@ -1,26 +1,30 @@
 <template>
-  <div class="app">
-    <NConfigProvider :theme="naiveTheme" :theme-overrides="naiveThemeOverrides">
-      <NMessageProvider>
-        <NDialogProvider>
+  <NConfigProvider :theme="naiveTheme" :theme-overrides="naiveThemeOverrides">
+    <NMessageProvider>
+      <NDialogProvider>
+        <div class="app">
           <TitleBar />
-          <div class="app__content">
-            <ChatView v-if="uiStore.currentView === 'chat'" />
-            <KbView v-else-if="uiStore.currentView === 'kb'" />
-            <WikiView v-else-if="uiStore.currentView === 'wiki'" />
-            <SettingsView v-else />
-          </div>
-        </NDialogProvider>
-      </NMessageProvider>
-    </NConfigProvider>
-  </div>
+          <AppShell>
+            <div class="app__content">
+              <ChatView v-if="uiStore.currentView === 'chat'" />
+              <KbView v-else-if="uiStore.currentView === 'kb'" />
+              <WikiView v-else-if="uiStore.currentView === 'wiki'" />
+              <SettingsView v-else />
+            </div>
+          </AppShell>
+        </div>
+      </NDialogProvider>
+    </NMessageProvider>
+  </NConfigProvider>
 </template>
 
 <script setup lang="ts">
+import { onMounted, onUnmounted } from 'vue'
 import { NConfigProvider, NMessageProvider, NDialogProvider } from 'naive-ui'
 import { useUiStore } from '@/stores/ui'
 import { useTheme } from '@/composables/use-theme'
 import TitleBar from '@/components/common/TitleBar.vue'
+import AppShell from '@/components/common/AppShell.vue'
 import WikiView from '@/components/Wiki/WikiView.vue'
 import ChatView from '@/views/ChatView.vue'
 import KbView from '@/views/KbView.vue'
@@ -28,6 +32,16 @@ import SettingsView from '@/views/SettingsView.vue'
 
 const uiStore = useUiStore()
 const { naiveTheme, naiveThemeOverrides } = useTheme()
+
+// UI-REDESIGN v1.0: viewport 断点监听（HMR 安全：onUnmounted 清理）
+let cleanupViewport: (() => void) | null = null
+onMounted(() => {
+  cleanupViewport = uiStore.initViewportListener()
+})
+onUnmounted(() => {
+  cleanupViewport?.()
+  cleanupViewport = null
+})
 </script>
 
 <style>
@@ -46,6 +60,34 @@ body,
   overflow: hidden;
 }
 
+/* Naive UI providers (NConfigProvider / NMessageProvider / NDialogProvider)
+   each render a wrapper <div> between #app and .app. Pass the viewport
+   height through these wrappers so .app's flex column can work.
+   注意：只穿透 provider 包装层本身（.app 的直接祖先链），
+   不能用后代通配，否则 .app 内部元素（如 .title-bar）也会被强制 height:100%。 */
+#app > div > div > div > div.app,
+#app > div > div > div.app,
+#app > div > div.app,
+#app > div.app {
+  width: 100%;
+  height: 100%;
+}
+/* provider 包装层自身也要撑满并允许内部 flex 布局 */
+#app > div:not(.app),
+#app .n-config-provider,
+#app .n-message-provider,
+#app .n-dialog-provider {
+  width: 100%;
+  height: 100%;
+}
+.n-config-provider,
+.n-message-provider,
+.n-dialog-provider {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 body {
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -61,28 +103,6 @@ body {
 .app {
   width: 100%;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Naive-ui provider wrappers must fill the flex parent height */
-.app > .n-config-provider {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.app > .n-config-provider > .n-message-provider {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.app > .n-config-provider > .n-message-provider > .n-dialog-provider {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
 }

@@ -10,9 +10,6 @@ import {
   CropSquareOutlined,
   CloseOutlined,
   ChatBubbleOutlined,
-  BookOutlined,
-  AutoStoriesOutlined,
-  SettingsOutlined,
   InfoOutlined,
   DeveloperModeOutlined,
   LogOutOutlined,
@@ -113,21 +110,7 @@ const menuOptions: DropdownOption[] = [
     key: 'new-chat',
     icon: renderIcon(ChatBubbleOutlined),
   },
-  {
-    label: '知识库',
-    key: 'kb',
-    icon: renderIcon(BookOutlined),
-  },
-  {
-    label: 'LLM Wiki',
-    key: 'wiki',
-    icon: renderIcon(AutoStoriesOutlined),
-  },
-  {
-    label: '设置',
-    key: 'settings',
-    icon: renderIcon(SettingsOutlined),
-  },
+  // UI-REDESIGN v1.0: 知识库/Wiki/设置入口已移至 AppShell 导航栏，此处不再重复
   { type: 'divider', key: 'd1' },
   {
     label: '开发者工具',

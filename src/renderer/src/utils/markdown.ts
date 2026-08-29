@@ -69,6 +69,17 @@ function buildCodeHeader(language: string, escapedCode: string, lineCount: numbe
 }
 
 const renderer = {
+  /**
+   * 链接渲染：强制 target=_blank + rel=noopener，
+   * 配合主进程 setWindowOpenHandler 用系统浏览器打开，
+   * 避免点击链接导致主窗口导航、覆盖整个应用界面。
+   */
+  link({ href, title, tokens }: Tokens.Link): string {
+    const text = this.parser.parseInline(tokens)
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
+    return `<a href="${escapeHtml(href)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`
+  },
+
   code({ text, lang }: Tokens.Code): string {
     const language = lang || 'plaintext'
     const escapedCode = escapeHtml(text)

@@ -187,6 +187,9 @@ function createWindow(): BrowserWindow {
       webSecurity: true,
       allowRunningInsecureContent: false,
       navigateOnDragDrop: false,
+      // 应用内链接预览面板需要 <webview> 标签
+      // webview 本身仍是隔离的（无 nodeIntegration），安全可控
+      webviewTag: true,
     },
   })
 
@@ -219,6 +222,21 @@ function createWindow(): BrowserWindow {
   mainWindow.webContents.setWindowOpenHandler((details) => {
     void shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // 安全：阻止主窗口页面导航（SPA 不应发生跳转）。
+  // 否则点击无 target=_blank 的外部链接会让整个应用被网页覆盖，
+  // 自定义标题栏也随之消失。外部 http/https 链接改用系统浏览器打开。
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault()
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        void shell.openExternal(url)
+      }
+    } catch {
+      // 非法 URL 直接忽略
+    }
   })
 
   // 窗口内容就绪后显示，避免白屏闪烁

@@ -22,7 +22,6 @@ import {
   type DataTableColumns,
 } from 'naive-ui'
 import {
-  ArrowLeftOutlined,
   AddOutlined,
   SearchOutlined,
   RefreshOutlined,
@@ -31,12 +30,10 @@ import {
   DeleteOutlined,
 } from '@vicons/material'
 import { useKbStore } from '@/stores/kb'
-import { useUiStore } from '@/stores/ui'
 import type { KbDocument } from '@shared/types'
 import type { ChunkingOptions } from '@shared/types'
 
 const kbStore = useKbStore()
-const uiStore = useUiStore()
 
 // ─── View State ──────────────────────────────────────────────
 
@@ -50,10 +47,6 @@ const checkedRowKeys = ref<string[]>([])
 
 const hasSelection = computed(() => checkedRowKeys.value.length > 0)
 const selectionCount = computed(() => checkedRowKeys.value.length)
-
-function handleSelectAll(): void {
-  checkedRowKeys.value = kbStore.documents.map((d) => d.id)
-}
 
 function handleClearSelection(): void {
   checkedRowKeys.value = []
@@ -116,10 +109,6 @@ onMounted(async () => {
 })
 
 // ─── Handlers ───────────────────────────────────────────────
-
-function handleBack(): void {
-  uiStore.setCurrentView('chat')
-}
 
 async function handleSelectFile(): Promise<void> {
   const filters = [{ name: 'Documents', extensions: ['md', 'txt', 'pdf', 'docx', 'xlsx', 'csv'] }]
@@ -348,15 +337,8 @@ const columns = computed<DataTableColumns<KbDocument>>(() => [
 
 <template>
   <div class="kb-view">
-    <!-- Header -->
+    <!-- Header（UI-REDESIGN v1.0: 返回按钮已由 AppShell 导航栏替代） -->
     <header class="kb-view__header">
-      <NButton circle quaternary size="small" title="返回对话" @click="handleBack">
-        <template #icon>
-          <NIcon>
-            <ArrowLeftOutlined />
-          </NIcon>
-        </template>
-      </NButton>
       <h1 class="kb-view__title">知识库管理</h1>
       <span v-if="statsText" class="kb-view__stats">{{ statsText }}</span>
     </header>

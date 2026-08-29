@@ -2,7 +2,7 @@
 // P2-02: CheckpointPanel - File snapshot timeline & rollback UI
 // Displays a vertical timeline of file checkpoints with diff preview and rollback actions.
 
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { NIcon, NModal, NButton, NInput, NSpin, NEmpty, NTag, NPopconfirm } from 'naive-ui'
 import {
   HistoryOutlined,

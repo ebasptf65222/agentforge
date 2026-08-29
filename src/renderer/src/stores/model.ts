@@ -73,6 +73,14 @@ export const useModelStore = defineStore('model', () => {
   }
 
   /**
+   * Set a model as the default and refresh the list.
+   */
+  async function setDefaultModel(id: string): Promise<void> {
+    await window.electron.model.update({ id, isDefault: true })
+    await loadModels()
+  }
+
+  /**
    * Test the connection to a model. Returns the test result; does not throw
    * on connection failure (the result carries success/error fields instead).
    */
@@ -90,6 +98,7 @@ export const useModelStore = defineStore('model', () => {
     createModel,
     updateModel,
     deleteModel,
+    setDefaultModel,
     testModel,
   }
 })

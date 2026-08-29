@@ -1,5 +1,39 @@
 # AgentForge 进度日志
 
+## UI 重构 v1.0 批次 A+B+C：AppShell 导航壳 + 执行可视化重组 + 响应式断点 (2026-08-21)
+
+**任务**: 按 `docs/design-v1/` 设计方案实施 UI 重构（导航 IA 统一、Agent 执行可视化、响应式适配），仅改 renderer 布局层，IPC/store 数据接口零变更。
+
+### 变更概要
+
+#### 1. 主题令牌扩展（theme/tokens.ts）
+- 深浅双主题新增：间距（--af-space-1~8）、字号阶梯（--af-font-xs~xl）、动效（--af-dur-fast/base/slow + --af-ease/-out）、层级（--af-shadow-1/2、--af-overlay、--af-brand-dim、--af-skeleton）、面板宽度（--af-panel-sidebar/aux/checkpoint/drawer、--af-rail-width）
+
+#### 2. AppShell 全局导航壳（批次 A）
+- 新建 `components/common/AppShell.vue`：56px 图标 rail，统一四视图切换，选中态品牌色底 + 左侧指示条
+- `App.vue`：视图区包裹 AppShell；挂载 viewport 断点监听（onUnmounted 清理）
+- `TitleBar.vue`：菜单移除知识库/Wiki/设置重复入口
+- `SidebarHeader.vue`：移除知识库/设置按钮（保留工作区文件/文件快照面板开关）
+- SettingsView / KbView / WikiView：移除各自返回按钮
+
+#### 3. Agent 执行可视化重组（批次 B）
+- 新建 `components/Agent/ExecutionSummaryBar.vue`：消息流底部摘要条（状态点 + 步数 + 进度微条），审批时 warning 色脉冲
+- 新建 `components/Agent/ExecutionDrawer.vue`：右侧抽屉承载 ExecutionPanel + AuditReportPanel，Esc/遮罩关闭不中断执行；执行开始自动展开
+- ChatView 移除常驻 ExecutionPanel/AuditReportPanel
+
+#### 4. 面板仲裁与响应式（批次 C）
+- `stores/ui.ts`：新增 viewport（compact <900 / medium 900–1280 / wide >1280）+ initViewportListener（resize 防抖 200ms）；medium 下文件/检查点面板互斥；断点降级自动收起面板
+- ChatView：根元素按 viewport 切 class；compact 下面板 overlay 抽屉化；宽度全部令牌化
+
+### 验证结果
+- `pnpm typecheck`: 通过
+- 定向 eslint（12 个改动文件）: 通过
+- renderer vitest: 29 passed
+- 全量 vitest: git/index.test.ts 首轮负载超时失败，单独重跑通过（已知偶发，非阻塞）
+- KbView 模板内 TS 标注解析错误为 HEAD 既有问题，非本次引入
+
+---
+
 ## UI 重构：naive-ui 组件库集成 + 主题系统 + 移除 UnoCSS (2026-07-26)
 
 **任务**: 全面对前端 UI 进行重新设计美化，引入 naive-ui 组件库替换自定义组件，建立统一的 CSS 变量主题系统，并移除 UnoCSS 依赖

@@ -36,12 +36,12 @@ onMounted(() => {
 })
 
 /** 当前选中的 Skill（null = 普通对话） */
-const selectedSkill = ref<string | null>(null)
+const selectedSkill = ref('')
 
 const skillOptions = computed(() => {
   const manual = skillStore.skills.filter((s) => s.trigger === 'manual')
   return [
-    { label: '普通对话', value: null },
+    { label: '普通对话', value: '' },
     ...manual.map((s: Skill) => ({ label: s.displayName, value: s.name })),
   ]
 })
@@ -56,7 +56,7 @@ const selectedSkillInfo = computed(() => {
 const showSkillBanner = computed(() => selectedSkillInfo.value !== null)
 
 function clearSkill(): void {
-  selectedSkill.value = null
+  selectedSkill.value = ''
 }
 
 // ─── Slash command menu (UI-REDESIGN v0.3) ──────────────────────
@@ -135,7 +135,7 @@ function handleSend(): void {
   const content = inputContent.value.trim()
   const images = [...attachedImages.value]
   if ((!content && images.length === 0) || props.disabled || props.isGenerating) return
-  emit('send', content, selectedSkill.value ?? undefined, images.length > 0 ? images : undefined)
+  emit('send', content, selectedSkill.value || undefined, images.length > 0 ? images : undefined)
   inputContent.value = ''
   attachedImages.value = []
   closeSlashMenu()
@@ -150,7 +150,7 @@ function handleSend(): void {
  */
 function handleVoiceSubmit(text: string): void {
   if (!text.trim() || props.disabled || props.isGenerating) return
-  emit('send', text.trim(), selectedSkill.value ?? undefined)
+  emit('send', text.trim(), selectedSkill.value || undefined)
 }
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -393,6 +393,7 @@ function handleDragLeave(event: DragEvent): void {
 
 <style scoped>
 .chat-input {
+  flex-shrink: 0;
   padding: 8px 16px 12px;
   background-color: var(--af-bg, #0f172a);
 }

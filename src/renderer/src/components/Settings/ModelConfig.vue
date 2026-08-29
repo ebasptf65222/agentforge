@@ -251,6 +251,18 @@ async function testFromForm(): Promise<void> {
   }
 }
 
+// ─── Set as default ────────────────────────────────────────────
+
+async function handleSetDefault(model: ModelConfig): Promise<void> {
+  try {
+    await modelStore.setDefaultModel(model.id)
+    showToast(`已将「${model.name}」设为默认模型`, 'success')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    showToast(`设置默认模型失败: ${message}`, 'error')
+  }
+}
+
 // ─── Delete ────────────────────────────────────────────────────
 
 function handleDelete(model: ModelConfig): void {
@@ -325,85 +337,124 @@ const isModalOpen = computed({
     <div class="model-config__list">
       <!-- Skeleton loading -->
       <div v-if="modelStore.loading" class="model-config__skeleton">
-        <div v-for="i in skeletonRows" :key="`skeleton-${i}`" class="skeleton-row">
-          <div class="skeleton-row__cell skeleton-row__name" />
-          <div class="skeleton-row__cell skeleton-row__provider" />
-          <div class="skeleton-row__cell skeleton-row__actions" />
+        <div v-for="i in skeletonRows" :key="`skeleton-${i}`" class="skeleton-card">
+          <div class="skeleton-card__row">
+            <div class="skeleton-card__bar skeleton-card__bar--title" />
+            <div class="skeleton-card__bar skeleton-card__bar--tag" />
+          </div>
+          <div class="skeleton-card__bar skeleton-card__bar--meta" />
+          <div class="skeleton-card__row skeleton-card__row--footer">
+            <div class="skeleton-card__bar skeleton-card__bar--btn" />
+            <div class="skeleton-card__bar skeleton-card__bar--btn" />
+            <div class="skeleton-card__bar skeleton-card__bar--btn" />
+          </div>
         </div>
       </div>
 
       <!-- Empty state -->
       <div v-else-if="modelStore.models.length === 0" class="model-config__empty">
+        <div class="model-config__empty-icon">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="4" width="16" height="16" rx="3" />
+            <rect x="9" y="9" width="6" height="6" rx="1" />
+            <path d="M12 2v2M12 20v2M2 12h2M20 12h2" />
+          </svg>
+        </div>
         <p class="model-config__empty-title">暂无模型配置</p>
-        <p class="model-config__empty-hint">点击右上角「添加模型」开始配置</p>
+        <p class="model-config__empty-hint">添加一个 AI 模型后即可开始对话</p>
+        <AppButton variant="primary" @click="openAdd">+ 添加第一个模型</AppButton>
       </div>
 
-      <!-- Table -->
-      <table v-else class="model-table">
-        <thead>
-          <tr>
-            <th class="model-table__th">名称</th>
-            <th class="model-table__th">提供商</th>
-            <th class="model-table__th">模型 ID</th>
-            <th class="model-table__th">默认</th>
-            <th class="model-table__th model-table__th--actions">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="model in modelStore.models" :key="model.id" class="model-table__row">
-            <td class="model-table__td model-table__td--name">{{ model.name }}</td>
-            <td class="model-table__td">
-              <span
-                class="provider-tag"
-                :style="{
-                  backgroundColor: `${providerColor(model.provider)}22`,
-                  color: providerColor(model.provider),
-                }"
-              >
-                {{ providerLabel(model.provider) }}
-              </span>
-            </td>
-            <td class="model-table__td model-table__td--mono">{{ model.modelId }}</td>
-            <td class="model-table__td">
-              <span v-if="model.isDefault" class="default-badge">默认</span>
-              <span v-else class="model-table__muted">-</span>
-            </td>
-            <td class="model-table__td model-table__td--actions">
-              <div class="row-actions">
-                <!-- Test result (inline) -->
-                <span v-if="rowTestStatus[model.id]?.result" class="row-test row-test--success">
-                  连接成功 ({{ rowTestStatus[model.id]?.result?.latency }}ms)
-                </span>
-                <span
-                  v-else-if="rowTestStatus[model.id]?.error"
-                  class="row-test row-test--error"
-                  :title="rowTestStatus[model.id]?.error"
-                >
-                  连接失败
-                </span>
+      <!-- Card grid -->
+      <div v-else class="model-cards">
+        <div
+          v-for="model in modelStore.models"
+          :key="model.id"
+          class="model-card"
+          :class="{ 'model-card--default': model.isDefault }"
+        >
+          <!-- Card header -->
+          <div class="model-card__header">
+            <span
+              class="provider-tag"
+              :style="{
+                backgroundColor: `${providerColor(model.provider)}22`,
+                color: providerColor(model.provider),
+              }"
+            >
+              {{ providerLabel(model.provider) }}
+            </span>
+            <span v-if="model.isDefault" class="default-badge">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2l2.9 6.26 6.6 1.01-4.75 4.63 1.12 6.53L12 17.77l-5.87 3.09 1.12-6.53L2.5 9.27l6.6-1.01z" />
+              </svg>
+              默认
+            </span>
+          </div>
 
-                <AppButton
-                  size="sm"
-                  variant="ghost"
-                  :loading="rowTestStatus[model.id]?.loading === true"
-                  @click="testRow(model)"
-                >
-                  测试
-                </AppButton>
-                <AppButton size="sm" variant="ghost" @click="openEdit(model)">编辑</AppButton>
-                <AppButton
-                  size="sm"
-                  variant="ghost"
-                  :class="{ 'row-actions__delete': model.isDefault }"
-                  @click="handleDelete(model)"
-                >
-                  删除
-                </AppButton>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+          <!-- Card body -->
+          <div class="model-card__body">
+            <h3 class="model-card__name" :title="model.name">{{ model.name }}</h3>
+            <p class="model-card__model-id" :title="model.modelId">{{ model.modelId }}</p>
+            <div class="model-card__params">
+              <span class="param-chip">temp {{ model.temperature.toFixed(1) }}</span>
+              <span class="param-chip">{{ model.maxTokens }} tokens</span>
+            </div>
+          </div>
+
+          <!-- Test result -->
+          <div class="model-card__test">
+            <span v-if="rowTestStatus[model.id]?.loading" class="card-test card-test--loading">
+              测试中…
+            </span>
+            <span v-else-if="rowTestStatus[model.id]?.result" class="card-test card-test--success">
+              ● 连接成功 · {{ rowTestStatus[model.id]?.result?.latency }}ms
+            </span>
+            <span
+              v-else-if="rowTestStatus[model.id]?.error"
+              class="card-test card-test--error"
+              :title="rowTestStatus[model.id]?.error"
+            >
+              ● 连接失败（悬停查看详情）
+            </span>
+          </div>
+
+          <!-- Card footer actions -->
+          <div class="model-card__actions">
+            <AppButton
+              size="sm"
+              variant="ghost"
+              :loading="rowTestStatus[model.id]?.loading === true"
+              @click="testRow(model)"
+            >
+              测试
+            </AppButton>
+            <AppButton size="sm" variant="ghost" @click="openEdit(model)">编辑</AppButton>
+            <AppButton
+              v-if="!model.isDefault"
+              size="sm"
+              variant="ghost"
+              @click="handleSetDefault(model)"
+            >
+              设为默认
+            </AppButton>
+            <AppButton
+              size="sm"
+              variant="ghost"
+              class="model-card__delete"
+              @click="handleDelete(model)"
+            >
+              删除
+            </AppButton>
+          </div>
+        </div>
+
+        <!-- Add card -->
+        <button type="button" class="model-card model-card--add" @click="openAdd">
+          <span class="model-card__add-icon">+</span>
+          <span class="model-card__add-text">添加模型</span>
+        </button>
+      </div>
     </div>
 
     <!-- Add / Edit modal -->
@@ -413,6 +464,9 @@ const isModalOpen = computed({
       :width="520"
     >
       <form class="model-form" @submit.prevent="handleSubmit">
+        <!-- 基本信息 -->
+        <p class="model-form__section">基本信息</p>
+
         <!-- 名称 -->
         <div class="model-form__field">
           <label class="model-form__label">名称 <span class="model-form__required">*</span></label>
@@ -424,26 +478,34 @@ const isModalOpen = computed({
           />
         </div>
 
-        <!-- 提供商 -->
-        <div class="model-form__field">
-          <label class="model-form__label"
-            >提供商 <span class="model-form__required">*</span></label
-          >
-          <select v-model="form.provider" class="model-form__select" @change="handleProviderChange">
-            <option v-for="p in PROVIDER_OPTIONS" :key="p.value" :value="p.value">
-              {{ p.label }}
-            </option>
-          </select>
-          <p v-if="errors.provider" class="model-form__error">{{ errors.provider }}</p>
+        <!-- 提供商 + 模型 ID -->
+        <div class="model-form__grid">
+          <div class="model-form__field">
+            <label class="model-form__label"
+              >提供商 <span class="model-form__required">*</span></label
+            >
+            <select
+              v-model="form.provider"
+              class="model-form__select"
+              @change="handleProviderChange"
+            >
+              <option v-for="p in PROVIDER_OPTIONS" :key="p.value" :value="p.value">
+                {{ p.label }}
+              </option>
+            </select>
+            <p v-if="errors.provider" class="model-form__error">{{ errors.provider }}</p>
+          </div>
+
+          <div class="model-form__field">
+            <label class="model-form__label"
+              >模型 ID <span class="model-form__required">*</span></label
+            >
+            <AppInput v-model="form.modelId" placeholder="gpt-4o" :error="errors.modelId ?? ''" />
+          </div>
         </div>
 
-        <!-- 模型 ID -->
-        <div class="model-form__field">
-          <label class="model-form__label"
-            >模型 ID <span class="model-form__required">*</span></label
-          >
-          <AppInput v-model="form.modelId" placeholder="gpt-4o" :error="errors.modelId ?? ''" />
-        </div>
+        <!-- 凭据与接入 -->
+        <p class="model-form__section">凭据与接入</p>
 
         <!-- API Key -->
         <div class="model-form__field">
@@ -464,6 +526,9 @@ const isModalOpen = computed({
           <label class="model-form__label">Base URL</label>
           <AppInput v-model="form.baseUrl" :placeholder="baseUrlPlaceholder" />
         </div>
+
+        <!-- 生成参数 -->
+        <p class="model-form__section">生成参数</p>
 
         <!-- Temperature -->
         <div class="model-form__field">
@@ -546,28 +611,29 @@ const isModalOpen = computed({
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 4px 0 20px;
-  border-bottom: 1px solid #374151;
-  margin-bottom: 16px;
+  padding: 4px 0 var(--af-space-5, 20px);
+  border-bottom: 1px solid var(--af-border-light, #1f2937);
+  margin-bottom: var(--af-space-4, 16px);
 }
 
 .model-config__title {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--af-font-xl, 22px);
   font-weight: 700;
-  color: #f9fafb;
+  color: var(--af-text-primary, #f1f5f9);
 }
 
 .model-config__subtitle {
   margin: 4px 0 0;
-  font-size: 13px;
-  color: #9ca3af;
+  font-size: var(--af-font-base, 14px);
+  color: var(--af-text-tertiary, #94a3b8);
 }
 
 .model-config__list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  padding-bottom: var(--af-space-4, 16px);
 }
 
 /* ─── Empty state ─────────────────────────────────────────── */
@@ -576,118 +642,209 @@ const isModalOpen = computed({
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
+  gap: var(--af-space-2, 8px);
+  padding: 64px 20px;
   text-align: center;
+}
+
+.model-config__empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  margin-bottom: var(--af-space-2, 8px);
+  border-radius: var(--af-radius-lg, 12px);
+  background-color: var(--af-brand-dim, rgba(129, 140, 248, 0.12));
+  color: var(--af-brand, #818cf8);
 }
 
 .model-config__empty-title {
   margin: 0;
   font-size: 15px;
-  color: #9ca3af;
+  font-weight: 600;
+  color: var(--af-text-secondary, #cbd5e1);
 }
 
 .model-config__empty-hint {
-  margin: 6px 0 0;
+  margin: 0 0 var(--af-space-4, 16px);
   font-size: 13px;
-  color: #6b7280;
+  color: var(--af-text-muted, #64748b);
 }
 
-/* ─── Table ───────────────────────────────────────────────── */
-.model-table {
-  width: 100%;
-  border-collapse: collapse;
+/* ─── Card grid ───────────────────────────────────────── */
+.model-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--af-space-4, 16px);
+}
+
+.model-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--af-space-3, 12px);
+  padding: var(--af-space-4, 16px);
+  border: 1px solid var(--af-border-light, #1f2937);
+  border-radius: var(--af-radius-lg, 12px);
+  background-color: var(--af-bg-surface, #1e293b);
+  transition:
+    border-color var(--af-dur-fast, 120ms) var(--af-ease, ease),
+    box-shadow var(--af-dur-fast, 120ms) var(--af-ease, ease),
+    transform var(--af-dur-fast, 120ms) var(--af-ease, ease);
+}
+
+.model-card:hover {
+  border-color: var(--af-border, #334155);
+  box-shadow: var(--af-shadow-1, 0 1px 3px rgba(0, 0, 0, 0.3));
+  transform: translateY(-1px);
+}
+
+.model-card--default {
+  border-color: color-mix(in srgb, var(--af-brand, #818cf8) 45%, transparent);
+  background:
+    linear-gradient(180deg, var(--af-brand-dim, rgba(129, 140, 248, 0.12)) 0%, transparent 55%),
+    var(--af-bg-surface, #1e293b);
+}
+
+/* Add card */
+.model-card--add {
+  align-items: center;
+  justify-content: center;
+  gap: var(--af-space-2, 8px);
+  min-height: 150px;
+  cursor: pointer;
+  border-style: dashed;
+  background-color: transparent;
+  color: var(--af-text-muted, #64748b);
+  font: inherit;
+}
+
+.model-card--add:hover {
+  border-color: var(--af-brand, #818cf8);
+  color: var(--af-brand, #818cf8);
+  background-color: var(--af-brand-dim, rgba(129, 140, 248, 0.08));
+  transform: none;
+}
+
+.model-card__add-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.model-card__add-text {
   font-size: 13px;
-}
-
-.model-table__th {
-  text-align: left;
-  padding: 10px 12px;
-  font-weight: 600;
-  color: #9ca3af;
-  border-bottom: 1px solid #374151;
-  white-space: nowrap;
-}
-
-.model-table__th--actions {
-  text-align: right;
-}
-
-.model-table__row {
-  border-bottom: 1px solid #1f2937;
-  transition: background-color 0.15s ease;
-}
-
-.model-table__row:hover {
-  background-color: #1f2937;
-}
-
-.model-table__td {
-  padding: 12px;
-  color: #e5e7eb;
-  vertical-align: middle;
-}
-
-.model-table__td--name {
   font-weight: 500;
 }
 
-.model-table__td--mono {
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-  font-size: 12px;
-  color: #9ca3af;
-}
-
-.model-table__td--actions {
-  text-align: right;
-}
-
-.model-table__muted {
-  color: #4b5563;
+/* Card header */
+.model-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 22px;
 }
 
 /* Provider tag */
 .provider-tag {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
+  border-radius: var(--af-radius-full, 999px);
+  font-size: var(--af-font-sm, 12px);
   font-weight: 500;
 }
 
 /* Default badge */
 .default-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  background-color: rgba(79, 70, 229, 0.2);
-  color: #a5b4fc;
-}
-
-/* Row actions */
-.row-actions {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  justify-content: flex-end;
+  padding: 2px 8px;
+  border-radius: var(--af-radius-full, 999px);
+  font-size: var(--af-font-xs, 11px);
+  font-weight: 600;
+  background-color: var(--af-brand-dim, rgba(129, 140, 248, 0.12));
+  color: var(--af-brand, #818cf8);
 }
 
-.row-actions__delete {
-  color: #ef4444;
+/* Card body */
+.model-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
 }
 
-.row-test {
-  font-size: 11px;
-  margin-right: 4px;
+.model-card__name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--af-text-primary, #f1f5f9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.row-test--success {
-  color: #10b981;
+.model-card__model-id {
+  margin: 0;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: var(--af-font-sm, 12px);
+  color: var(--af-text-tertiary, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.row-test--error {
-  color: #ef4444;
+.model-card__params {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.param-chip {
+  padding: 1px 8px;
+  border-radius: var(--af-radius-sm, 6px);
+  border: 1px solid var(--af-border-light, #1f2937);
+  background-color: var(--af-bg-input, #1f2937);
+  font-size: var(--af-font-xs, 11px);
+  color: var(--af-text-tertiary, #94a3b8);
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
+/* Test result */
+.model-card__test {
+  min-height: 18px;
+}
+
+.card-test {
+  font-size: var(--af-font-sm, 12px);
+}
+
+.card-test--success {
+  color: var(--af-success, #10b981);
+}
+
+.card-test--error {
+  color: var(--af-error, #ef4444);
+  cursor: help;
+}
+
+.card-test--loading {
+  color: var(--af-text-muted, #64748b);
+}
+
+/* Card footer */
+.model-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-top: var(--af-space-2, 8px);
+  border-top: 1px solid var(--af-border-light, #1f2937);
+}
+
+.model-card__delete {
+  margin-left: auto;
+  color: var(--af-error, #ef4444);
 }
 
 /* ─── Skeleton ────────────────────────────────────────────── */
@@ -810,7 +967,7 @@ const isModalOpen = computed({
 
 .model-form__range {
   width: 100%;
-  accent-color: #4f46e5;
+  accent-color: var(--af-brand, #6366f1);
   cursor: pointer;
 }
 
@@ -822,18 +979,18 @@ const isModalOpen = computed({
 }
 
 .form-test {
-  font-size: 12px;
+  font-size: var(--af-font-sm, 12px);
 }
 
 .form-test--success {
-  color: #10b981;
+  color: var(--af-success, #10b981);
 }
 
 .form-test--error {
-  color: #ef4444;
+  color: var(--af-error, #ef4444);
 }
 
 .form-test--hint {
-  color: #6b7280;
+  color: var(--af-text-muted, #64748b);
 }
 </style>

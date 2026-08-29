@@ -7,6 +7,9 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { renderMarkdown, getHighlighter } from '@/utils/markdown'
 import { renderMermaid } from '@/utils/mermaid'
+import { useUiStore } from '@/stores/ui'
+
+const uiStore = useUiStore()
 
 const props = defineProps<{
   content: string
@@ -158,14 +161,39 @@ function handleCollapseClick(event: MouseEvent): void {
     : '收起'
 }
 
+/**
+ * 拦截 Markdown 内链接点击：
+ * 阻止默认导航（否则会覆盖整个应用窗口），
+ * 改为在应用内右侧预览面板中打开。
+ */
+function handleLinkClick(event: MouseEvent): void {
+  const anchor = (event.target as HTMLElement).closest('a')
+  if (!anchor) return
+  const href = anchor.getAttribute('href')
+  if (!href) return
+
+  // 仅拦截外部 http/https 链接；锚点等相对链接保持默认行为
+  if (/^https?:\/\//i.test(href)) {
+    event.preventDefault()
+    // 应用内预览（带修饰键时直接用系统浏览器打开）
+    if (event.ctrlKey || event.metaKey) {
+      void window.electron.system.openExternal(href)
+    } else {
+      uiStore.openLinkPreview(href)
+    }
+  }
+}
+
 onMounted(() => {
   rootRef.value?.addEventListener('click', handleCopyClick)
   rootRef.value?.addEventListener('click', handleCollapseClick)
+  rootRef.value?.addEventListener('click', handleLinkClick)
 })
 
 onUnmounted(() => {
   rootRef.value?.removeEventListener('click', handleCopyClick)
   rootRef.value?.removeEventListener('click', handleCollapseClick)
+  rootRef.value?.removeEventListener('click', handleLinkClick)
 })
 </script>
 

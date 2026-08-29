@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // ChatView - main chat experience with Sidebar + ChatPanel + Agent ExecutionPanel
 
-import { onMounted, onUnmounted, computed, ref } from 'vue'
+import { onMounted, onUnmounted, computed, ref, watch } from 'vue'
 import { NIcon, NModal, NInput } from 'naive-ui'
 import { MenuOutlined } from '@vicons/material'
 import type { ChatMessage } from '@shared/types'
@@ -20,8 +20,9 @@ import FilePreview from '@/components/Sidebar/FilePreview.vue'
 import MessageList from '@/components/ChatPanel/MessageList.vue'
 import ContextUsageBar from '@/components/ChatPanel/ContextUsageBar.vue'
 import ChatInput from '@/components/ChatPanel/ChatInput.vue'
-import ExecutionPanel from '@/components/Agent/ExecutionPanel.vue'
-import AuditReportPanel from '@/components/Agent/AuditReportPanel.vue'
+import LinkPreviewPanel from '@/components/ChatPanel/LinkPreviewPanel.vue'
+import ExecutionSummaryBar from '@/components/Agent/ExecutionSummaryBar.vue'
+import ExecutionDrawer from '@/components/Agent/ExecutionDrawer.vue'
 import CheckpointPanel from '@/components/Checkpoint/CheckpointPanel.vue'
 import VoiceControlPanel from '@/components/VoiceControlPanel.vue'
 import { showToast } from '@/utils/toast'
@@ -345,11 +346,25 @@ const activeStreamingContent = computed(() => {
 const isGenerating = computed(() => chatStore.isGenerating || agentStore.isRunning)
 
 /** Sidebar width based on collapsed state (P1-12) */
-const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px'))
+const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : 'var(--af-panel-sidebar, 240px)'))
+
+// ─── UI-REDESIGN v1.0: 执行详情抽屉状态 ────────────────────
+const executionDrawerOpen = ref(false)
+
+/** 执行开始时自动展开抽屉 */
+watch(
+  () => agentStore.isRunning,
+  (running) => {
+    if (running) executionDrawerOpen.value = true
+  },
+)
 </script>
 
 <template>
-  <div class="chat-view">
+  <div
+    class="chat-view"
+    :class="`chat-view--${uiStore.viewport}`"
+  >
     <!-- Sidebar -->
     <aside
       class="chat-view__sidebar"
@@ -428,8 +443,9 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
         @approve="handleInlineApprove"
         @reject="handleInlineReject"
       />
-      <ExecutionPanel />
-      <AuditReportPanel />
+      <!-- UI-REDESIGN v1.0: 执行状态摘要条 + 详情抽屉（替代原常驻面板） -->
+      <ExecutionSummaryBar @expand="executionDrawerOpen = true" />
+      <ExecutionDrawer v-model:open="executionDrawerOpen" />
       <ChatInput
         :disabled="!hasConversation"
         :is-generating="isGenerating"
@@ -439,6 +455,9 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
       <!-- Voice control panel (V1-08) - fixed position global player -->
       <VoiceControlPanel />
     </main>
+
+    <!-- 应用内链接预览面板 -->
+    <LinkPreviewPanel />
 
     <!-- Edit message modal (OPT-UI-02) -->
     <NModal
@@ -533,7 +552,7 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
 }
 
 .chat-view__file-panel {
-  width: 280px;
+  width: var(--af-panel-aux, 280px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -542,10 +561,31 @@ const sidebarWidth = computed(() => (uiStore.sidebarCollapsed ? '0px' : '240px')
 }
 
 .chat-view__checkpoint-panel {
-  width: 360px;
+  width: var(--af-panel-checkpoint, 360px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* ─── UI-REDESIGN v1.0: compact 断点 —— 面板 overlay 抽屉化 ── */
+.chat-view--compact .chat-view__sidebar,
+.chat-view--compact .chat-view__file-panel,
+.chat-view--compact .chat-view__checkpoint-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 30;
+  box-shadow: var(--af-shadow-2, 0 4px 16px rgba(0, 0, 0, 0.4));
+}
+
+.chat-view--compact .chat-view__sidebar {
+  left: 0;
+}
+
+.chat-view--compact .chat-view__file-panel,
+.chat-view--compact .chat-view__checkpoint-panel {
+  right: 0;
+  border-left: 1px solid var(--af-border, #374151);
 }
 </style>

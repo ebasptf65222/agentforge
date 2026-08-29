@@ -4,8 +4,8 @@
 // A back button (NButton + NIcon) in the tab bar prefix returns to the chat view.
 
 import { ref, computed, type CSSProperties } from 'vue'
-import { NTabs, NTabPane, NButton, NIcon, NInput } from 'naive-ui'
-import { ArrowLeftOutlined, SearchOutlined } from '@vicons/material'
+import { NTabs, NTabPane, NInput } from 'naive-ui'
+import { SearchOutlined } from '@vicons/material'
 import { useUiStore } from '@/stores/ui'
 import ModelConfig from '@/components/Settings/ModelConfig.vue'
 import McpConfig from '@/components/Settings/McpConfig.vue'
@@ -52,6 +52,7 @@ function handleSearch(): void {
 function backToChat(): void {
   uiStore.setCurrentView('chat')
 }
+void backToChat // UI-REDESIGN v1.0: 返回按钮已移除，保留函数供快捷键场景复用
 
 // Layout styles for the NTabs content area so child views can fill the
 // remaining height and manage their own scrolling.
@@ -92,18 +93,9 @@ const paneStyle: CSSProperties = {
       :pane-wrapper-style="paneWrapperStyle"
       :pane-style="paneStyle"
     >
+      <!-- UI-REDESIGN v1.0: 返回按钮已由 AppShell 导航栏替代 -->
       <template #prefix>
-        <NButton
-          circle
-          quaternary
-          title="返回对话"
-          class="settings-view__back"
-          @click="backToChat"
-        >
-          <NIcon>
-            <ArrowLeftOutlined />
-          </NIcon>
-        </NButton>
+        <div style="width: 8px" />
       </template>
       <NTabPane name="models" tab="模型配置">
         <ModelConfig />

@@ -3,7 +3,7 @@
 
 import { computed } from 'vue'
 import { NIcon } from 'naive-ui'
-import { BookOutlined, SettingsOutlined, AddOutlined, FolderOutlined, HistoryOutlined } from '@vicons/material'
+import { AddOutlined, FolderOutlined, HistoryOutlined } from '@vicons/material'
 import AppButton from '@/components/common/AppButton.vue'
 
 const props = defineProps<{
@@ -18,6 +18,9 @@ const emit = defineEmits<{
   'open-files': []
   'open-checkpoints': []
 }>()
+
+// UI-REDESIGN v1.0: 知识库/设置入口已移至 AppShell 导航栏，
+// 此处仅保留工作区文件/文件快照两个面板开关。settings/open-kb 事件保留以兼容父组件。()
 
 const newChatLabel = computed(() => (props.collapsed ? '' : '新建对话'))
 </script>
@@ -47,28 +50,6 @@ const newChatLabel = computed(() => (props.collapsed ? '' : '新建对话'))
         >
           <NIcon :size="16" aria-hidden="true">
             <HistoryOutlined />
-          </NIcon>
-        </button>
-        <button
-          class="sidebar-header__icon-btn"
-          type="button"
-          title="知识库"
-          aria-label="知识库"
-          @click="emit('open-kb')"
-        >
-          <NIcon :size="16" aria-hidden="true">
-            <BookOutlined />
-          </NIcon>
-        </button>
-        <button
-          class="sidebar-header__icon-btn"
-          type="button"
-          title="设置"
-          aria-label="设置"
-          @click="emit('settings')"
-        >
-          <NIcon :size="16" aria-hidden="true">
-            <SettingsOutlined />
           </NIcon>
         </button>
       </div>
@@ -105,28 +86,6 @@ const newChatLabel = computed(() => (props.collapsed ? '' : '新建对话'))
       >
         <NIcon :size="16" aria-hidden="true">
           <HistoryOutlined />
-        </NIcon>
-      </button>
-      <button
-        class="sidebar-header__icon-btn"
-        type="button"
-        title="知识库"
-        aria-label="知识库"
-        @click="emit('open-kb')"
-      >
-        <NIcon :size="16" aria-hidden="true">
-          <BookOutlined />
-        </NIcon>
-      </button>
-      <button
-        class="sidebar-header__icon-btn"
-        type="button"
-        title="设置"
-        aria-label="设置"
-        @click="emit('settings')"
-      >
-        <NIcon :size="16" aria-hidden="true">
-          <SettingsOutlined />
         </NIcon>
       </button>
     </div>

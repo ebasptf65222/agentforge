@@ -5,7 +5,6 @@
 import { onMounted, ref, computed } from 'vue'
 import { NButton, NIcon, NTag, NCard, NSpin, NEmpty, NCollapse, NCollapseItem, NDataTable, useMessage, type DataTableColumns } from 'naive-ui'
 import {
-  ArrowLeftOutlined,
   RefreshOutlined,
   UploadOutlined,
   FolderOutlined,
@@ -69,9 +68,7 @@ async function loadWikiStatus(): Promise<void> {
   }
 }
 
-function handleBack(): void {
-  uiStore.setCurrentView('chat')
-}
+// UI-REDESIGN v1.0: handleBack 已移除（导航由 AppShell 承担）
 
 function handleRefresh(): void {
   void loadWikiStatus()
@@ -142,6 +139,7 @@ async function handleDrop(e: DragEvent): Promise<void> {
 function handleGoCompile(): void {
   uiStore.setCurrentView('chat')
 }
+void handleGoCompile // UI-REDESIGN v1.0: 返回按钮已移除，保留跳转函数
 </script>
 
 <template>
@@ -154,9 +152,7 @@ function handleGoCompile(): void {
     <!-- Header -->
     <div class="wiki-view__header">
       <div class="wiki-view__header-left">
-        <NButton quaternary circle size="small" title="返回对话" @click="handleBack">
-          <NIcon><ArrowLeftOutlined /></NIcon>
-        </NButton>
+        <!-- UI-REDESIGN v1.0: 返回按钮已由 AppShell 导航栏替代 -->
         <span class="wiki-view__title">LLM Wiki</span>
         <NTag size="small" type="info">Karpathy 模式</NTag>
       </div>

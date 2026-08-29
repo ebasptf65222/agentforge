@@ -310,7 +310,9 @@ onUnmounted(() => {
   flex: 1;
   position: relative;
   display: flex;
+  flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .message-list {
@@ -368,7 +370,7 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  min-height: 100%;
   padding: 32px 24px;
   gap: 24px;
   color: var(--af-text-primary, #e5e7eb);

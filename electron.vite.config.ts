@@ -41,7 +41,16 @@ export default defineConfig({
         '@renderer': resolve(__dirname, 'src/renderer/src'),
       },
     },
-    plugins: [vue()],
+    plugins: [
+      vue({
+        template: {
+          compilerOptions: {
+            // Electron <webview> 是原生自定义元素，避免 Vue 尝试解析为组件
+            isCustomElement: (tag) => tag === 'webview',
+          },
+        },
+      }),
+    ],
     build: {
       rollupOptions: {
         input: {
