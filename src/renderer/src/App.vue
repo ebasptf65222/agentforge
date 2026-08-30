@@ -133,6 +133,18 @@ body {
   background: var(--af-text-muted, #64748b);
 }
 
+/* ─── shiki dual-theme switching (light mode override) ─────────── */
+/* shiki codeToHtml outputs dark theme by default (defaultColor: 'dark').
+   In light mode, switch to the light theme variables that shiki embeds
+   as inline CSS custom properties on each .shiki element. */
+html:not(.dark) .shiki,
+html:not(.dark) .shiki span {
+  color: var(--shiki-light) !important;
+}
+html:not(.dark) .shiki {
+  background-color: var(--shiki-light-bg) !important;
+}
+
 /* Selection */
 ::selection {
   background: rgba(99, 102, 241, 0.3);
