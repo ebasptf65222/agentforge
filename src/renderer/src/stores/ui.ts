@@ -30,6 +30,9 @@ export const useUiStore = defineStore('ui', () => {
   /** 当前应用内预览的链接 URL（null 表示关闭预览面板） */
   const linkPreviewUrl = ref<string | null>(null)
 
+  /** 文件预览面板是否打开（全屏接管主区域） */
+  const previewPanelOpen = ref(false)
+
   // ─── UI-REDESIGN v1.0: viewport 断点与面板仲裁 ──────────────
 
   /** 当前视口断点（<900 compact / 900–1280 medium / >1280 wide） */
@@ -115,6 +118,16 @@ export const useUiStore = defineStore('ui', () => {
     checkpointPanelVisible.value = visible
   }
 
+  /** 打开文件预览面板（全屏接管主区域） */
+  function openPreviewPanel(): void {
+    previewPanelOpen.value = true
+  }
+
+  /** 关闭文件预览面板，恢复聊天显示 */
+  function closePreviewPanel(): void {
+    previewPanelOpen.value = false
+  }
+
   /** Trigger model switcher open (keyboard shortcut) */
   function triggerModelSwitcher(): void {
     modelSwitcherTrigger.value++
@@ -135,9 +148,12 @@ export const useUiStore = defineStore('ui', () => {
     modelSwitcherTrigger,
     engineSwitcherTrigger,
     linkPreviewUrl,
+    previewPanelOpen,
     setCurrentView,
     openLinkPreview,
     closeLinkPreview,
+    openPreviewPanel,
+    closePreviewPanel,
     toggleSidebar,
     setSidebarCollapsed,
     toggleFilePanel,

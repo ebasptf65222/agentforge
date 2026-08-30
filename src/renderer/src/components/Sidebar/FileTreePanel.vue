@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // WS-05: FileTreePanel - workspace file tree browser.
 // Displays a collapsible file tree with lazy-loaded subdirectories.
-// Clicking a file opens it in the FilePreview component.
+// Clicking a file opens it in the FilePreviewPanel (fullscreen main area preview).
 
 import { onMounted, watch, ref, h } from 'vue'
 import { NIcon, NButton, NSpin, NEmpty, NDropdown, NInput } from 'naive-ui'
@@ -48,6 +48,7 @@ function handleContextMenuSelect(key: string): void {
     case 'open':
       if (!node.isDirectory) {
         void workspaceStore.previewFile(node)
+        uiStore.openPreviewPanel()
       }
       break
     case 'copy':
@@ -80,6 +81,7 @@ function handleNodeClick(node: FileTreeNode): void {
     void workspaceStore.toggleExpand(node)
   } else {
     void workspaceStore.previewFile(node)
+    uiStore.openPreviewPanel()
   }
 }
 

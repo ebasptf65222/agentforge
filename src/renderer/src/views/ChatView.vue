@@ -16,7 +16,7 @@ import SidebarHeader from '@/components/Sidebar/SidebarHeader.vue'
 import ConversationList from '@/components/Sidebar/ConversationList.vue'
 import ConversationTreeModal from '@/components/Sidebar/ConversationTreeModal.vue'
 import FileTreePanel from '@/components/Sidebar/FileTreePanel.vue'
-import FilePreview from '@/components/Sidebar/FilePreview.vue'
+import FilePreviewPanel from '@/components/FilePreviewPanel.vue'
 import MessageList from '@/components/ChatPanel/MessageList.vue'
 import ContextUsageBar from '@/components/ChatPanel/ContextUsageBar.vue'
 import ChatInput from '@/components/ChatPanel/ChatInput.vue'
@@ -118,6 +118,13 @@ function handleKeydown(event: KeyboardEvent): void {
     return
   }
   
+  // Escape -> close preview panel (if open, takes priority over stop generation)
+  if (event.key === 'Escape' && uiStore.previewPanelOpen) {
+    event.preventDefault()
+    uiStore.closePreviewPanel()
+    return
+  }
+
 // Escape -> stop generation (if generating)
   if (event.key === 'Escape' && isGenerating.value) {
     event.preventDefault()
@@ -406,13 +413,12 @@ watch(
       </NIcon>
     </button>
 
-    <!-- File Panel (WS-05) -->
+    <!-- File Panel (WS-05) — only FileTreePanel; preview takes over main area -->
     <aside
       v-if="uiStore.filePanelVisible"
       class="chat-view__file-panel"
     >
       <FileTreePanel />
-      <FilePreview />
     </aside>
 
     <!-- Checkpoint Panel (P2-02) -->
@@ -423,37 +429,40 @@ watch(
       <CheckpointPanel />
     </aside>
 
-    <!-- Main chat panel -->
+    <!-- Main area — preview takes over when open; chat hidden via v-show to preserve state -->
     <main class="chat-view__main">
-      <ContextUsageBar />
-      <MessageList
-        :messages="chatStore.messages"
-        :streaming-content="activeStreamingContent"
-        :is-generating="isGenerating"
-        :pending-approval="agentStore.pendingApproval"
-        :approval-resolved="agentStore.approvalResolved"
-        @copy="handleCopyMessage"
-        @retry="handleRetryMessage"
-        @edit="handleEditMessage"
-        @delete-message="handleDeleteMessage"
-        @new-chat="handleNewChat"
-        @open-settings="handleOpenSettings"
-        @open-kb="handleOpenKb"
-        @send-prompt="handleSendPrompt"
-        @approve="handleInlineApprove"
-        @reject="handleInlineReject"
-      />
-      <!-- UI-REDESIGN v1.0: 执行状态摘要条 + 详情抽屉（替代原常驻面板） -->
-      <ExecutionSummaryBar @expand="executionDrawerOpen = true" />
-      <ExecutionDrawer v-model:open="executionDrawerOpen" />
-      <ChatInput
-        :disabled="!hasConversation"
-        :is-generating="isGenerating"
-        @send="handleSend"
-        @stop="handleStop"
-      />
-      <!-- Voice control panel (V1-08) - fixed position global player -->
-      <VoiceControlPanel />
+      <div v-show="!uiStore.previewPanelOpen" class="chat-view__chat-content">
+        <ContextUsageBar />
+        <MessageList
+          :messages="chatStore.messages"
+          :streaming-content="activeStreamingContent"
+          :is-generating="isGenerating"
+          :pending-approval="agentStore.pendingApproval"
+          :approval-resolved="agentStore.approvalResolved"
+          @copy="handleCopyMessage"
+          @retry="handleRetryMessage"
+          @edit="handleEditMessage"
+          @delete-message="handleDeleteMessage"
+          @new-chat="handleNewChat"
+          @open-settings="handleOpenSettings"
+          @open-kb="handleOpenKb"
+          @send-prompt="handleSendPrompt"
+          @approve="handleInlineApprove"
+          @reject="handleInlineReject"
+        />
+        <ExecutionSummaryBar @expand="executionDrawerOpen = true" />
+        <ExecutionDrawer v-model:open="executionDrawerOpen" />
+        <ChatInput
+          :disabled="!hasConversation"
+          :is-generating="isGenerating"
+          @send="handleSend"
+          @stop="handleStop"
+        />
+        <VoiceControlPanel />
+      </div>
+      <Transition name="preview-fade">
+        <FilePreviewPanel v-if="uiStore.previewPanelOpen" />
+      </Transition>
     </main>
 
     <!-- 应用内链接预览面板 -->
@@ -587,5 +596,26 @@ watch(
 .chat-view--compact .chat-view__checkpoint-panel {
   right: 0;
   border-left: 1px solid var(--af-border, #374151);
+}
+
+/* ─── File preview panel transition & layout ─────────────────── */
+
+/* Chat content wrapper: fills main area, v-show toggles visibility */
+.chat-view__chat-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* Preview panel fade transition */
+.preview-fade-enter-active,
+.preview-fade-leave-active {
+  transition: opacity var(--af-dur-base, 200ms) var(--af-ease, ease);
+}
+
+.preview-fade-enter-from,
+.preview-fade-leave-to {
+  opacity: 0;
 }
 </style>
