@@ -412,6 +412,28 @@ const browser = {
     ipcRenderer.invoke('browser:get-page-info', params ?? {}),
 }
 
+// ─── Video 命名空间 (AI 视频生成 M1) ─────────────────────────
+
+const video = {
+  generate: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('video:generate', params),
+
+  status: (id: string): Promise<unknown> => ipcRenderer.invoke('video:status', { id }),
+
+  list: (limit?: number): Promise<unknown[]> =>
+    ipcRenderer.invoke('video:list', limit !== undefined ? { limit } : undefined),
+
+  cancel: (id: string): Promise<unknown> => ipcRenderer.invoke('video:cancel', { id }),
+
+  getConfig: (): Promise<unknown> => ipcRenderer.invoke('video:get-config'),
+
+  testConfig: (): Promise<unknown> => ipcRenderer.invoke('video:test-config'),
+
+  // 引擎异步推送 progress / completed / failed
+  onEvent: (callback: (data: unknown) => void): (() => void) =>
+    onEvent('video:event', callback),
+}
+
 // ─── Checkpoint 命名空间 (快照回滚) ──────────────────────────
 
 const checkpoint = {
@@ -494,6 +516,7 @@ if (process.contextIsolated) {
       browser,
       checkpoint,
       scheduler,
+      video,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)

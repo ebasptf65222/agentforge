@@ -315,6 +315,36 @@ const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
     sql: `ALTER TABLE app_settings ADD COLUMN embedding_dimensions INTEGER DEFAULT 768`,
   },
   {
+    table: 'app_settings',
+    column: 'video_provider',
+    comment: 'VIDEO-01: 视频生成厂商',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_provider TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_base_url',
+    comment: 'VIDEO-01: 视频生成 API 基础 URL',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_base_url TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_model',
+    comment: 'VIDEO-01: 视频生成模型名',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_model TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_api_key',
+    comment: 'VIDEO-01: 视频生成 API 密钥（加密）',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_api_key TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_max_duration',
+    comment: 'VIDEO-01: 视频生成时长上限（秒）',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_max_duration INTEGER DEFAULT 10`,
+  },
+  {
     table: 'kb_documents',
     column: 'content_hash',
     comment: 'RAG-FIX-02: 文档内容哈希（快速去重）',
@@ -401,6 +431,27 @@ const TABLE_MIGRATIONS: readonly { table: string; sql: string }[] = [
       duration_ms     INTEGER
     )`,
   },
+  {
+    table: 'video_tasks',
+    sql: `CREATE TABLE IF NOT EXISTS video_tasks (
+      id               TEXT PRIMARY KEY,
+      provider         TEXT NOT NULL DEFAULT 'seedance',
+      provider_task_id TEXT,
+      prompt           TEXT NOT NULL,
+      model            TEXT NOT NULL,
+      duration         INTEGER NOT NULL DEFAULT 5,
+      resolution       TEXT NOT NULL DEFAULT '720P',
+      aspect           TEXT NOT NULL DEFAULT '16:9',
+      status           TEXT NOT NULL DEFAULT 'submitted',
+      progress         INTEGER NOT NULL DEFAULT 0,
+      error_code       TEXT,
+      error_message    TEXT,
+      download_url     TEXT,
+      output_path      TEXT,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL
+    )`,
+  },
 ] as const
 
 /**
@@ -411,6 +462,12 @@ const SCHEDULER_INDEXES: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at_ms)`,
   `CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_task ON scheduled_task_runs(task_id)`,
   `CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_status ON scheduled_task_runs(status)`,
+] as const
+
+/** 视频任务相关索引（幂等）。 */
+const VIDEO_INDEXES: readonly string[] = [
+  `CREATE INDEX IF NOT EXISTS idx_video_tasks_status ON video_tasks(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_video_tasks_created ON video_tasks(created_at DESC)`,
 ] as const
 
 /**
@@ -442,6 +499,11 @@ function runConditionalMigrations(db: Database.Database): void {
 
   // 调度器索引
   SCHEDULER_INDEXES.forEach((sql) => {
+    db.exec(sql)
+  })
+
+// 视频任务索引
+  VIDEO_INDEXES.forEach((sql) => {
     db.exec(sql)
   })
 
