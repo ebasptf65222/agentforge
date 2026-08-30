@@ -28,7 +28,7 @@ const TAB_KEYWORDS: Record<SettingsTab, string[]> = {
   skills: ['skill', '技能', 'prompt', '变量'],
   voice: ['语音', 'voice', 'tts', 'stt', '录音', '播报', '语速'],
   workspace: ['工作区', 'workspace', '文件', '目录', 'folder'],
-  general: ['通用', 'general', '主题', 'theme', '审批', 'approval', '超时', 'timeout'],
+  general: ['通用', 'general', '主题', 'theme', '审批', 'approval', '超时', 'timeout', '更新', 'update', '版本', 'version'],
   scheduler: ['定时', '任务', '调度', 'schedule', 'cron', '自动化', '夜间'],
 }
 

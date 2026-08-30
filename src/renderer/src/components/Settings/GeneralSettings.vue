@@ -2,10 +2,20 @@
 // P1-16: GeneralSettings - application-level settings UI.
 // Each field change saves immediately via the settings store.
 
-import { computed, onMounted } from 'vue'
-import { NSelect, NInputNumber, NRadioGroup, NRadioButton, NSwitch, NDynamicTags } from 'naive-ui'
+import { computed, onMounted, ref, onUnmounted } from 'vue'
+import {
+  NSelect,
+  NInputNumber,
+  NRadioGroup,
+  NRadioButton,
+  NSwitch,
+  NDynamicTags,
+  NButton,
+  NProgress,
+} from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import type { AppSettings, ApprovalMode, EngineType } from '@shared/types'
+import type { UpdateState } from '@/types/electron-api'
 import { useSettingsStore } from '@/stores/settings'
 import { useModelStore } from '@/stores/model'
 import { showToast } from '@/utils/toast'
@@ -19,6 +29,27 @@ onMounted(async () => {
   if (modelStore.models.length === 0) {
     await modelStore.loadModels()
   }
+
+  // 初始化版本号 + 更新状态，并订阅主进程广播
+  try {
+    const info = await window.electron.system.getVersion()
+    appVersion.value = info.appVersion
+    updateState.value = await window.electron.system.getUpdateState()
+    unsubscribeUpdateState = window.electron.system.onUpdateState((state) => {
+      updateState.value = state
+      // 下载完成时提示
+      if (state.status === 'downloaded') {
+        showToast(`新版本 v${state.version} 已就绪，请在「软件更新」中安装`, 'success')
+      }
+    })
+  } catch {
+    // 版本信息获取失败不影响设置页
+  }
+})
+
+onUnmounted(() => {
+  unsubscribeUpdateState?.()
+  unsubscribeUpdateState = null
 })
 
 // ─── Reactive snapshot ────────────────────────────────────────
@@ -971,6 +1002,45 @@ const agentModeOptions = computed<SelectOption[]>(() =>
           </NInputNumber>
         </div>
       </div>
+
+      <!-- 软件更新 -->
+      <div class="setting-row">
+        <div class="setting-row__label">
+          <span class="setting-row__title">软件更新</span>
+          <span class="setting-row__desc">
+            当前版本 v{{ appVersion || '...' }}，启动时会自动检查新版本
+          </span>
+          <span v-if="updateStatusText" class="setting-row__hint" :class="{ 'setting-row__hint--error': updateState.status === 'error' }">
+            {{ updateStatusText }}
+          </span>
+          <div v-if="showDownloadProgress" class="setting-row__progress">
+            <NProgress
+              type="line"
+              :percentage="updateState.percent"
+              :show-indicator="false"
+              :height="6"
+            />
+          </div>
+        </div>
+        <div class="setting-row__control setting-row__control--actions">
+          <NButton
+            v-if="canInstall"
+            type="primary"
+            size="small"
+            @click="handleInstallUpdate"
+          >
+            立即安装并重启
+          </NButton>
+          <NButton
+            v-else
+            size="small"
+            :loading="isChecking"
+            @click="handleCheckUpdate"
+          >
+            检查更新
+          </NButton>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -1071,6 +1141,22 @@ const agentModeOptions = computed<SelectOption[]>(() =>
   margin: 6px 0 0;
   font-size: 11px;
   color: var(--af-warning, #f59e0b);
+}
+
+.setting-row__hint--error {
+  color: var(--af-danger, #ef4444);
+}
+
+.setting-row__progress {
+  margin-top: 8px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.setting-row__control--actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
 }
 
 .setting-row__control {

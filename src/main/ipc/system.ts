@@ -4,6 +4,13 @@
 
 import { ipcMain, app, shell, type IpcMainInvokeHandler } from 'electron'
 import { AppError, ErrorCodes } from '../utils/error'
+import {
+  checkForUpdates,
+  downloadUpdate,
+  installUpdate,
+  getUpdateState,
+  type UpdateState,
+} from '../updater'
 
 // ─── 类型 ─────────────────────────────────────────────────────────
 
@@ -87,6 +94,27 @@ export async function handleOpenExternal(params: unknown): Promise<void> {
   await shell.openExternal(p['url'].trim())
 }
 
+/**
+ * system:check-update - 手动检查更新。
+ */
+export function handleCheckUpdate(): Promise<UpdateState> {
+  return checkForUpdates()
+}
+
+/**
+ * system:download-update - 手动触发下载更新（autoDownload 开启时作为兜底）。
+ */
+export function handleDownloadUpdate(): Promise<UpdateState> {
+  return downloadUpdate()
+}
+
+/**
+ * system:install-update - 退出并安装已下载的更新。
+ */
+export function handleInstallUpdate(): void {
+  installUpdate()
+}
+
 // ─── 通道注册表 ───────────────────────────────────────────────────
 
 interface ChannelRegistration {
@@ -100,6 +128,10 @@ const registrations: ChannelRegistration[] = [
     channel: 'system:open-external',
     handler: (_event, params: unknown) => handleOpenExternal(params),
   },
+  { channel: 'system:check-update', handler: () => handleCheckUpdate() },
+  { channel: 'system:download-update', handler: () => handleDownloadUpdate() },
+  { channel: 'system:install-update', handler: () => handleInstallUpdate() },
+  { channel: 'system:get-update-state', handler: () => getUpdateState() },
 ]
 
 /**

@@ -21,7 +21,8 @@
     "pack:linux": "electron-vite build && electron-builder --linux",
     "pack:mac": "electron-vite build && electron-builder --mac",
     "pack:win": "electron-vite build && electron-builder --win",
-    "pack:dir": "electron-vite build && electron-builder --dir"
+    "pack:dir": "electron-vite build && electron-builder --dir",
+    "release:win": "electron-vite build && electron-builder --win --publish always"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -44,6 +45,7 @@
     "better-sqlite3": "^13.0.1",
     "croner": "^10.0.1",
     "dompurify": "^3.4.12",
+    "electron-updater": "^6.6.2",
     "exceljs": "^4.4.0",
     "langchain-mcp-adapters": "^0.6.0",
     "mammoth": "^1.12.0",
@@ -166,7 +168,11 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },
-    "publish": null
+    "publish": {
+      "provider": "github",
+      "owner": "ebasptf65222",
+      "repo": "agentforge"
+    }
   },
   "pnpm": {
     "onlyBuiltDependencies": [

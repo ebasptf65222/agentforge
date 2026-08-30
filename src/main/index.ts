@@ -19,6 +19,7 @@ import {
   registerLocalFileSchemePrivileges,
   registerLocalFileProtocol,
 } from './protocols/local-file'
+import { initUpdater } from './updater'
 
 // 必须在 app ready 前注册自定义协议的特权配置
 registerLocalFileSchemePrivileges()
@@ -301,6 +302,13 @@ if (!gotTheLock) {
 
     // 设置原生菜单（隐藏菜单栏 / macOS 最小化菜单）
     setupMenu()
+
+    // 初始化自动更新（仅生产环境生效，启动时静默检查一次）
+    try {
+      initUpdater()
+    } catch (error) {
+      console.error('[AgentForge] Updater initialization failed:', error)
+    }
 
     // 生产环境注入 CSP（开发环境跳过以支持 Vite HMR）
     // 必须在页面开始加载前注册，避免竞态

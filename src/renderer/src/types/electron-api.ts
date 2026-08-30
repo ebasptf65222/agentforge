@@ -57,6 +57,22 @@ interface VersionInfo {
   platform: string
 }
 
+/** 自动更新状态 */
+type UpdateState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'available'; version: string; releaseNotes: string }
+  | { status: 'not-available'; version: string }
+  | {
+      status: 'downloading'
+      percent: number
+      bytesPerSecond: number
+      transferred: number
+      total: number
+    }
+  | { status: 'downloaded'; version: string }
+  | { status: 'error'; message: string }
+
 /** 模型连接测试结果 */
 interface ModelTestResult {
   success: boolean
@@ -167,6 +183,11 @@ interface FileAPI {
 interface SystemAPI {
   getVersion(): Promise<VersionInfo>
   openExternal(url: string): Promise<void>
+  checkForUpdate(): Promise<UpdateState>
+  downloadUpdate(): Promise<UpdateState>
+  installUpdate(): Promise<void>
+  getUpdateState(): Promise<UpdateState>
+  onUpdateState(callback: (state: UpdateState) => void): () => void
 }
 
 /** Agent 执行参数 */
@@ -580,6 +601,7 @@ interface ElectronAPI {
 export type {
   FileFilter,
   VersionInfo,
+  UpdateState,
   ModelTestResult,
   CreateConversationParams,
   CreateModelParams,

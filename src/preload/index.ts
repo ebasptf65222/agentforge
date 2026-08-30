@@ -105,6 +105,18 @@ const system = {
   getVersion: (): Promise<unknown> => ipcRenderer.invoke('system:get-version'),
 
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('system:open-external', { url }),
+
+  // 自动更新
+  checkForUpdate: (): Promise<unknown> => ipcRenderer.invoke('system:check-update'),
+
+  downloadUpdate: (): Promise<unknown> => ipcRenderer.invoke('system:download-update'),
+
+  installUpdate: (): Promise<void> => ipcRenderer.invoke('system:install-update'),
+
+  getUpdateState: (): Promise<unknown> => ipcRenderer.invoke('system:get-update-state'),
+
+  onUpdateState: (callback: (state: unknown) => void): (() => void) =>
+    onEvent('system:update-state', callback),
 }
 
 // ─── Agent 命名空间 (P2-04) ─────────────────────────────────────
