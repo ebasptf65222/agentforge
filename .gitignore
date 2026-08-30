@@ -6,7 +6,13 @@ package-lock.json
 
 # Build output
 dist/
+dist2/
 out/
+
+# 本地发布/缓存临时目录
+.eb-cache/
+.pnpm-store/
+release-upload.ps1
 
 # File Viewer 插件生成的渲染器资产（每次 dev/build 自动从 node_modules 复制，勿提交）
 src/renderer/public/
