@@ -1,11 +1,21 @@
 // AgentForge: Anthropic 模型适配器
 // 使用 @anthropic-ai/sdk，支持 Claude 系列模型流式对话
 
-import Anthropic from '@anthropic-ai/sdk'
-import { APIError, AuthenticationError, APIConnectionTimeoutError, APIUserAbortError } from '@anthropic-ai/sdk'
+import type Anthropic from '@anthropic-ai/sdk'
+import type { APIError, AuthenticationError, APIConnectionTimeoutError, APIUserAbortError } from '@anthropic-ai/sdk'
 import type { StreamChunk } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { ModelAdapter, type AdapterMessage } from './adapter'
+
+// @anthropic-ai/sdk 体积较大，改为首次对话时动态加载，避免拖慢主进程启动
+type AnthropicSdk = typeof import('@anthropic-ai/sdk')
+let anthropicSdkPromise: Promise<AnthropicSdk> | null = null
+function loadAnthropicSdk(): Promise<AnthropicSdk> {
+  if (!anthropicSdkPromise) {
+    anthropicSdkPromise = import('@anthropic-ai/sdk')
+  }
+  return anthropicSdkPromise
+}
 
 /**
  * Anthropic 适配器配置。
@@ -24,7 +34,9 @@ export interface AnthropicAdapterConfig {
  * 默认 baseURL 为 https://api.anthropic.com。
  */
 export class AnthropicAdapter extends ModelAdapter {
-  private readonly client: Anthropic
+  private readonly apiKey: string
+  private readonly baseUrl: string
+  private clientPromise: Promise<{ client: Anthropic; sdk: AnthropicSdk }> | null = null
 
   constructor(config: AnthropicAdapterConfig) {
     super({
@@ -33,12 +45,26 @@ export class AnthropicAdapter extends ModelAdapter {
       maxTokens: config.maxTokens,
     })
 
-    this.client = new Anthropic({
-      apiKey: config.apiKey,
-      baseURL: config.baseUrl ?? 'https://api.anthropic.com',
-      timeout: 60_000,
-      maxRetries: 1,
-    })
+    this.apiKey = config.apiKey
+    this.baseUrl = config.baseUrl ?? 'https://api.anthropic.com'
+  }
+
+  /**
+   * 惰性获取 Anthropic client（首次调用时才加载 SDK 并创建实例）。
+   */
+  private getClient(): Promise<{ client: Anthropic; sdk: AnthropicSdk }> {
+    if (!this.clientPromise) {
+      this.clientPromise = loadAnthropicSdk().then((sdk) => ({
+        client: new sdk.default({
+          apiKey: this.apiKey,
+          baseURL: this.baseUrl,
+          timeout: 60_000,
+          maxRetries: 1,
+        }),
+        sdk,
+      }))
+    }
+    return this.clientPromise
   }
 
   /**
@@ -52,6 +78,8 @@ export class AnthropicAdapter extends ModelAdapter {
     messages: AdapterMessage[],
     abortSignal?: AbortSignal,
   ): AsyncGenerator<StreamChunk> {
+    const { client, sdk } = await this.getClient()
+
     try {
       // 分离系统消息和对话消息
       const systemMessages = messages.filter((m) => m.role === 'system')
@@ -70,7 +98,7 @@ export class AnthropicAdapter extends ModelAdapter {
         }
       })
 
-      const stream = this.client.messages.stream(
+      const stream = client.messages.stream(
         {
           model: this.modelId,
           messages: anthropicMessages,
@@ -92,12 +120,12 @@ export class AnthropicAdapter extends ModelAdapter {
       }
     } catch (error) {
       // 用户主动中断，静默结束
-      if (error instanceof APIUserAbortError) {
+      if (error instanceof sdk.APIUserAbortError) {
         return
       }
 
       // API Key 无效 → MODEL_API_ERROR
-      if (error instanceof AuthenticationError) {
+      if (error instanceof sdk.AuthenticationError) {
         throw new AppError(
           ErrorCodes.MODEL_API_ERROR,
           'Invalid API key. Please check your Anthropic API key configuration.',
@@ -106,7 +134,7 @@ export class AnthropicAdapter extends ModelAdapter {
       }
 
       // 超时 → MODEL_API_ERROR
-      if (error instanceof APIConnectionTimeoutError) {
+      if (error instanceof sdk.APIConnectionTimeoutError) {
         throw new AppError(
           ErrorCodes.MODEL_API_ERROR,
           'Request timed out (60s). Please try again.',
@@ -115,7 +143,7 @@ export class AnthropicAdapter extends ModelAdapter {
       }
 
       // 其他 APIError → MODEL_API_ERROR
-      if (error instanceof APIError) {
+      if (error instanceof sdk.APIError) {
         throw new AppError(ErrorCodes.MODEL_API_ERROR, `Anthropic API error: ${error.message}`, {
           status: error.status,
           provider: 'anthropic',

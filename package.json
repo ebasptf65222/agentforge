@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
+    "@file-viewer/preset-lite": "^3.0.0",
     "@file-viewer/preset-office": "^3.0.0",
     "@file-viewer/vue3": "^3.0.0",
     "@github/copilot": "^1.0.75",

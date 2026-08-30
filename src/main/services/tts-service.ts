@@ -3,11 +3,20 @@
 // 支持 openai / azure / mimo / custom 提供商
 // 返回 ArrayBuffer 格式的音频数据
 
-import OpenAI from 'openai'
-import { APIError, AuthenticationError, APIConnectionTimeoutError } from 'openai'
+import type OpenAI from 'openai'
 import type { VoiceConfig, TtsOptions, TtsFormat, TtsVoice } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getSettings } from '../db/repos/app-settings'
+
+// openai SDK 体积较大，改为首次调用时动态加载，避免拖慢主进程启动
+type OpenAISdk = typeof import('openai')
+let openaiSdkPromise: Promise<OpenAISdk> | null = null
+function loadOpenAI(): Promise<OpenAISdk> {
+  if (!openaiSdkPromise) {
+    openaiSdkPromise = import('openai')
+  }
+  return openaiSdkPromise
+}
 
 /**
  * TTS 服务。
@@ -31,18 +40,20 @@ export class TtsService {
    * 确保客户端已初始化。
    * 每次调用前检查配置是否变化，变化则重建客户端。
    */
-  private ensureClient(config: VoiceConfig['tts']): OpenAI {
+  private async ensureClient(config: VoiceConfig['tts']): Promise<OpenAI> {
     const baseUrl = this.normalizeBaseUrl(config.baseUrl, config.provider)
-    if (!this.client || this.baseUrl !== baseUrl || this.apiKey !== config.apiKey) {
-      this.baseUrl = baseUrl
-      this.apiKey = config.apiKey
-      this.client = new OpenAI({
-        apiKey: config.apiKey,
-        baseURL: baseUrl,
-        timeout: 60_000, // 60s 超时，音频合成可能较慢
-        maxRetries: 1,
-      })
+    if (this.client && this.baseUrl === baseUrl && this.apiKey === config.apiKey) {
+      return this.client
     }
+    const { default: OpenAI } = await loadOpenAI()
+    this.baseUrl = baseUrl
+    this.apiKey = config.apiKey
+    this.client = new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: baseUrl,
+      timeout: 60_000, // 60s 超时，音频合成可能较慢
+      maxRetries: 1,
+    })
     return this.client
   }
 
@@ -174,7 +185,8 @@ export class TtsService {
       throw new AppError(ErrorCodes.VOICE_TTS_ERROR, '合成文本不能为空')
     }
 
-    const client = this.ensureClient(config)
+    const client = await this.ensureClient(config)
+    const sdk = await loadOpenAI()
 
     const model = options?.model ?? config.model
     const voice = (options?.voice ?? config.voice) as TtsVoice
@@ -184,19 +196,19 @@ export class TtsService {
     try {
       return await this.doSynthesize(client, config, text, model, voice, speed, responseFormat)
     } catch (error) {
-      if (error instanceof AuthenticationError) {
+      if (error instanceof sdk.AuthenticationError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           'TTS API Key 无效，请检查配置',
         )
       }
-      if (error instanceof APIConnectionTimeoutError) {
+      if (error instanceof sdk.APIConnectionTimeoutError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           'TTS 请求超时，请检查网络连接',
         )
       }
-      if (error instanceof APIError) {
+      if (error instanceof sdk.APIError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           `TTS API 错误: ${error.message}`,
@@ -226,7 +238,8 @@ export class TtsService {
     }
 
     const testText = 'AgentForge 语音测试，如果你听到这段声音，说明 TTS 配置正确。'
-    const client = new OpenAI({
+    const sdk = await loadOpenAI()
+    const client = new sdk.default({
       apiKey: config.apiKey,
       baseURL: this.normalizeBaseUrl(config.baseUrl, config.provider),
       timeout: 30_000,
@@ -239,19 +252,19 @@ export class TtsService {
         config.model, config.voice, config.speed, config.format as TtsFormat,
       )
     } catch (error) {
-      if (error instanceof AuthenticationError) {
+      if (error instanceof sdk.AuthenticationError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           'TTS API Key 无效',
         )
       }
-      if (error instanceof APIConnectionTimeoutError) {
+      if (error instanceof sdk.APIConnectionTimeoutError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           'TTS 请求超时，请检查网络或 API 地址',
         )
       }
-      if (error instanceof APIError) {
+      if (error instanceof sdk.APIError) {
         throw new AppError(
           ErrorCodes.VOICE_TTS_ERROR,
           `TTS API 错误 (${error.status}): ${error.message}`,

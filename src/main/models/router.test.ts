@@ -145,7 +145,16 @@ function makeModelConfig(
 beforeEach(() => {
   mockCreate.mockReset()
   mockGetModelConfigById.mockReset()
+  MockOpenAI.mockClear()
 })
+
+/**
+ * 触发适配器的惰性 client 创建（openai SDK 改为动态加载后，
+ * 构造函数不再立即创建 client）。
+ */
+async function ensureClientCreated(adapter: unknown): Promise<void> {
+  await (adapter as { getClient(): Promise<unknown> }).getClient()
+}
 
 // ═══════════════════════════════════════════════════════════════
 // OpenAIAdapter
@@ -339,11 +348,12 @@ describe('OpenAIAdapter', () => {
   // ─── constructor ─────────────────────────────────────────────
 
   describe('constructor', () => {
-    it('should create OpenAI client with timeout=30s, maxRetries=1', () => {
-      new OpenAIAdapter({
+    it('should create OpenAI client with timeout=30s, maxRetries=1', async () => {
+      const adapter = new OpenAIAdapter({
         ...defaultConfig,
         baseUrl: 'https://custom.api.com/v1',
       })
+      await ensureClientCreated(adapter)
 
       expect(MockOpenAI).toHaveBeenCalledWith({
         apiKey: 'sk-test',
@@ -353,8 +363,9 @@ describe('OpenAIAdapter', () => {
       })
     })
 
-    it('should not set baseURL when baseUrl is undefined', () => {
-      new OpenAIAdapter(defaultConfig)
+    it('should not set baseURL when baseUrl is undefined', async () => {
+      const adapter = new OpenAIAdapter(defaultConfig)
+      await ensureClientCreated(adapter)
 
       expect(MockOpenAI).toHaveBeenCalledWith({
         apiKey: 'sk-test',
@@ -380,13 +391,14 @@ describe('DeepSeekAdapter', () => {
     expect(adapter).toBeInstanceOf(OpenAIAdapter)
   })
 
-  it('should use default DeepSeek baseUrl when not provided', () => {
-    new DeepSeekAdapter({
+  it('should use default DeepSeek baseUrl when not provided', async () => {
+    const adapter = new DeepSeekAdapter({
       modelId: 'deepseek-chat',
       apiKey: 'sk-ds',
       temperature: 0.7,
       maxTokens: 4096,
     })
+    await ensureClientCreated(adapter)
 
     expect(MockOpenAI).toHaveBeenCalledWith({
       apiKey: 'sk-ds',
@@ -396,14 +408,15 @@ describe('DeepSeekAdapter', () => {
     })
   })
 
-  it('should use custom baseUrl when provided', () => {
-    new DeepSeekAdapter({
+  it('should use custom baseUrl when provided', async () => {
+    const adapter = new DeepSeekAdapter({
       modelId: 'deepseek-chat',
       apiKey: 'sk-ds',
       temperature: 0.7,
       maxTokens: 4096,
       baseUrl: 'https://my-proxy.example.com/v1',
     })
+    await ensureClientCreated(adapter)
 
     expect(MockOpenAI).toHaveBeenCalledWith({
       apiKey: 'sk-ds',
@@ -488,7 +501,7 @@ describe('ModelRouter', () => {
     expect(getCacheSize()).toBe(0)
   })
 
-  it('should pass baseUrl from ModelConfig to adapter', () => {
+  it('should pass baseUrl from ModelConfig to adapter', async () => {
     mockGetModelConfigById.mockReturnValue(
       makeModelConfig({
         provider: 'openai',
@@ -496,7 +509,8 @@ describe('ModelRouter', () => {
       }),
     )
 
-    getModelAdapter('model-uuid-1')
+    const adapter = getModelAdapter('model-uuid-1')
+    await ensureClientCreated(adapter)
 
     expect(MockOpenAI).toHaveBeenCalledWith(
       expect.objectContaining({ baseURL: 'https://proxy.example.com/v1' }),

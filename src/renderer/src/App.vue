@@ -19,16 +19,18 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import { NConfigProvider, NMessageProvider, NDialogProvider } from 'naive-ui'
 import { useUiStore } from '@/stores/ui'
 import { useTheme } from '@/composables/use-theme'
 import TitleBar from '@/components/common/TitleBar.vue'
 import AppShell from '@/components/common/AppShell.vue'
-import WikiView from '@/components/Wiki/WikiView.vue'
 import ChatView from '@/views/ChatView.vue'
-import KbView from '@/views/KbView.vue'
-import SettingsView from '@/views/SettingsView.vue'
+
+// 非首屏视图按需加载，缩短启动时间
+const WikiView = defineAsyncComponent(() => import('@/components/Wiki/WikiView.vue'))
+const KbView = defineAsyncComponent(() => import('@/views/KbView.vue'))
+const SettingsView = defineAsyncComponent(() => import('@/views/SettingsView.vue'))
 
 const uiStore = useUiStore()
 const { naiveTheme, naiveThemeOverrides } = useTheme()

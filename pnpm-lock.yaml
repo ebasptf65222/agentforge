@@ -11,6 +11,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.115.0
         version: 0.115.0(zod@4.4.3)
+      '@file-viewer/preset-lite':
+        specifier: ^3.0.0
+        version: 3.0.0
       '@file-viewer/preset-office':
         specifier: ^3.0.0
         version: 3.0.0
@@ -80,6 +83,31 @@ importers:
       unpdf:
         specifier: ^1.8.0
         version: 1.8.0(@napi-rs/canvas@0.1.100)
+    optionalDependencies:
+      '@github/copilot-darwin-arm64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-darwin-x64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-linux-arm64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-linux-x64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-linuxmusl-arm64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-linuxmusl-x64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-win32-arm64':
+        specifier: ^1.0.75
+        version: 1.0.75
+      '@github/copilot-win32-x64':
+        specifier: ^1.0.75
+        version: 1.0.75
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -162,31 +190,6 @@ importers:
       vue-tsc:
         specifier: ^3.3.8
         version: 3.3.8(typescript@6.0.3)
-    optionalDependencies:
-      '@github/copilot-darwin-arm64':
-        specifier: ^1.0.75
-        version: 1.0.75
-      '@github/copilot-darwin-x64':
-        specifier: ^1.0.75
-        version: 1.0.75
-      '@github/copilot-linux-arm64':
-        specifier: ^1.0.75
-        version: 1.0.75
-      '@github/copilot-linux-x64':
-        specifier: ^1.0.75
-        version: 1.0.75
-      '@github/copilot-linuxmusl-arm64':
-        specifier: ^1.0.75
-        version: 1.0.75
-      '@github/copilot-linuxmusl-x64':
-        specifier: ^1.0.75
-        version: 1.0.75
-      '@github/copilot-win32-arm64':
-        specifier: ^1.0.75
-        version: 1.0.75
-      '@github/copilot-win32-x64':
-        specifier: ^1.0.75
-        version: 1.0.75
 
 packages:
 
@@ -593,14 +596,23 @@ packages:
   '@file-viewer/pptx@3.0.0':
     resolution: {integrity: sha512-6ZpVkC8wRFA7fkGK8I3ohfxh7/c6nl2Im+SM7a9jlVgoPA5fEA3SMB8f5StK/HbJzNPlRH/O+lExOJY8cZrpww==}
 
+  '@file-viewer/preset-lite@3.0.0':
+    resolution: {integrity: sha512-DLP/pqy4+VX8ECcAyyqSO9yOXSDqOxJFb2SBYSM47TFq4V28BK52R2xKA4N0lQ0H8yvK9jzib9Mbj2MGQYMQVA==}
+
   '@file-viewer/preset-office@3.0.0':
     resolution: {integrity: sha512-tsICQpPzR5aHuyL1sA9623TY8Ok+vgGpZE7vXc5EBncb5OZ99Y8OHZ5APx7k2/JyIZ1ptOekx34jE3eaMU7/FQ==}
 
   '@file-viewer/renderer-hangul@3.0.0':
     resolution: {integrity: sha512-kG4Efj68jOc2MVXmwzufwbt1KayftbSALhR41X7HoN3Y/UcEkiePgy1XU9SDE3CaYXJ3l8de1MzDWBtpqDKmGg==}
 
+  '@file-viewer/renderer-image@3.0.0':
+    resolution: {integrity: sha512-SRZJdCv2WBXSs1Gs0YUOVD4ced7I3xtSMeXMYFMeeHaw6rDFdT41SwS4zwYVcqFKbDk3Ubhu+MXEsS/Zt1CrKQ==}
+
   '@file-viewer/renderer-iwork@3.0.0':
     resolution: {integrity: sha512-SBc4exrcciNdqTRHryo6cpY6X0Ti+i6BxawHzRj7WXO2zpZuc/54ZAgH1YCDOXOdqfwdLVO574Y0+DUTBRaD6A==}
+
+  '@file-viewer/renderer-media@3.0.0':
+    resolution: {integrity: sha512-LUcvNF0ZzNgdl109TorWPlum6E9w1UNi48/Ct5XWuFnf8f4Ky1CovUFzBme1bZLFCIOf05IHLP1/4JJlRXu+yA==}
 
   '@file-viewer/renderer-ofd@3.0.0':
     resolution: {integrity: sha512-CuG3oIvFCM7NBQbXo3V0D508VpCtcUP5JfeXAUTrGTcrlNxjRhKexpHzk4AyvQTfJOduAIXyxg7eGKi2MZ+8Sg==}
@@ -624,6 +636,9 @@ packages:
 
   '@file-viewer/renderer-spreadsheet@3.0.0':
     resolution: {integrity: sha512-uEx/+F8T2NybC9q5hnZcMtzRGSgvyAy/dcVSdzhlUEvrI78za+QGwmGjjXt3DOr7z+kSlxakNrLrwlzqeTVAgg==}
+
+  '@file-viewer/renderer-text@3.0.0':
+    resolution: {integrity: sha512-tNGHtRXlOA40+bjUyN2mx8wEARQRRE8QvWJJdYYR83cWigt0Sf9RX/v1nZM39UIe6/Fa+9p7UiY9LqA6/Ouayg==}
 
   '@file-viewer/renderer-word@3.0.0':
     resolution: {integrity: sha512-1udx8S6IfMbc6LBAxg3u1eKQV6qJVLqU6vsv5QczjElCgTEU/M1ON5OqFyiymw7/PHtQSnRNZ6tUr+9rNV79DA==}
@@ -667,24 +682,28 @@ packages:
     resolution: {integrity: sha512-PuGjPCy+z7DrD0rkcXQRBzoA8lVxD1WC6UeZxkZaIb9asueE798eqHHMV169zYiA3gsiSegIKu5J/aUeWwhpuQ==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
     hasBin: true
 
   '@github/copilot-linux-x64@1.0.75':
     resolution: {integrity: sha512-aGDtUrNyj/ubqLfXOomL4XYZR//1Cs4tDGe7r/464e3Nw4WlNxWPjBbNyOCcUPUMbPHXck6TyxjEvBwwlKCK5w==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
     hasBin: true
 
   '@github/copilot-linuxmusl-arm64@1.0.75':
     resolution: {integrity: sha512-4cbjjR/laL+4a0VjMkzjIsprRUxiAHAefWVTppFitKiqNxfgyRuOhfSUPUA5TVxPwfyYXknsxeYSNRL8zu9YDA==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
     hasBin: true
 
   '@github/copilot-linuxmusl-x64@1.0.75':
     resolution: {integrity: sha512-I4oFPNOULMGxWghGCG/VkiT0a62UiL4XGKSlp6X0rVD9xyoYyiLGlsBmTumrooPbzEvgKICYWIz8PCZjrZTyhA==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
     hasBin: true
 
   '@github/copilot-sdk@1.0.8':
@@ -1345,30 +1364,35 @@ packages:
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@napi-rs/canvas-linux-arm64-musl@0.1.100':
     resolution: {integrity: sha512-K3mDW66N+xT2/V439u1alFANiBUjdEx2gLiNYnCmUsva5jZMxWTjafBYwTzYK+EMFMHrUoabuU+T1BIP5CgbYQ==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@napi-rs/canvas-linux-riscv64-gnu@0.1.100':
     resolution: {integrity: sha512-mooqUBTIsccZpnoQC4NgrC1v6C1vof39etLNMnBwCY+p0gajWJvAHLGQ6g/gGyS5YrpDW+GefSN4+Cvcr08UWw==}
     engines: {node: '>= 10'}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@napi-rs/canvas-linux-x64-gnu@0.1.100':
     resolution: {integrity: sha512-1eCvkDCazm7FFhsT7DfGOdSaHgZVK3bt/dSBl5EWHOWmnz+I7j8tPseJqqD81NF+MH21jKUK4wQSDjN0mdhnTg==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@napi-rs/canvas-linux-x64-musl@0.1.100':
     resolution: {integrity: sha512-20arT6lnI19S68qNlii73TSEDbECNgzMz2EpldC1V3mZFuRkeujXkcebRk0LRJe9SEUAooYiLokfMViY8IX7yA==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@napi-rs/canvas-win32-arm64-msvc@0.1.100':
     resolution: {integrity: sha512-DZFFT1wIAg37LJw37yhMRFfjATd3vTQzjZ1Yki8u2vhO6Hi5VE6BVaGQ1aaDu7xb4iMErz+9EOwjpS7xcxFeBw==}
@@ -1470,36 +1494,42 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@rolldown/binding-linux-arm64-musl@1.1.5':
     resolution: {integrity: sha512-lAryqH7IteztmCXQXk0etKj4wBQ7Gx5S6LjKhsgp9zb8I5bsuvU/2llH1hDQcjsFeqIsovMVN339/8pUDDBXxA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@rolldown/binding-linux-ppc64-gnu@1.1.5':
     resolution: {integrity: sha512-fsK/sNBnxzBlL4O1JNrZakVQxPspqpED5dLtNsZS9oOKmtSpdNIzxH2kkol5HYTWJN47sE20ztMJPxfZ89qGOg==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@rolldown/binding-linux-s390x-gnu@1.1.5':
     resolution: {integrity: sha512-gLYb4BIadlfTOYT5gO503n8zQjXflgzpD0FcyKh0Mzx3rqCZKnHoJWV9xe1KXUJ5lx2JfcSHr/mhzS0PC/McAA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@rolldown/binding-linux-x64-gnu@1.1.5':
     resolution: {integrity: sha512-FjcpEKUyJygHgs1o50VYNvkt5+7Le/VEdYt0AkRpkL33MnyQfwr8l5mXwMmfmTbyMPr5vJLC+8/Gd9gXnwU1QQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@rolldown/binding-linux-x64-musl@1.1.5':
     resolution: {integrity: sha512-Me+PfPI2TMeOQk0gYWfLQZtTktrmzbr8cDboqX83XKc7UrgAi55gF+2dUkWdxd19n55Essp2yeca+O9N5rBxHg==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@rolldown/binding-openharmony-arm64@1.1.5':
     resolution: {integrity: sha512-yc5WrLzXks6zCQfn9Oxr8pORKyl/pF+QjHmW/Qx3qu0oyrrNC+y2JLTU1E2rcWYAmzlnqngWXHQjy51VzW70Vw==}
@@ -3185,6 +3215,9 @@ packages:
   hast-util-whitespace@3.0.0:
     resolution: {integrity: sha512-88JUN06ipLwsnv+dVn+OIYOvAuvBMy/Qoi6O7mQHxdPXpjy+Cd6xRkWwux7DKO+4sYILtLBRIKgsdpS2gQc7qw==}
 
+  heic2any@0.0.4:
+    resolution: {integrity: sha512-3lLnZiDELfabVH87htnRolZ2iehX9zwpRyGNz22GKXIu0fznlblf0/ftppXKNqS26dqFSeqfIBhAmAj/uSp0cA==}
+
   highlight.js@11.11.1:
     resolution: {integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==}
     engines: {node: '>=12.0.0'}
@@ -3528,24 +3561,28 @@ packages:
     engines: {node: '>= 12.0.0'}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-arm64-musl@1.33.0:
     resolution: {integrity: sha512-yiO5ROMuYQgXbC60yjZU5CYSFZGKXL0HFATXt9mHJn1+zW55oCtMI9NfcVhYLMFDL7gV7oBPon/EmMMGg2OvtQ==}
     engines: {node: '>= 12.0.0'}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-linux-x64-gnu@1.33.0:
     resolution: {integrity: sha512-ar+Ju7LmcN0Jo4FpL4hpFybwNG9/3A/Br5KW2n2jyODg3MEZXaDYADdemoNS+BDNfMgKvylJLj4S5tyRActuAg==}
     engines: {node: '>= 12.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-x64-musl@1.33.0:
     resolution: {integrity: sha512-RYiYbkokw0trfKqqzfF55lginwEPrD3OJDfTuJzFs1MK6iFnDenaz1fqLLtX4ITG3OktJQXOeTaw1awrBAlZPw==}
     engines: {node: '>= 12.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-win32-arm64-msvc@1.33.0:
     resolution: {integrity: sha512-1K+MPfLSFVpphzpdbfkhlWk6wBrTObBzS2T6db10PNOZgR9GoVsAWzwNyuhUYYbTp23j+4RrncfujZ4uAzXvwA==}
@@ -5400,6 +5437,13 @@ snapshots:
       tinycolor2: 1.6.0
       utif: 3.1.0
 
+  '@file-viewer/preset-lite@3.0.0':
+    dependencies:
+      '@file-viewer/core': 3.0.0
+      '@file-viewer/renderer-image': 3.0.0
+      '@file-viewer/renderer-media': 3.0.0
+      '@file-viewer/renderer-text': 3.0.0
+
   '@file-viewer/preset-office@3.0.0':
     dependencies:
       '@file-viewer/core': 3.0.0
@@ -5423,6 +5467,12 @@ snapshots:
       jszip: 3.10.1
       pako: 2.2.0
 
+  '@file-viewer/renderer-image@3.0.0':
+    dependencies:
+      '@file-viewer/core': 3.0.0
+      heic2any: 0.0.4
+      utif: 3.1.0
+
   '@file-viewer/renderer-iwork@3.0.0':
     dependencies:
       '@file-viewer/core': 3.0.0
@@ -5432,6 +5482,10 @@ snapshots:
       pako: 2.2.0
       styled-exceljs: 0.21.4
       tslib: 2.8.1
+
+  '@file-viewer/renderer-media@3.0.0':
+    dependencies:
+      '@file-viewer/core': 3.0.0
 
   '@file-viewer/renderer-ofd@3.0.0':
     dependencies:
@@ -5467,6 +5521,13 @@ snapshots:
       styled-exceljs: 0.21.4
       tinycolor2: 1.6.0
       utif: 3.1.0
+
+  '@file-viewer/renderer-text@3.0.0':
+    dependencies:
+      '@file-viewer/core': 3.0.0
+      dompurify: 3.4.13
+      highlight.js: 11.11.1
+      marked: 18.0.7
 
   '@file-viewer/renderer-word@3.0.0':
     dependencies:
@@ -7976,6 +8037,8 @@ snapshots:
   hast-util-whitespace@3.0.0:
     dependencies:
       '@types/hast': 3.0.5
+
+  heic2any@0.0.4: {}
 
   highlight.js@11.11.1: {}
 

@@ -2,11 +2,20 @@
 // 封装 OpenAI 兼容 STT API（POST /audio/transcriptions）
 // 支持 openai / azure / custom 提供商
 
-import OpenAI from 'openai'
-import { APIError, AuthenticationError, APIConnectionTimeoutError } from 'openai'
+import type OpenAI from 'openai'
 import type { VoiceConfig, SttOptions } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getSettings } from '../db/repos/app-settings'
+
+// openai SDK 体积较大，改为首次调用时动态加载，避免拖慢主进程启动
+type OpenAISdk = typeof import('openai')
+let openaiSdkPromise: Promise<OpenAISdk> | null = null
+function loadOpenAI(): Promise<OpenAISdk> {
+  if (!openaiSdkPromise) {
+    openaiSdkPromise = import('openai')
+  }
+  return openaiSdkPromise
+}
 
 /**
  * STT 服务。
@@ -28,18 +37,20 @@ export class SttService {
   /**
    * 确保客户端已初始化。
    */
-  private ensureClient(config: VoiceConfig['stt']): OpenAI {
+  private async ensureClient(config: VoiceConfig['stt']): Promise<OpenAI> {
     const baseUrl = this.normalizeBaseUrl(config.baseUrl, config.provider)
-    if (!this.client || this.baseUrl !== baseUrl || this.apiKey !== config.apiKey) {
-      this.baseUrl = baseUrl
-      this.apiKey = config.apiKey
-      this.client = new OpenAI({
-        apiKey: config.apiKey,
-        baseURL: baseUrl,
-        timeout: 120_000, // 2min 超时，长音频可能较慢
-        maxRetries: 1,
-      })
+    if (this.client && this.baseUrl === baseUrl && this.apiKey === config.apiKey) {
+      return this.client
     }
+    const { default: OpenAI } = await loadOpenAI()
+    this.baseUrl = baseUrl
+    this.apiKey = config.apiKey
+    this.client = new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: baseUrl,
+      timeout: 120_000, // 2min 超时，长音频可能较慢
+      maxRetries: 1,
+    })
     return this.client
   }
 
@@ -82,7 +93,8 @@ export class SttService {
       throw new AppError(ErrorCodes.VOICE_STT_ERROR, '音频数据不能为空')
     }
 
-    const client = this.ensureClient(config)
+    const client = await this.ensureClient(config)
+    const sdk = await loadOpenAI()
 
     const model = options?.model ?? config.model
     const language = (options?.language ?? config.language) || undefined
@@ -105,19 +117,19 @@ export class SttService {
       const text = typeof transcription === 'string' ? transcription : (transcription as unknown as { text: string }).text
       return text.trim()
     } catch (error) {
-      if (error instanceof AuthenticationError) {
+      if (error instanceof sdk.AuthenticationError) {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           'STT API Key 无效，请检查配置',
         )
       }
-      if (error instanceof APIConnectionTimeoutError) {
+      if (error instanceof sdk.APIConnectionTimeoutError) {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           'STT 请求超时，请检查网络连接',
         )
       }
-      if (error instanceof APIError) {
+      if (error instanceof sdk.APIError) {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           `STT API 错误: ${error.message}`,
@@ -146,7 +158,8 @@ export class SttService {
       )
     }
 
-    const client = new OpenAI({
+    const sdk = await loadOpenAI()
+    const client = new sdk.default({
       apiKey: config.apiKey,
       baseURL: this.normalizeBaseUrl(config.baseUrl, config.provider),
       timeout: 60_000,
@@ -168,19 +181,19 @@ export class SttService {
       const text = typeof transcription === 'string' ? transcription : (transcription as unknown as { text: string }).text
       return text.trim()
     } catch (error) {
-      if (error instanceof AuthenticationError) {
+      if (error instanceof sdk.AuthenticationError) {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           'STT API Key 无效',
         )
       }
-      if (error instanceof APIConnectionTimeoutError) {
+      if (error instanceof sdk.APIConnectionTimeoutError) {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           'STT 请求超时，请检查网络或 API 地址',
         )
       }
-      if (error instanceof APIError) {
+      if (error instanceof sdk.APIError) {
         throw new AppError(
           ErrorCodes.VOICE_STT_ERROR,
           `STT API 错误 (${error.status}): ${error.message}`,

@@ -20,10 +20,12 @@ const TEXT_EXTENSIONS = new Set([
 const MAX_PREVIEW_SIZE = 1024 * 1024
 
 /**
- * 办公文档扩展名集合。这些格式由 File Viewer（@file-viewer/preset-office）渲染，
+ * viewer 模式扩展名集合。这些格式由 File Viewer 渲染：
+ * - 办公文档（@file-viewer/preset-office）
+ * - 图片 / 音频 / 视频（@file-viewer/preset-lite）
  * 优先使用 agentfile:// 协议流式加载，不经过文本读取。
  */
-const OFFICE_EXTENSIONS = new Set([
+const VIEWER_EXTENSIONS = new Set([
   // PDF / OFD
   'pdf', 'ofd',
   // Word
@@ -32,7 +34,22 @@ const OFFICE_EXTENSIONS = new Set([
   'xlsx', 'xls', 'xlsm', 'ods', 'csv', 'et',
   // PowerPoint
   'pptx', 'ppt', 'pps', 'ppsx', 'odp', 'dps',
+  // 图片
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico',
+  // 音频
+  'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac',
+  // 视频
+  'mp4', 'webm', 'mov', 'mkv', 'avi',
 ])
+
+/**
+ * 可渲染预览（源码 + 渲染效果双视图）的扩展名集合。
+ * 这些文件默认以 text 模式读取，同时支持在 FilePreviewPanel 中切换为渲染视图：
+ * - md/markdown → MarkdownRenderer（marked + mermaid）
+ * - html/htm    → webview 加载 agentfile:// URL
+ * - svg         → <img> 显示
+ */
+const RENDERABLE_EXTENSIONS = new Set(['md', 'markdown', 'html', 'htm', 'svg'])
 
 /** 预览模式：使用 File Viewer 渲染办公文档，还是回退文本预览 */
 export type PreviewMode = 'viewer' | 'text' | 'none'
@@ -48,8 +65,8 @@ export function getPreviewMode(
 ): PreviewMode {
   const ext = filename.split('.').pop()?.toLowerCase() ?? ''
 
-  // 办公文档 → File Viewer
-  if (OFFICE_EXTENSIONS.has(ext)) return 'viewer'
+  // 办公文档 / 图片 / 音视频 → File Viewer
+  if (VIEWER_EXTENSIONS.has(ext)) return 'viewer'
 
   // 文本/代码 → 文本预览
   if (TEXT_EXTENSIONS.has(ext)) return 'text'
@@ -58,6 +75,15 @@ export function getPreviewMode(
   if (size > MAX_PREVIEW_SIZE) return 'none'
 
   return 'none'
+}
+
+/**
+ * 判断文件是否支持渲染视图（md / html / svg 等源码 + 渲染双视图）。
+ * 独立纯函数，便于单元测试。
+ */
+export function isRenderablePreview(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  return RENDERABLE_EXTENSIONS.has(ext)
 }
 
 export const useWorkspaceStore = defineStore('workspace', () => {
@@ -92,11 +118,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 预览模式：'viewer'(File Viewer) / 'text'(文本) / 'none'(无) */
   const previewMode = ref<PreviewMode>('none')
 
-  /** 当前预览文件的 agentfile:// URL（仅 viewer 模式使用） */
+  /** 当前预览文件的 agentfile:// URL（viewer 模式 / 可渲染文件的 webview、img 加载使用） */
   const previewFileUrl = ref<string | null>(null)
 
   /** 当前预览文件名（供 File Viewer 显示） */
   const previewFilename = ref<string>('')
+
+  /** 当前预览文件是否支持渲染视图（md/html/svg，源码 + 渲染双视图） */
+  const previewRenderable = ref(false)
 
   /** Search query for filtering file tree */
   const searchQuery = ref('')
@@ -263,6 +292,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     previewLoading.value = false
     previewMode.value = mode
     previewFileUrl.value = null
+    previewRenderable.value = isRenderablePreview(node.name)
 
     // viewer 模式：直接构建 URL，交给 FileViewer 加载（无需 IPC 读取全文）
     if (mode === 'viewer') {
@@ -272,6 +302,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     // text 模式：检查大小限制后读取
     if (mode === 'text') {
+      // 可渲染文件（html/svg）需要 agentfile:// URL 供 webview / <img> 加载渲染视图
+      if (previewRenderable.value) {
+        previewFileUrl.value = window.electron.workspace.buildFileUrl(node.relativePath)
+      }
       if (node.size > MAX_PREVIEW_SIZE) {
         previewError.value = `文件过大（${(node.size / 1024 / 1024).toFixed(2)} MB），不支持预览（最大 1MB）`
         return
@@ -325,6 +359,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     previewMode,
     previewFileUrl,
     previewFilename,
+    previewRenderable,
     isWorkspaceSet,
     searchQuery,
     // Computed

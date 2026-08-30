@@ -3,7 +3,7 @@
 // 通道命名: domain:action 格式 (model:list, model:create, ...)
 
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
-import OpenAI from 'openai'
+import type OpenAI from 'openai'
 import type { ModelConfig, ModelProvider } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import {
@@ -150,6 +150,9 @@ async function handleTest(
 
   // 获取解密后的模型配置
   const config = getModelConfigById(id)
+
+  // openai SDK 体积较大，仅在测试连接时动态加载
+  const { default: OpenAI } = await import('openai')
 
   const clientOptions: ConstructorParameters<typeof OpenAI>[0] = {
     apiKey: config.apiKey,

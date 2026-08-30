@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // ChatView - main chat experience with Sidebar + ChatPanel + Agent ExecutionPanel
 
-import { onMounted, onUnmounted, computed, ref, watch } from 'vue'
+import { onMounted, onUnmounted, computed, ref, watch, defineAsyncComponent } from 'vue'
 import { NIcon, NModal, NInput } from 'naive-ui'
 import { MenuOutlined } from '@vicons/material'
 import type { ChatMessage } from '@shared/types'
@@ -16,7 +16,8 @@ import SidebarHeader from '@/components/Sidebar/SidebarHeader.vue'
 import ConversationList from '@/components/Sidebar/ConversationList.vue'
 import ConversationTreeModal from '@/components/Sidebar/ConversationTreeModal.vue'
 import FileTreePanel from '@/components/Sidebar/FileTreePanel.vue'
-import FilePreviewPanel from '@/components/FilePreviewPanel.vue'
+// FilePreviewPanel 内含 @file-viewer（office/wasm 渲染器），体积大且默认不显示，按需加载
+const FilePreviewPanel = defineAsyncComponent(() => import('@/components/FilePreviewPanel.vue'))
 import MessageList from '@/components/ChatPanel/MessageList.vue'
 import ContextUsageBar from '@/components/ChatPanel/ContextUsageBar.vue'
 import ChatInput from '@/components/ChatPanel/ChatInput.vue'

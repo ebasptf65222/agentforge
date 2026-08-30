@@ -99,6 +99,55 @@ function parseRange(
 }
 
 /**
+ * 常见扩展名 → MIME 类型映射。
+ * webview / <img> / <video> 等按 URL 导航加载资源时依赖正确的 Content-Type，
+ * 否则 Chromium 会将未知类型当作二进制流触发下载。
+ * 未命中的扩展名回退 application/octet-stream（FileViewer 走 fetch 加载，不依赖此值）。
+ */
+const MIME_TYPES: Record<string, string> = {
+  // 文本 / 网页
+  html: 'text/html',
+  htm: 'text/html',
+  css: 'text/css',
+  js: 'text/javascript',
+  mjs: 'text/javascript',
+  json: 'application/json',
+  xml: 'application/xml',
+  txt: 'text/plain',
+  md: 'text/plain',
+  // 图片
+  svg: 'image/svg+xml',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  // 音频
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  flac: 'audio/flac',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  // 视频
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+  mkv: 'video/x-matroska',
+  avi: 'video/x-msvideo',
+  // 文档
+  pdf: 'application/pdf',
+}
+
+/** 根据文件扩展名返回 MIME 类型，未知类型回退 application/octet-stream。 */
+export function getMimeType(absolutePath: string): string {
+  const ext = absolutePath.split('.').pop()?.toLowerCase() ?? ''
+  return MIME_TYPES[ext] ?? 'application/octet-stream'
+}
+
+/**
  * 创建文件流响应（支持 Range 请求）。
  * 适用于 PDF、Office 等需要随机访问的大文件。
  */
@@ -111,7 +160,7 @@ function createFileStreamResponse(
   const range = parseRange(rangeHeader ?? null, size)
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/octet-stream',
+    'Content-Type': getMimeType(absolutePath),
     'Accept-Ranges': 'bytes',
   }
 

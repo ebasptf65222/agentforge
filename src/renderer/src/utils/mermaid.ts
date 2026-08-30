@@ -1,14 +1,15 @@
 // AgentForge: Mermaid 图表渲染工具
 // 将 mermaid 代码块渲染为 SVG 图表
 
-import mermaid from 'mermaid'
+// mermaid 体积较大，改为首次渲染时动态加载，避免拖慢首屏
+type Mermaid = typeof import('mermaid')['default']
+let mermaidPromise: Promise<Mermaid> | null = null
 
-let initialized = false
-
-/** 初始化 mermaid 配置 */
-function initMermaid(): void {
-  if (initialized) return
-  mermaid.initialize({
+/** 按需加载并初始化 mermaid */
+function loadMermaid(): Promise<Mermaid> {
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then((m) => {
+      m.default.initialize({
     startOnLoad: false,
     theme: 'dark',
     themeVariables: {
@@ -37,8 +38,11 @@ function initMermaid(): void {
       boxMargin: 10,
     },
     securityLevel: 'strict',
-  })
-  initialized = true
+      })
+      return m.default
+    })
+  }
+  return mermaidPromise
 }
 
 /** 渲染计数器，用于生成唯一 ID */
@@ -51,7 +55,7 @@ let renderCounter = 0
  * @returns SVG 字符串，或渲染失败时的错误信息 HTML
  */
 export async function renderMermaid(code: string): Promise<string> {
-  initMermaid()
+  const mermaid = await loadMermaid()
 
   const id = `mermaid-${++renderCounter}-${Date.now()}`
 

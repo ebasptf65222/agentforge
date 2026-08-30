@@ -286,6 +286,31 @@ if (!gotTheLock) {
     // 初始化数据库（P1-03）
     initDatabase()
 
+    // 注册所有 IPC handlers（P1-06 起）
+    registerIpcHandlers()
+
+    // 注册所有内置工具到全局 ToolRegistry（Agent 依赖此注册表获取工具）
+    initBuiltinTools()
+
+    // 注册本地文件预览协议（File Viewer 加载工作区文件所用）
+    try {
+      registerLocalFileProtocol()
+    } catch (error) {
+      console.error('[AgentForge] Local file protocol registration failed:', error)
+    }
+
+    // 设置原生菜单（隐藏菜单栏 / macOS 最小化菜单）
+    setupMenu()
+
+    // 生产环境注入 CSP（开发环境跳过以支持 Vite HMR）
+    // 必须在页面开始加载前注册，避免竞态
+    if (app.isPackaged) {
+      injectCsp()
+    }
+
+    // 尽早创建窗口：渲染进程开始加载后，以下非阻塞初始化并发进行
+    createWindow()
+
     // A2: 启动时扫描并重置损坏的 API Key
     // 检测因 OS 密钥变更或数据损坏导致无法解密的 API Key，自动重置为空
     try {
@@ -313,28 +338,12 @@ if (!gotTheLock) {
       // 设置读取失败时使用默认配置
     }
 
-    // 注册所有 IPC handlers（P1-06 起）
-    registerIpcHandlers()
-
-    // 注册所有内置工具到全局 ToolRegistry（Agent 依赖此注册表获取工具）
-    initBuiltinTools()
-
-    // 注册本地文件预览协议（File Viewer 加载工作区文件所用）
-    try {
-      registerLocalFileProtocol()
-    } catch (error) {
-      console.error('[AgentForge] Local file protocol registration failed:', error)
-    }
-
     // P2-08 / Step 4: 初始化 MCP Server 管理器
     // 从 DB 加载已安装的 MCP Server 配置 + 连接所有已启用的 Server（builtin 模式）
     // SDK 模式下仅加载配置到内存，跳过自建连接
     void getMcpServerManager().initialize().catch((err) => {
       console.error('[AgentForge] MCP Manager initialization failed:', err)
     })
-
-    // 设置原生菜单（隐藏菜单栏 / macOS 最小化菜单）
-    setupMenu()
 
     // 初始化定时任务调度器
     try {
@@ -350,13 +359,6 @@ if (!gotTheLock) {
         getSchedulerService().rearm()
       })
     })
-
-    // 生产环境注入 CSP（开发环境跳过以支持 Vite HMR）
-    if (app.isPackaged) {
-      injectCsp()
-    }
-
-    createWindow()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

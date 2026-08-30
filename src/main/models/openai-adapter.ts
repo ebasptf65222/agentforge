@@ -2,11 +2,21 @@
 // 使用 openai v6 npm 包，stream: true SSE 流式
 // timeout 30s, maxRetries 1, backoff 1000ms
 
-import OpenAI from 'openai'
-import { APIError, AuthenticationError, APIConnectionTimeoutError, APIUserAbortError } from 'openai'
+import type OpenAI from 'openai'
+import type { APIError, AuthenticationError, APIConnectionTimeoutError, APIUserAbortError } from 'openai'
 import type { StreamChunk } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { ModelAdapter, type AdapterMessage } from './adapter'
+
+// openai SDK 体积较大，改为首次对话时动态加载，避免拖慢主进程启动
+type OpenAISdk = typeof import('openai')
+let openaiSdkPromise: Promise<OpenAISdk> | null = null
+function loadOpenAISdk(): Promise<OpenAISdk> {
+  if (!openaiSdkPromise) {
+    openaiSdkPromise = import('openai')
+  }
+  return openaiSdkPromise
+}
 
 /**
  * OpenAI 适配器配置。
@@ -24,8 +34,9 @@ export interface OpenAIAdapterConfig {
  * 使用 openai v6 SDK 的 stream: true 模式进行 SSE 流式对话。
  */
 export class OpenAIAdapter extends ModelAdapter {
-  protected readonly client: OpenAI
-  protected readonly baseUrl?: string
+  protected baseUrl?: string
+  private readonly apiKey: string
+  private clientPromise: Promise<{ client: OpenAI; sdk: OpenAISdk }> | null = null
 
   constructor(config: OpenAIAdapterConfig) {
     super({
@@ -35,15 +46,27 @@ export class OpenAIAdapter extends ModelAdapter {
     })
 
     this.baseUrl = config.baseUrl
+    this.apiKey = config.apiKey
+  }
 
-    this.client = new OpenAI({
-      apiKey: config.apiKey,
-      baseURL: config.baseUrl,
-      timeout: 30_000,
-      maxRetries: 1,
-      // openai v6 retry backoff 通过 `maxRetryAfter` 控制，
-      // 1000ms backoff 是 SDK 默认行为，无需额外配置
-    })
+  /**
+   * 惰性获取 openai client（首次调用时才加载 SDK 并创建实例）。
+   */
+  private getClient(): Promise<{ client: OpenAI; sdk: OpenAISdk }> {
+    if (!this.clientPromise) {
+      this.clientPromise = loadOpenAISdk().then((sdk) => ({
+        client: new sdk.default({
+          apiKey: this.apiKey,
+          baseURL: this.baseUrl,
+          timeout: 30_000,
+          maxRetries: 1,
+          // openai v6 retry backoff 通过 `maxRetryAfter` 控制，
+          // 1000ms backoff 是 SDK 默认行为，无需额外配置
+        }),
+        sdk,
+      }))
+    }
+    return this.clientPromise
   }
 
   /**
@@ -57,8 +80,10 @@ export class OpenAIAdapter extends ModelAdapter {
     messages: AdapterMessage[],
     abortSignal?: AbortSignal,
   ): AsyncGenerator<StreamChunk> {
+    const { client, sdk } = await this.getClient()
+
     try {
-      const stream = await this.client.chat.completions.create(
+      const stream = await client.chat.completions.create(
         {
           model: this.modelId,
           messages: messages.map((m) => {
@@ -92,12 +117,12 @@ export class OpenAIAdapter extends ModelAdapter {
       }
     } catch (error) {
       // 用户主动中断，静默结束
-      if (error instanceof APIUserAbortError) {
+      if (error instanceof sdk.APIUserAbortError) {
         return
       }
 
       // API Key 无效 → MODEL_API_ERROR
-      if (error instanceof AuthenticationError) {
+      if (error instanceof sdk.AuthenticationError) {
         throw new AppError(
           ErrorCodes.MODEL_API_ERROR,
           'Invalid API key. Please check your API key configuration.',
@@ -106,7 +131,7 @@ export class OpenAIAdapter extends ModelAdapter {
       }
 
       // 超时 → MODEL_API_ERROR
-      if (error instanceof APIConnectionTimeoutError) {
+      if (error instanceof sdk.APIConnectionTimeoutError) {
         throw new AppError(
           ErrorCodes.MODEL_API_ERROR,
           'Request timed out (30s). Please try again.',
@@ -115,7 +140,7 @@ export class OpenAIAdapter extends ModelAdapter {
       }
 
       // 其他 APIError → MODEL_API_ERROR
-      if (error instanceof APIError) {
+      if (error instanceof sdk.APIError) {
         throw new AppError(ErrorCodes.MODEL_API_ERROR, `API error: ${error.message}`, {
           status: error.status,
           provider: 'openai',

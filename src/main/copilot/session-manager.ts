@@ -5,9 +5,19 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { CopilotClient, RuntimeConnection } from '@github/copilot-sdk'
+import type { CopilotClient } from '@github/copilot-sdk'
 import type { ActiveSessionInfo } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
+
+// @github/copilot-sdk 启动即加载会拖慢主进程，改为首次创建会话时动态加载
+type CopilotSdk = typeof import('@github/copilot-sdk')
+let copilotSdkPromise: Promise<CopilotSdk> | null = null
+function loadCopilotSdk(): Promise<CopilotSdk> {
+  if (!copilotSdkPromise) {
+    copilotSdkPromise = import('@github/copilot-sdk')
+  }
+  return copilotSdkPromise
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SdkSession = any
@@ -76,7 +86,7 @@ export class CopilotSessionManager {
     }
 
     // 创建新 client（BYOK 模式下禁用 useLoggedInUser）
-    const client = buildCopilotClient({ hasCustomProvider: !!sessionConfig['provider'] })
+    const client = await buildCopilotClient({ hasCustomProvider: !!sessionConfig['provider'] })
     await startClientWithRetry(client)
 
     // 构建 session 配置，启用 infiniteSessions
@@ -183,7 +193,7 @@ export class CopilotSessionManager {
     if (sdkSessionId) {
       try {
         // 创建 client（BYOK 模式下禁用 useLoggedInUser）
-        const client = buildCopilotClient({ hasCustomProvider: !!sessionConfig['provider'] })
+        const client = await buildCopilotClient({ hasCustomProvider: !!sessionConfig['provider'] })
         await startClientWithRetry(client)
 
         // 构建 resume 配置（BYOK provider 必须重新提供，密钥不持久化）
@@ -632,7 +642,7 @@ export function checkCopilotCliAvailability(): CliAvailabilityResult {
  * 因为 SDK 的 getNodeExecPath() 在 client.start() 时才读取 process.execPath，
  * 在构造函数阶段修补没有效果。
  */
-function buildCopilotClient(options?: { hasCustomProvider?: boolean }): CopilotClient {
+async function buildCopilotClient(options?: { hasCustomProvider?: boolean }): Promise<CopilotClient> {
   // 预检测 CLI 可用性，避免 30 秒超时等待
   const cliCheck = checkCopilotCliAvailability()
   if (!cliCheck.available || !cliCheck.cliPath) {
@@ -645,6 +655,8 @@ function buildCopilotClient(options?: { hasCustomProvider?: boolean }): CopilotC
 
   // 从环境变量或设置中获取 GitHub token
   const gitHubToken = process.env.GITHUB_TOKEN || process.env.COPILOT_TOKEN || undefined
+
+  const { CopilotClient, RuntimeConnection } = await loadCopilotSdk()
 
   const clientOptions: Record<string, unknown> = {
     connection: RuntimeConnection.forStdio({

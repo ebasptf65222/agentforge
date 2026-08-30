@@ -52,9 +52,8 @@ export default defineConfig({
         },
       }),
       // File Viewer 渲染器装配 + Worker/WASM 资产复制
-      // preset-office 已在依赖中，插件自动发现并注册
+      // preset-office / preset-lite 已在依赖中，插件自动发现并注册
       fileViewerRenderers({
-        preset: 'office',
         copyAssets: true,
         chunkStrategy: 'renderer',
       }),

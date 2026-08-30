@@ -2,7 +2,7 @@
 // Uses marked for parsing, shiki for code highlighting, DOMPurify for XSS filtering
 
 import { marked } from 'marked'
-import { createHighlighter, type Highlighter } from 'shiki'
+import type { Highlighter } from 'shiki'
 import DOMPurify from 'dompurify'
 import type { Tokens } from 'marked'
 import { escapeHtml } from './html'
@@ -32,15 +32,18 @@ let highlighterPromise: Promise<Highlighter> | null = null
 /**
  * Get or create the shiki highlighter singleton.
  * Preloads two themes (one-dark-pro, github-light) and common languages.
+ * shiki 体积较大，动态加载，避免拖慢首屏。
  */
 export async function getHighlighter(): Promise<Highlighter> {
   if (highlighterInstance) return highlighterInstance
   if (highlighterPromise) return highlighterPromise
 
-  highlighterPromise = createHighlighter({
-    themes: ['one-dark-pro', 'github-light'],
-    langs: [...PRELOADED_LANGS],
-  }).then((h) => {
+  highlighterPromise = import('shiki').then(({ createHighlighter }) =>
+    createHighlighter({
+      themes: ['one-dark-pro', 'github-light'],
+      langs: [...PRELOADED_LANGS],
+    }),
+  ).then((h) => {
     highlighterInstance = h
     return h
   })
