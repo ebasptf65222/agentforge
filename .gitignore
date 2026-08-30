@@ -8,6 +8,9 @@ package-lock.json
 dist/
 out/
 
+# File Viewer 插件生成的渲染器资产（每次 dev/build 自动从 node_modules 复制，勿提交）
+src/renderer/public/
+
 # Environment
 .env
 .env.local
