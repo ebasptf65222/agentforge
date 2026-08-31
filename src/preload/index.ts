@@ -483,7 +483,8 @@ const video = {
   getSequenceDetail: (id: string): Promise<unknown> =>
     ipcRenderer.invoke('video:sequence-detail', { id }),
 
-  testConfig: (): Promise<unknown> => ipcRenderer.invoke('video:test-config'),
+  testConfig: (provider?: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:test-config', provider !== undefined ? { provider } : undefined),
 
   // 引擎异步推送 progress / completed / failed
   onEvent: (callback: (data: unknown) => void): (() => void) =>

@@ -3,10 +3,11 @@
 // 通道命名: settings:get, settings:update
 
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
-import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
+import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VideoProvider, VoiceConfig, WorkspaceConfig } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getSettings, updateSettings, type UpdateSettingsParams } from '../db/repos/app-settings'
 import { setEmbeddingConfig } from '../knowledge-base/embedding'
+import { encryptApiKey } from '../utils/encryption'
 import {
   ensureParamsObject,
   validateOptionalEnum,
@@ -19,6 +20,21 @@ import {
 const VALID_THEMES: readonly AppSettings['theme'][] = ['dark', 'light', 'system']
 const VALID_APPROVAL_MODES: readonly ApprovalMode[] = ['suggest', 'auto-edit', 'full-auto']
 const VALID_ENGINE_TYPES: readonly EngineType[] = ['code', 'work']
+const VALID_VIDEO_PROVIDERS: readonly VideoProvider[] = ['seedance', 'kling', 'custom']
+const VALID_VIDEO_PROTOCOLS: readonly NonNullable<
+  UpdateSettingsParams['videoCustomProtocol']
+>[] = ['ark', 'kling', 'openai']
+
+/**
+ * 视频厂商 API Key 落库前使用 safeStorage 加密（与模型 API Key 存储策略一致），
+ * 引擎读取时经 decryptApiKey 解密。undefined/null 原样透传（null 表示清除）。
+ */
+function encryptOptionalVideoApiKey(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (value === undefined || value === null) return value
+  return encryptApiKey(value)
+}
 
 // ─── 复杂嵌套校验（保留为本地函数） ──────────────────────────────
 
@@ -219,6 +235,20 @@ export function handleUpdateSettings(params: unknown): void {
   assertOptionalWindowBounds(p['windowBounds'])
   validateOptionalEnum(p['engineType'], 'engineType', VALID_ENGINE_TYPES)
 
+  // 视频生成配置（M4 多厂商）
+  validateOptionalEnum(p['videoProvider'], 'videoProvider', VALID_VIDEO_PROVIDERS)
+  validateOptionalStringOrNull(p['videoApiKey'], 'videoApiKey')
+  validateOptionalStringOrNull(p['videoBaseUrl'], 'videoBaseUrl')
+  validateOptionalStringOrNull(p['videoModel'], 'videoModel')
+  validateOptionalNumber(p['videoMaxDuration'], 'videoMaxDuration', 4, 15)
+  validateOptionalStringOrNull(p['videoKlingApiKey'], 'videoKlingApiKey')
+  validateOptionalStringOrNull(p['videoKlingBaseUrl'], 'videoKlingBaseUrl')
+  validateOptionalStringOrNull(p['videoKlingModel'], 'videoKlingModel')
+  validateOptionalStringOrNull(p['videoCustomApiKey'], 'videoCustomApiKey')
+  validateOptionalStringOrNull(p['videoCustomBaseUrl'], 'videoCustomBaseUrl')
+  validateOptionalStringOrNull(p['videoCustomModel'], 'videoCustomModel')
+  validateOptionalEnum(p['videoCustomProtocol'], 'videoCustomProtocol', VALID_VIDEO_PROTOCOLS)
+
   // updatedAt 字段不允许外部覆盖
   if (p['updatedAt'] !== undefined) {
     throw new AppError(
@@ -269,6 +299,25 @@ export function handleUpdateSettings(params: unknown): void {
     copilotDisabledSkills: p['copilotDisabledSkills'] as UpdateSettingsParams['copilotDisabledSkills'],
     copilotInfiniteSessionThreshold: p['copilotInfiniteSessionThreshold'] as UpdateSettingsParams['copilotInfiniteSessionThreshold'],
     copilotLargeOutputMaxSize: p['copilotLargeOutputMaxSize'] as UpdateSettingsParams['copilotLargeOutputMaxSize'],
+    // 视频生成配置（API Key 落库前加密）
+    videoProvider: p['videoProvider'] as UpdateSettingsParams['videoProvider'],
+    videoApiKey: encryptOptionalVideoApiKey(
+      p['videoApiKey'] as UpdateSettingsParams['videoApiKey'],
+    ),
+    videoBaseUrl: p['videoBaseUrl'] as UpdateSettingsParams['videoBaseUrl'],
+    videoModel: p['videoModel'] as UpdateSettingsParams['videoModel'],
+    videoMaxDuration: p['videoMaxDuration'] as UpdateSettingsParams['videoMaxDuration'],
+    videoKlingApiKey: encryptOptionalVideoApiKey(
+      p['videoKlingApiKey'] as UpdateSettingsParams['videoKlingApiKey'],
+    ),
+    videoKlingBaseUrl: p['videoKlingBaseUrl'] as UpdateSettingsParams['videoKlingBaseUrl'],
+    videoKlingModel: p['videoKlingModel'] as UpdateSettingsParams['videoKlingModel'],
+    videoCustomApiKey: encryptOptionalVideoApiKey(
+      p['videoCustomApiKey'] as UpdateSettingsParams['videoCustomApiKey'],
+    ),
+    videoCustomBaseUrl: p['videoCustomBaseUrl'] as UpdateSettingsParams['videoCustomBaseUrl'],
+    videoCustomModel: p['videoCustomModel'] as UpdateSettingsParams['videoCustomModel'],
+    videoCustomProtocol: p['videoCustomProtocol'] as UpdateSettingsParams['videoCustomProtocol'],
   }
 
   updateSettings(updateParams)

@@ -7,7 +7,7 @@
 //   - 推荐轮询 GET {origin}/agnesapi?video_id=<VIDEO_ID>&model_name=<model>（origin 为去掉 /v1 的根地址），
 //     优先使用，404 时回退 OpenAI 标准查询。
 //   - 请求体扩展 mode（text/keyframe/reference）、first_frame/last_frame、aspect_ratio。
-//   - size 使用档位字符串（"720P"/"960P"/"2K"），不接受像素尺寸。
+//   - size 使用档位字符串（"720P"/"960P"/"2K"），不接受像素尺寸；Flash 版仅支持 "720P"。
 //   - seconds 为字符串 "4"–"12"；响应中 video_id 用于查询，metadata.url 为下载地址。
 // 鉴权使用 Authorization: Bearer {API_KEY}，与 ARK 一致的传输层。
 
@@ -48,8 +48,8 @@ export class OpenAIVideoAdapter implements VideoProviderAdapter {
       model: config.model,
       prompt: spec.prompt,
       mode: refs.length > 0 ? 'keyframe' : 'text',
-      seconds: String(Math.round(spec.duration)),
-      size: normalizeResolution(spec.resolution),
+      seconds: normalizeSeconds(spec.duration),
+      size: normalizeResolution(spec.resolution, config.model),
       aspect_ratio: spec.aspect,
     }
     for (const ref of refs) {
@@ -141,10 +141,26 @@ function ensureObject(value: unknown): Record<string, unknown> {
 
 /**
  * 将统一分辨率档位映射为 Agnes 的 size 档位。
- * Agnes 接受 "720P" / "960P" / "2K"；480P 就近映射为 720P。
+ * Agnes Video 2.5 接受 "720P" / "960P" / "2K"，1080P 就近映射为 2K；
+ * Flash 版（如 agnes-video-2.5-flash）仅支持 "720P"，其他值会被 HTTP 400
+ * （"size must be 720P"）拒绝，因此 Flash 模型一律固定 720P（输出画幅由 aspect_ratio 决定）。
  */
-function normalizeResolution(resolution: VideoResolution): string {
+function normalizeResolution(resolution: VideoResolution, model: string): string {
+  if (isFlashModel(model)) return '720P'
   return resolution === '1080P' ? '2K' : '720P'
+}
+
+/** Flash 版 Agnes 视频模型仅支持 720P 档位 */
+function isFlashModel(model: string): boolean {
+  return /flash/i.test(model)
+}
+
+/**
+ * Agnes 的 seconds 为字符串且仅接受 "4"–"12"，超出范围会被 HTTP 400 拒绝，
+ * 此处钳制到合法区间（应用内时长上限 UI 允许到 15 秒）。
+ */
+function normalizeSeconds(duration: number): string {
+  return String(Math.min(12, Math.max(4, Math.round(duration))))
 }
 
 /** 构造 Agnes 推荐轮询地址：{origin}/agnesapi?video_id=&model_name=（origin 为去掉 /v1 的根地址） */

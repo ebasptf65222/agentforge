@@ -190,6 +190,21 @@ export function listQueuedVideoTasks(): VideoTask[] {
 }
 
 /**
+ * 获取重启前已提交到厂商、可恢复轮询的在途任务（submitted/running 且已有 provider_task_id）。
+ * 用于应用重启后重新纳入轮询，避免任务进度永久卡在中间状态。
+ * 衔接镜头（is_chained = 1）此时尚未提交、无 provider_task_id，天然被条件排除。
+ */
+export function listInFlightVideoTasks(): VideoTask[] {
+  const db: Database.Database = getDatabase()
+  const rows = db
+    .prepare(
+      "SELECT * FROM video_tasks WHERE status IN ('submitted', 'running') AND provider_task_id IS NOT NULL ORDER BY created_at ASC, id ASC",
+    )
+    .all() as VideoTaskRow[]
+  return rows.map(rowToTask)
+}
+
+/**
  * 获取指定创建时间之后（含）的全部任务行（M12 统计用，不分页）。
  */
 export function listVideoTasksSince(sinceTs: number): VideoTask[] {

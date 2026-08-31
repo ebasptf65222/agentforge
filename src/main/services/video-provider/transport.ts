@@ -18,12 +18,16 @@ export type HttpRequestFn = (input: {
   body?: unknown
 }) => Promise<HttpResponse>
 
+/** 默认请求超时（毫秒）：防止厂商网关挂起连接导致轮询永久阻塞 */
+export const DEFAULT_HTTP_TIMEOUT_MS = 30_000
+
 /** 默认实现：基于原生 fetch */
 export const fetchTransport: HttpRequestFn = async ({ url, method, headers, body }) => {
   const res = await fetch(url, {
     method,
     headers: { ...headers, Accept: 'application/json' },
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(DEFAULT_HTTP_TIMEOUT_MS),
   })
 
   // 解析响应体（可能为空）
@@ -38,14 +42,30 @@ export const fetchTransport: HttpRequestFn = async ({ url, method, headers, body
   }
 
   if (!res.ok) {
-    const message =
-      typeof data === 'object' && data !== null && 'error' in (data as Record<string, unknown>)
-        ? String((data as Record<string, { message?: string }>).error?.message ?? '')
-        : `HTTP ${res.status} ${res.statusText}`
-    const err = new Error(message || `HTTP ${res.status}`) as Error & { status?: number }
+    const fallback = `HTTP ${res.status} ${res.statusText}`
+    const message = extractErrorMessage(data, fallback)
+    const err = new Error(message || fallback) as Error & { status?: number }
     err.status = res.status
     throw err
   }
 
   return { status: res.status, data }
+}
+
+/**
+ * 从错误响应体中提取可读信息。
+ * 兼容 OpenAI 风格 error.message、顶层 message 字段以及字符串型 error
+ * （如 Agnes 的 400 响应 `{"message": "size must be 720P"}`）。
+ */
+function extractErrorMessage(data: unknown, fallback: string): string {
+  if (typeof data === 'object' && data !== null) {
+    const obj = data as Record<string, unknown>
+    if (typeof obj['error'] === 'string' && obj['error']) return obj['error']
+    if (typeof obj['error'] === 'object' && obj['error'] !== null) {
+      const msg = (obj['error'] as Record<string, unknown>)['message']
+      if (typeof msg === 'string' && msg) return msg
+    }
+    if (typeof obj['message'] === 'string' && obj['message']) return obj['message']
+  }
+  return fallback
 }

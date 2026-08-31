@@ -81,10 +81,30 @@ describe('OpenAIVideoAdapter', () => {
     const body = requests[0].body as Record<string, unknown>
     expect(body['mode']).toBe('keyframe')
     expect(body['seconds']).toBe('8')
-    expect(body['size']).toBe('2K')
+    // Flash 模型仅支持 720P：即使任务选择 1080P 也固定下发 720P
+    expect(body['size']).toBe('720P')
     expect(body['aspect_ratio']).toBe('9:16')
     expect(String(body['first_frame'])).toMatch(/^data:image\/png;base64,/)
     expect(String(body['last_frame'])).toMatch(/^data:image\/png;base64,/)
+  })
+
+  it('should map 1080P to 2K for non-flash Agnes models', async () => {
+    const requests: Array<Parameters<HttpRequestFn>[0]> = []
+    const request = makeRequestMock((input) => {
+      requests.push(input)
+      return { status: 200, data: { video_id: 'video_25', status: 'queued' } }
+    })
+
+    const adapter = new OpenAIVideoAdapter(request)
+    await adapter.submit(
+      { prompt: 'A cat walking', duration: 15, resolution: '1080P', aspect: '16:9' },
+      { ...TEST_CONFIG, model: 'agnes-video-2.5' },
+    )
+
+    const body = requests[0].body as Record<string, unknown>
+    expect(body['size']).toBe('2K')
+    // seconds 钳制到 "4"–"12" 合法区间
+    expect(body['seconds']).toBe('12')
   })
 
   it('should poll via Agnes /agnesapi and map completed with metadata.url', async () => {

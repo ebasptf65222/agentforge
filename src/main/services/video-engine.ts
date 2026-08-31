@@ -29,6 +29,7 @@ import {
   deleteVideoTask,
   getVideoTaskById,
   listQueuedVideoTasks,
+  listInFlightVideoTasks,
   listVideoTasks,
   listVideoTasksBySequence,
   updateVideoTask,
@@ -50,7 +51,7 @@ import { extractLastFrame } from '../utils/ffmpeg'
 import { AppError, ErrorCodes } from '../utils/error'
 
 /** 默认轮询间隔（毫秒） */
-const DEFAULT_POLL_INTERVAL_MS = 15_000
+const DEFAULT_POLL_INTERVAL_MS = 5_000
 /** 连续状态查询失败阈值，超过后任务判失败 */
 const MAX_CONSECUTIVE_POLL_FAILURES = 3
 
@@ -402,6 +403,8 @@ export class VideoEngine {
    * 提交失败的任务标记为 failed，不阻断其余任务。
    */
   private pump(): Promise<void> {
+    // 任何出队时机都先完成重启恢复（幂等），保证遗留任务被回队/恢复轮询
+    this.ensureQueueRecovered()
     if (state.paused) return Promise.resolve()
     if (this.pumping && this.pumpPromise) return this.pumpPromise
     this.pumping = true
@@ -454,8 +457,18 @@ export class VideoEngine {
           state.queue.push({ taskId: task.id })
         }
       }
+      // 恢复重启前已在厂商侧提交的在途任务：重新纳入轮询，
+      // 避免进度永久卡在中间状态（不重新提交，沿用已有 provider_task_id）
+      for (const task of listInFlightVideoTasks()) {
+        if (!state.active.has(task.id)) {
+          state.active.set(task.id, task)
+        }
+      }
     } catch {
       // DB 不可用时忽略恢复，队列照常接收新任务
+    }
+    if (state.active.size > 0) {
+      this.ensureTimer()
     }
     if (state.queue.length > 0 && !state.paused) {
       // 微任务中再启动出队：保证本次快照能先返回排队明细
@@ -887,6 +900,10 @@ export class VideoEngine {
     } catch (error) {
       const failures = (this.pollFailures.get(id) ?? 0) + 1
       this.pollFailures.set(id, failures)
+      console.warn(
+        `[Video] poll failed (task=${id} attempt=${failures}/${this.maxPollFailures}):`,
+        error instanceof Error ? error.message : error,
+      )
       if (failures >= this.maxPollFailures) {
         await this.handleTerminal(
           id,
