@@ -347,6 +347,24 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     await loadTree()
   }
 
+  /**
+   * 按相对路径直接打开文件预览（viewer 模式）。
+   * 供 VideoMessage 等把已落盘媒体接入文件预览面板。
+   */
+  function openFilePreview(relativePath: string, filename?: string): void {
+    const name = filename ?? relativePath.split('/').pop() ?? relativePath
+    const mode = getPreviewMode(relativePath, name, 0)
+    previewPath.value = relativePath
+    previewFilename.value = name
+    previewContent.value = ''
+    previewError.value = null
+    previewLoading.value = false
+    previewMode.value = mode
+    previewRenderable.value = isRenderablePreview(name)
+    previewFileUrl.value =
+      mode === 'viewer' ? window.electron.workspace.buildFileUrl(relativePath) : null
+  }
+
   return {
     // State
     rootNode,
@@ -373,5 +391,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     previewFile,
     closePreview,
     refreshTree,
+    openFilePreview,
   }
 })

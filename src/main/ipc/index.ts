@@ -23,6 +23,7 @@ import { registerGitHandlers } from './git'
 import { registerBrowserHandlers } from './browser'
 import { registerCheckpointHandlers } from './checkpoint'
 import { registerSchedulerHandlers } from './scheduler'
+import { registerVideoHandlers } from './video'
 
 /**
  * 注册所有 IPC handlers。
@@ -92,4 +93,7 @@ export function registerIpcHandlers(): void {
 
   // ─── Scheduler 域 (定时任务) ──────────────────────────────
   registerSchedulerHandlers()
+
+  // ─── Video 域 (AI 视频生成 M1) ────────────────────────────
+  registerVideoHandlers()
 }

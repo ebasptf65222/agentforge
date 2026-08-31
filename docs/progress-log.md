@@ -1,5 +1,34 @@
 # AgentForge 进度日志
 
+## M11: CSV 批量造片 (2026-08-31)
+
+**任务**: 按 `docs/specs/video-m11-csv-batch.md` 方案实施 CSV 批量造片——从本地 CSV 导入多行提示词参数，复用 M10 受限并发与批量错误汇总基础设施批量生成视频。
+
+### 变更概要
+
+#### 1. CSV 解析器（主进程）
+- 新增 `src/main/services/csv-batch.ts`：RFC 4180 风格分词器（引号/内嵌逗号换行/双引号转义/CRLF/BOM 剥离）+ 行级校验（prompt 必填、duration 正数、resolution/aspect 枚举）
+- 非法行记入 `skipped`（含行号与原因），不阻断其他行；表头缺 prompt 列返回 `headerMissingPrompt`
+
+#### 2. 引擎批量生成
+- `VideoEngine.generateRows(rows, concurrency?)`：复用 `runWithConcurrency` 与 `BATCH_RETRY_CONCURRENCY`（2）受限并发提交，个别行失败不阻断其余，返回 `VideoBatchResult<VideoTask>`
+
+#### 3. IPC + Preload + 类型
+- 新通道 `video:parse-csv`（读文件委托解析器）与 `video:batch-generate`（行数组逐项校验：对象结构/prompt 非空/枚举/数值范围）
+- Preload 新增 `parseCsv` / `batchGenerate`；electron-api 新增 `VideoCsvParseResult` / `VideoCsvSkippedRow` 类型
+
+#### 4. Store + UI
+- `stores/video.ts` 新增 `parseCsv`（错误 toast 后上抛）与 `batchGenerate`（成功 upsert + reportBatch 汇总）
+- `VideoLibraryView.vue` 工具栏新增「批量造片」按钮，模态三步流：选择 CSV → 解析预览（可提交行/跳过明细，各截断展示）→ 确认批量生成
+
+### 验证结果
+- `pnpm typecheck`: 通过
+- 定向 eslint（11 个改动文件）: 0 errors / 0 warnings
+- 全量 vitest: 1732 passed (77 files)，新增 28 个测试（csv-batch 16 + engine 3 + store 5 + IPC 4）
+- `pnpm build`: 通过 (13.88s)
+
+---
+
 ## 引擎重命名：copilot-sdk → code、langgraph → work (2026-08-31)
 
 **任务**: 将双引擎标识重命名为更符合产品定位的 `code`（编码引擎）/ `work`（工作流编排引擎），含数据库存量迁移与 UI 文案同步。

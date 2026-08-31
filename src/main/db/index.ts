@@ -315,6 +315,54 @@ const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
     sql: `ALTER TABLE app_settings ADD COLUMN embedding_dimensions INTEGER DEFAULT 768`,
   },
   {
+    table: 'app_settings',
+    column: 'video_provider',
+    comment: 'VIDEO-01: 视频生成厂商',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_provider TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_base_url',
+    comment: 'VIDEO-01: 视频生成 API 基础 URL',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_base_url TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_model',
+    comment: 'VIDEO-01: 视频生成模型名',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_model TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_api_key',
+    comment: 'VIDEO-01: 视频生成 API 密钥（加密）',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_api_key TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_max_duration',
+    comment: 'VIDEO-01: 视频生成时长上限（秒）',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_max_duration INTEGER DEFAULT 10`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_kling_api_key',
+    comment: 'VIDEO-M4: 可灵（TokenHub）API 密钥（加密）',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_kling_api_key TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_kling_base_url',
+    comment: 'VIDEO-M4: 可灵 API 基础 URL（默认 TokenHub）',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_kling_base_url TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_kling_model',
+    comment: 'VIDEO-M4: 可灵模型名',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_kling_model TEXT`,
+  },
+  {
     table: 'kb_documents',
     column: 'content_hash',
     comment: 'RAG-FIX-02: 文档内容哈希（快速去重）',
@@ -337,6 +385,30 @@ const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
     column: 'is_forked',
     comment: 'P3-01: 是否为分支会话',
     sql: `ALTER TABLE conversations ADD COLUMN is_forked INTEGER DEFAULT 0 CHECK(is_forked IN (0, 1))`,
+  },
+  {
+    table: 'video_tasks',
+    column: 'sequence_id',
+    comment: 'VIDEO-M6: 所属多镜头序列 ID',
+    sql: `ALTER TABLE video_tasks ADD COLUMN sequence_id TEXT`,
+  },
+  {
+    table: 'video_tasks',
+    column: 'shot_index',
+    comment: 'VIDEO-M6: 序列内镜头序号',
+    sql: `ALTER TABLE video_tasks ADD COLUMN shot_index INTEGER`,
+  },
+  {
+    table: 'video_tasks',
+    column: 'is_chained',
+    comment: 'VIDEO-M8: 是否使用自动衔接尾帧作为首帧',
+    sql: `ALTER TABLE video_tasks ADD COLUMN is_chained INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    table: 'video_sequences',
+    column: 'continuity',
+    comment: 'VIDEO-M8: 是否为连续性衔接序列',
+    sql: `ALTER TABLE video_sequences ADD COLUMN continuity INTEGER NOT NULL DEFAULT 0`,
   },
 ] as const
 
@@ -401,6 +473,47 @@ const TABLE_MIGRATIONS: readonly { table: string; sql: string }[] = [
       duration_ms     INTEGER
     )`,
   },
+  {
+    table: 'video_tasks',
+    sql: `CREATE TABLE IF NOT EXISTS video_tasks (
+      id               TEXT PRIMARY KEY,
+      provider         TEXT NOT NULL DEFAULT 'seedance',
+      provider_task_id TEXT,
+      prompt           TEXT NOT NULL,
+      model            TEXT NOT NULL,
+      duration         INTEGER NOT NULL DEFAULT 5,
+      resolution       TEXT NOT NULL DEFAULT '720P',
+      aspect           TEXT NOT NULL DEFAULT '16:9',
+      status           TEXT NOT NULL DEFAULT 'submitted',
+      progress         INTEGER NOT NULL DEFAULT 0,
+      error_code       TEXT,
+      error_message    TEXT,
+      download_url     TEXT,
+      output_path      TEXT,
+      sequence_id      TEXT,
+      shot_index       INTEGER,
+      is_chained       INTEGER NOT NULL DEFAULT 0,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL
+    )`,
+
+  },
+  {
+    table: 'video_sequences',
+    sql: `CREATE TABLE IF NOT EXISTS video_sequences (
+      id               TEXT PRIMARY KEY,
+      title            TEXT NOT NULL,
+      provider         TEXT NOT NULL DEFAULT 'seedance',
+      status           TEXT NOT NULL DEFAULT 'submitted',
+      total_count      INTEGER NOT NULL DEFAULT 0,
+      succeeded_count  INTEGER NOT NULL DEFAULT 0,
+      failed_count     INTEGER NOT NULL DEFAULT 0,
+      cancelled_count  INTEGER NOT NULL DEFAULT 0,
+      continuity       INTEGER NOT NULL DEFAULT 0,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL
+    )`,
+  },
 ] as const
 
 /**
@@ -413,6 +526,13 @@ const SCHEDULER_INDEXES: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_status ON scheduled_task_runs(status)`,
 ] as const
 
+/** 视频任务相关索引（幂等）。 */
+const VIDEO_INDEXES: readonly string[] = [
+  `CREATE INDEX IF NOT EXISTS idx_video_tasks_status ON video_tasks(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_video_tasks_created ON video_tasks(created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_video_tasks_sequence ON video_tasks(sequence_id)`,
+] as const
+
 /**
  * 条件迁移：为已存在的数据库添加缺失的列、表或索引。
  * 所有操作都是幂等的。
@@ -421,16 +541,16 @@ const SCHEDULER_INDEXES: readonly string[] = [
  * 对每条记录通过 hasColumn 检查后执行对应的 ALTER TABLE。
  */
 function runConditionalMigrations(db: Database.Database): void {
-  // 列迁移：幂等地添加缺失的列
-  COLUMN_MIGRATIONS.forEach((migration) => {
-    if (!hasColumn(db, migration.table, migration.column)) {
+  // 表迁移：幂等地创建缺失的表（新库先建表，避免后续 ALTER 依赖表不存在）
+  TABLE_MIGRATIONS.forEach((migration) => {
+    if (!hasTable(db, migration.table)) {
       db.exec(migration.sql)
     }
   })
 
-  // 表迁移：幂等地创建缺失的表
-  TABLE_MIGRATIONS.forEach((migration) => {
-    if (!hasTable(db, migration.table)) {
+  // 列迁移：幂等地添加缺失的列
+  COLUMN_MIGRATIONS.forEach((migration) => {
+    if (!hasColumn(db, migration.table, migration.column)) {
       db.exec(migration.sql)
     }
   })
@@ -442,6 +562,11 @@ function runConditionalMigrations(db: Database.Database): void {
 
   // 调度器索引
   SCHEDULER_INDEXES.forEach((sql) => {
+    db.exec(sql)
+  })
+
+// 视频任务索引
+  VIDEO_INDEXES.forEach((sql) => {
     db.exec(sql)
   })
 

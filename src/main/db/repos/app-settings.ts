@@ -54,6 +54,14 @@ interface AppSettingsRow {
   embedding_model: string | null
   embedding_api_key: string | null
   embedding_dimensions: number | null
+  video_provider: string | null
+  video_base_url: string | null
+  video_model: string | null
+  video_api_key: string | null
+  video_max_duration: number | null
+  video_kling_api_key: string | null
+  video_kling_base_url: string | null
+  video_kling_model: string | null
   window_bounds: string | null
   updated_at: number
 }
@@ -171,6 +179,14 @@ export interface UpdateSettingsParams {
   embeddingModel?: string | null
   embeddingApiKey?: string | null
   embeddingDimensions?: number | null
+  videoProvider?: 'seedance' | 'kling' | null
+  videoBaseUrl?: string | null
+  videoModel?: string | null
+  videoApiKey?: string | null
+  videoMaxDuration?: number | null
+  videoKlingApiKey?: string | null
+  videoKlingBaseUrl?: string | null
+  videoKlingModel?: string | null
   windowBounds?: WindowBounds | null
 }
 
@@ -266,6 +282,14 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     embeddingModel: row.embedding_model ?? 'nomic-embed-text',
     embeddingApiKey: row.embedding_api_key ?? undefined,
     embeddingDimensions: row.embedding_dimensions ?? 768,
+    videoProvider: (row.video_provider ?? undefined) as 'seedance' | 'kling' | undefined,
+    videoBaseUrl: row.video_base_url ?? undefined,
+    videoModel: row.video_model ?? undefined,
+    videoApiKey: row.video_api_key ?? undefined,
+    videoMaxDuration: row.video_max_duration ?? undefined,
+    videoKlingApiKey: row.video_kling_api_key ?? undefined,
+    videoKlingBaseUrl: row.video_kling_base_url ?? undefined,
+    videoKlingModel: row.video_kling_model ?? undefined,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -628,6 +652,46 @@ export function updateSettings(params: UpdateSettingsParams): void {
   if (params.embeddingDimensions !== undefined) {
     setClauses.push('embedding_dimensions = ?')
     values.push(params.embeddingDimensions === null ? null : params.embeddingDimensions)
+  }
+
+  if (params.videoProvider !== undefined) {
+    setClauses.push('video_provider = ?')
+    values.push(params.videoProvider === null ? null : params.videoProvider)
+  }
+
+  if (params.videoBaseUrl !== undefined) {
+    setClauses.push('video_base_url = ?')
+    values.push(params.videoBaseUrl === null ? null : params.videoBaseUrl)
+  }
+
+  if (params.videoModel !== undefined) {
+    setClauses.push('video_model = ?')
+    values.push(params.videoModel === null ? null : params.videoModel)
+  }
+
+  if (params.videoApiKey !== undefined) {
+    setClauses.push('video_api_key = ?')
+    values.push(params.videoApiKey === null ? null : params.videoApiKey)
+  }
+
+  if (params.videoMaxDuration !== undefined) {
+    setClauses.push('video_max_duration = ?')
+    values.push(params.videoMaxDuration === null ? null : params.videoMaxDuration)
+  }
+
+  if (params.videoKlingApiKey !== undefined) {
+    setClauses.push('video_kling_api_key = ?')
+    values.push(params.videoKlingApiKey === null ? null : params.videoKlingApiKey)
+  }
+
+  if (params.videoKlingBaseUrl !== undefined) {
+    setClauses.push('video_kling_base_url = ?')
+    values.push(params.videoKlingBaseUrl === null ? null : params.videoKlingBaseUrl)
+  }
+
+  if (params.videoKlingModel !== undefined) {
+    setClauses.push('video_kling_model = ?')
+    values.push(params.videoKlingModel === null ? null : params.videoKlingModel)
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

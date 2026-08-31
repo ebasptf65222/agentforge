@@ -150,6 +150,22 @@ export interface AppSettings {
   embeddingApiKey?: string
   /** 嵌入向量维度（用于校验） */
   embeddingDimensions?: number
+  /** 视频生成厂商（'seedance' | 'kling'） */
+  videoProvider?: 'seedance' | 'kling'
+  /** 视频生成 API 基础 URL（默认火山方舟 ARK） */
+  videoBaseUrl?: string
+  /** 视频生成模型名 */
+  videoModel?: string
+  /** 视频生成 API 密钥（safeStorage 加密存储） */
+  videoApiKey?: string
+  /** 视频生成时长上限（秒） */
+  videoMaxDuration?: number
+  /** 可灵（TokenHub）API Key（safeStorage 加密存储） */
+  videoKlingApiKey?: string
+  /** 可灵（TokenHub）API 基础 URL（默认腾讯云 TokenHub） */
+  videoKlingBaseUrl?: string
+  /** 可灵模型名 */
+  videoKlingModel?: string
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }

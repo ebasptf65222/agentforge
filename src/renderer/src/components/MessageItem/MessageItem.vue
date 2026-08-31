@@ -10,7 +10,10 @@ import { NIcon, NTooltip } from 'naive-ui'
 import type { ChatMessage } from '@shared/types'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 import VoicePlayButton from './VoicePlayButton.vue'
+import VideoMessage from '@/components/video/VideoMessage.vue'
 import { useVoiceStore } from '@/stores/voice'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { useUiStore } from '@/stores/ui'
 import {
   ContentCopyOutlined,
   RefreshOutlined,
@@ -32,7 +35,21 @@ const emit = defineEmits<{
 }>()
 
 const voiceStore = useVoiceStore()
+const workspaceStore = useWorkspaceStore()
+const uiStore = useUiStore()
 const isUser = computed(() => props.message.role === 'user')
+
+/** 消息关联的视频任务 ID（由 video_generate 工具产出写入 metadata.videoTaskId） */
+const videoTaskId = computed<string | null>(() => {
+  const metadata = props.message.metadata
+  const v = metadata?.videoTaskId
+  return typeof v === 'string' && v.length > 0 ? v : null
+})
+
+function handleOpenVideo(relativePath: string): void {
+  workspaceStore.openFilePreview(relativePath)
+  uiStore.openPreviewPanel()
+}
 
 /**
  * Whether to show the streaming cursor.
@@ -146,6 +163,12 @@ function handleDelete(): void {
       <div v-if="isUser" class="message-item__text">{{ message.content }}</div>
       <template v-else>
         <MarkdownRenderer :content="message.content" />
+        <!-- M3: AI 视频生成消息 -->
+        <VideoMessage
+          v-if="videoTaskId"
+          :task-id="videoTaskId"
+          @open="handleOpenVideo"
+        />
         <!-- Streaming cursor (P1-13): blinking block at the end of the assistant message -->
         <span v-if="showCursor" class="message-item__cursor" aria-hidden="true">&#9608;</span>
         <!-- Voice play button (V1-03) -->

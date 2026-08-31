@@ -26,14 +26,11 @@ import type {
   ImportResult,
   KbStats,
   VoiceConfig,
-  TtsConfig,
-  SttConfig,
   TtsOptions,
   SttOptions,
   FileTreeNode,
   WorkspaceDirectoryEntry,
   WikiStatus,
-  WikiPageSummary,
   AuditReport,
   AuditInput,
   ActiveSessionInfo,
@@ -41,6 +38,13 @@ import type {
   ElicitationResponse,
   Checkpoint,
   CheckpointDiff,
+  VideoTask,
+  VideoAsyncEvent,
+  VideoConfigView,
+  VideoProvider,
+  VideoSequence,
+  VideoSequenceDetail,
+  CreateVideoTaskParams,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -578,6 +582,71 @@ interface CheckpointAPI {
   delete(params: CheckpointDeleteParams): Promise<CheckpointDeleteResult>
 }
 
+/** 视频生成命名空间（M3/M4 AI 视频生成，多厂商） */
+/** M10：批量操作结果（succeeded 成功项 / failed 失败明细） */
+interface VideoBatchResult<T = string> {
+  succeeded: T[]
+  failed: Array<{ id: string; message: string }>
+}
+
+/** M11：CSV 解析预览中被跳过的行 */
+interface VideoCsvSkippedRow {
+  /** 原文件行号（1-based，含表头行） */
+  line: number
+  reason: string
+}
+
+/** M11：CSV 解析预览结果（可提交行 + 跳过明细） */
+interface VideoCsvParseResult {
+  rows: CreateVideoTaskParams[]
+  skipped: VideoCsvSkippedRow[]
+  headerMissingPrompt: boolean
+}
+
+interface VideoAPI {
+  /** 提交一个视频生成任务 */
+  generate(params: CreateVideoTaskParams): Promise<VideoTask>
+  /** 查询单个任务状态 */
+  status(id: string): Promise<VideoTask | null>
+  /** 获取任务列表 */
+  list(limit?: number): Promise<VideoTask[]>
+  /** 取消在途任务 */
+  cancel(id: string): Promise<VideoTask | null>
+  /** 重试一个已失败/已取消的任务（M9） */
+  retry(id: string): Promise<VideoTask>
+  /** 取消一个多镜头序列的全部在途子任务（M9） */
+  cancelSequence(id: string): Promise<VideoSequence>
+  /** 删除一条任务记录及其落盘文件（M9） */
+  deleteTask(id: string): Promise<void>
+  /** 删除一个多镜头序列及其全部子任务与落盘文件（M9） */
+  deleteSequence(id: string): Promise<void>
+  /** 批量重试一批已失败/已取消的任务（M10），返回新建任务与失败明细 */
+  retryTasks(ids: string[]): Promise<VideoBatchResult<VideoTask>>
+  /** 批量取消多个进行中的多镜头序列（M10） */
+  cancelSequences(ids: string[]): Promise<VideoBatchResult<VideoSequence>>
+  /** 批量删除一批任务记录及其落盘文件（M10） */
+  deleteTasks(ids: string[]): Promise<VideoBatchResult<string>>
+  /** 批量删除多个多镜头序列及其子任务与落盘文件（M10） */
+  deleteSequences(ids: string[]): Promise<VideoBatchResult<string>>
+  /** 解析本地 CSV 文件为任务行预览（M11），返回可提交行与跳过明细 */
+  parseCsv(filePath: string): Promise<VideoCsvParseResult>
+  /** 批量生成一组单视频任务（M11 CSV 造片，受限并发提交） */
+  batchGenerate(
+    rows: CreateVideoTaskParams[],
+    concurrency?: number,
+  ): Promise<VideoBatchResult<VideoTask>>
+  /** 读取视频生成配置（不含 API Key，含多厂商回显） */
+  getConfig(): Promise<VideoConfigView>
+  /** 测试指定厂商连接（校验配置完整性） */
+  testConfig(provider?: VideoProvider): Promise<{ ok: boolean; provider: VideoProvider; baseUrl: string; model: string }>
+  /** 订阅异步推送事件（progress / completed / failed），返回取消订阅函数 */
+  onEvent(callback: (event: VideoAsyncEvent) => void): () => void
+  /** 获取多镜头序列列表（M6） */
+  listSequences(limit?: number): Promise<VideoSequence[]>
+  /** 获取多镜头序列详情（含镜头子任务）（M6） */
+  getSequenceDetail(id: string): Promise<VideoSequenceDetail | null>
+}
+
 /** window.electron 完整类型 */
 interface ElectronAPI {
   chat: ChatAPI
@@ -590,6 +659,7 @@ interface ElectronAPI {
   skill: SkillAPI
   kb: KbAPI
   voice: VoiceAPI
+  video: VideoAPI
   window: WindowAPI
   workspace: WorkspaceAPI
   wiki: WikiAPI
@@ -657,4 +727,9 @@ export type {
   CheckpointDeleteResult,
   ForkConversationParams,
   ConversationTreeResult,
+  VideoAPI,
+  VideoConfigView,
+  VideoProvider,
+  VideoCsvParseResult,
+  VideoCsvSkippedRow,
 }

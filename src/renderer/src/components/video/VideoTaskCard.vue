@@ -1,0 +1,237 @@
+<script setup lang="ts">
+// M3: VideoTaskCard - 视频任务进度卡
+// 展示提交→运行→下载→完成/失败 的完整状态机，支持停止、重试、本地播放。
+// 通过 window.electron.workspace.buildFileUrl 将落后本地视频映射为 agentfile:// URL 播放。
+
+import { computed } from 'vue'
+import { NButton, NProgress, NTag, NSpace, NIcon, NTooltip } from 'naive-ui'
+import { PlayArrowOutlined, StopOutlined, RefreshOutlined } from '@vicons/material'
+import type { VideoTask } from '@shared/types'
+import { useVideoStore } from '@/stores/video'
+
+const props = defineProps<{
+  task: VideoTask
+}>()
+
+const emit = defineEmits<{
+  /** 点击「在文件面板打开」 */
+  open: [relativePath: string]
+}>()
+
+const videoStore = useVideoStore()
+
+const terminal = computed(() =>
+  ['succeeded', 'failed', 'cancelled'].includes(props.task.status),
+)
+
+const STATUS_LABEL: Record<VideoTask['status'], string> = {
+  queued: '排队中',
+  submitted: '已提交',
+  running: '生成中',
+  succeeded: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+}
+
+const statusTagType = computed(() => {
+  switch (props.task.status) {
+    case 'succeeded':
+      return 'success'
+    case 'failed':
+    case 'cancelled':
+      return 'error'
+    case 'running':
+    case 'submitted':
+    case 'queued':
+      return 'info'
+    default:
+      return 'default'
+  }
+})
+
+/** 本地播放地址（agentfile:///workspace/...） */
+const playUrl = computed(() =>
+  props.task.status === 'succeeded' && props.task.outputPath
+    ? window.electron.workspace.buildFileUrl(props.task.outputPath)
+    : '',
+)
+
+/** 语言化进度：下载阶段用 indeterminate 转圈，其余用百分比 */
+const progressPercent = computed(() => Math.max(0, Math.min(100, props.task.progress)))
+
+async function handleStop(): Promise<void> {
+  await videoStore.cancel(props.task.id)
+}
+
+function handleRetry(): void {
+  if (!props.task.prompt) return
+  void videoStore.generate({
+    prompt: props.task.prompt,
+    model: props.task.model,
+    duration: props.task.duration,
+    resolution: props.task.resolution,
+    aspect: props.task.aspect,
+  })
+}
+
+function handleOpen(): void {
+  if (props.task.outputPath) emit('open', props.task.outputPath)
+}
+
+function formatSize(filePath: string | null): string {
+  if (!filePath) return ''
+  const name = filePath.split('/').pop() ?? ''
+  return name
+}
+</script>
+
+<template>
+  <div class="video-task-card" :class="`video-task-card--${task.status}`">
+    <div class="video-task-card__head">
+      <span class="video-task-card__title">
+        <NTag :type="statusTagType" size="small" :bordered="false">
+          {{ STATUS_LABEL[task.status] }}
+        </NTag>
+        <span class="video-task-card__prompt">{{ task.prompt || '视频任务' }}</span>
+      </span>
+      <NSpace :size="4">
+        <NTooltip placement="top" :delay="500">
+          <template #trigger>
+            <NButton
+              size="tiny"
+              quaternary
+              :disabled="terminal || task.status === 'cancelled'"
+              @click="handleStop"
+            >
+              <template #icon><NIcon :size="14"><StopOutlined /></NIcon></template>
+            </NButton>
+          </template>
+          <span>停止</span>
+        </NTooltip>
+        <NTooltip placement="top" :delay="500">
+          <template #trigger>
+            <NButton size="tiny" quaternary @click="handleRetry">
+              <template #icon><NIcon :size="14"><RefreshOutlined /></NIcon></template>
+            </NButton>
+          </template>
+          <span>重新生成</span>
+        </NTooltip>
+      </NSpace>
+    </div>
+
+    <!-- 进度 -->
+    <div v-if="!terminal" class="video-task-card__progress">
+      <NProgress
+        :percentage="progressPercent"
+        :indicator-placement="'inside'"
+        :color="task.status === 'failed' ? 'error' : undefined"
+        :status="task.status === 'failed' ? 'error' : 'default'"
+      />
+      <span v-if="task.status === 'submitted'" class="video-task-card__hint">正在提交厂商任务…</span>
+      <span v-else-if="task.status === 'queued'" class="video-task-card__hint">排队等待中…</span>
+      <span v-else-if="task.status === 'running'" class="video-task-card__hint">AI 正在生成视频…</span>
+    </div>
+
+    <!-- 失败错误 -->
+    <p v-if="task.status === 'failed' && task.errorMessage" class="video-task-card__error">
+      {{ task.errorMessage }}
+    </p>
+    <p v-else-if="task.status === 'cancelled'" class="video-task-card__error video-task-card__error--muted">
+      任务已取消
+    </p>
+
+    <!-- 播放器 -->
+    <template v-if="playUrl">
+      <video
+        class="video-task-card__player"
+        :src="playUrl"
+        controls
+        preload="metadata"
+      ></video>
+      <div class="video-task-card__foot">
+        <span class="video-task-card__file">{{ formatSize(task.outputPath) }}</span>
+        <NButton size="tiny" text type="primary" @click="handleOpen">
+          <template #icon><NIcon :size="14"><PlayArrowOutlined /></NIcon></template>
+          在文件面板打开
+        </NButton>
+      </div>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.video-task-card {
+  border: 1px solid var(--af-border, #334155);
+  border-radius: 10px;
+  background-color: var(--af-bg-surface, #1e293b);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 100%;
+}
+
+.video-task-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.video-task-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.video-task-card__prompt {
+  font-size: 13px;
+  color: var(--af-text-primary, #e5e7eb);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+.video-task-card__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.video-task-card__hint {
+  font-size: 12px;
+  color: var(--af-text-muted, #9ca3af);
+}
+
+.video-task-card__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--af-error, #ef4444);
+}
+
+.video-task-card__error--muted {
+  color: var(--af-text-muted, #9ca3af);
+}
+
+.video-task-card__player {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 8px;
+  background-color: #000;
+}
+
+.video-task-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.video-task-card__file {
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--af-text-tertiary, #94a3b8);
+}
+</style>

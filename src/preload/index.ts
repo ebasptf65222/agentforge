@@ -412,6 +412,67 @@ const browser = {
     ipcRenderer.invoke('browser:get-page-info', params ?? {}),
 }
 
+// ─── Video 命名空间 (AI 视频生成 M1) ─────────────────────────
+
+const video = {
+  generate: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('video:generate', params),
+
+  status: (id: string): Promise<unknown> => ipcRenderer.invoke('video:status', { id }),
+
+  list: (limit?: number): Promise<unknown[]> =>
+    ipcRenderer.invoke('video:list', limit !== undefined ? { limit } : undefined),
+
+  cancel: (id: string): Promise<unknown> => ipcRenderer.invoke('video:cancel', { id }),
+
+  retry: (id: string): Promise<unknown> => ipcRenderer.invoke('video:retry', { id }),
+
+  cancelSequence: (id: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:cancel-sequence', { id }),
+
+  deleteTask: (id: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:delete-task', { id }),
+
+  deleteSequence: (id: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:delete-sequence', { id }),
+
+  retryTasks: (ids: string[]): Promise<unknown> =>
+    ipcRenderer.invoke('video:batch-retry', { ids }),
+
+  cancelSequences: (ids: string[]): Promise<unknown> =>
+    ipcRenderer.invoke('video:cancel-sequences', { ids }),
+
+  deleteTasks: (ids: string[]): Promise<unknown> =>
+    ipcRenderer.invoke('video:delete-tasks', { ids }),
+
+  deleteSequences: (ids: string[]): Promise<unknown> =>
+    ipcRenderer.invoke('video:delete-sequences', { ids }),
+
+  // M11：CSV 批量造片（解析预览 + 受限并发批量生成）
+  parseCsv: (filePath: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:parse-csv', { filePath }),
+
+  batchGenerate: (rows: unknown[], concurrency?: number): Promise<unknown> =>
+    ipcRenderer.invoke(
+      'video:batch-generate',
+      concurrency !== undefined ? { rows, concurrency } : { rows },
+    ),
+
+  getConfig: (): Promise<unknown> => ipcRenderer.invoke('video:get-config'),
+
+  listSequences: (limit?: number): Promise<unknown[]> =>
+    ipcRenderer.invoke('video:list-sequences', limit !== undefined ? { limit } : undefined),
+
+  getSequenceDetail: (id: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:sequence-detail', { id }),
+
+  testConfig: (): Promise<unknown> => ipcRenderer.invoke('video:test-config'),
+
+  // 引擎异步推送 progress / completed / failed
+  onEvent: (callback: (data: unknown) => void): (() => void) =>
+    onEvent('video:event', callback),
+}
+
 // ─── Checkpoint 命名空间 (快照回滚) ──────────────────────────
 
 const checkpoint = {
@@ -494,6 +555,7 @@ if (process.contextIsolated) {
       browser,
       checkpoint,
       scheduler,
+      video,
     })
   } catch (error) {
     console.error('[AgentForge Preload] contextBridge.exposeInMainWorld failed:', error)

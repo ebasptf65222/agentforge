@@ -7,6 +7,7 @@
           <AppShell>
             <div class="app__content">
               <ChatView v-if="uiStore.currentView === 'chat'" />
+              <VideoLibraryView v-else-if="uiStore.currentView === 'video'" />
               <KbView v-else-if="uiStore.currentView === 'kb'" />
               <WikiView v-else-if="uiStore.currentView === 'wiki'" />
               <SettingsView v-else />
@@ -30,6 +31,7 @@ import ChatView from '@/views/ChatView.vue'
 // 非首屏视图按需加载，缩短启动时间
 const WikiView = defineAsyncComponent(() => import('@/components/Wiki/WikiView.vue'))
 const KbView = defineAsyncComponent(() => import('@/views/KbView.vue'))
+const VideoLibraryView = defineAsyncComponent(() => import('@/views/VideoLibraryView.vue'))
 const SettingsView = defineAsyncComponent(() => import('@/views/SettingsView.vue'))
 
 const uiStore = useUiStore()

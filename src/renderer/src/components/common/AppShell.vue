@@ -10,19 +10,21 @@ import {
   BookOutlined,
   AutoStoriesOutlined,
   SettingsOutlined,
+  VideoLibraryOutlined,
 } from '@vicons/material'
 import { useUiStore } from '@/stores/ui'
 
 const uiStore = useUiStore()
 
 interface RailItem {
-  view: 'chat' | 'kb' | 'wiki' | 'settings'
+  view: 'chat' | 'kb' | 'wiki' | 'video' | 'settings'
   label: string
   icon: unknown
 }
 
 const railItems: RailItem[] = [
   { view: 'chat', label: '对话', icon: ChatBubbleOutlined },
+  { view: 'video', label: '视频库', icon: VideoLibraryOutlined },
   { view: 'kb', label: '知识库', icon: BookOutlined },
   { view: 'wiki', label: 'Wiki', icon: AutoStoriesOutlined },
   { view: 'settings', label: '设置', icon: SettingsOutlined },
