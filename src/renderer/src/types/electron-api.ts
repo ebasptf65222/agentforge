@@ -26,14 +26,11 @@ import type {
   ImportResult,
   KbStats,
   VoiceConfig,
-  TtsConfig,
-  SttConfig,
   TtsOptions,
   SttOptions,
   FileTreeNode,
   WorkspaceDirectoryEntry,
   WikiStatus,
-  WikiPageSummary,
   AuditReport,
   AuditInput,
   ActiveSessionInfo,
@@ -41,6 +38,9 @@ import type {
   ElicitationResponse,
   Checkpoint,
   CheckpointDiff,
+  VideoTask,
+  VideoAsyncEvent,
+  CreateVideoTaskParams,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -578,6 +578,33 @@ interface CheckpointAPI {
   delete(params: CheckpointDeleteParams): Promise<CheckpointDeleteResult>
 }
 
+/** 视频生成配置回显（不含 API Key） */
+interface VideoConfigView {
+  provider: 'seedance'
+  baseUrl: string
+  model: string
+  maxDuration: number
+  configured: boolean
+}
+
+/** 视频生成命名空间（M3 AI 视频生成） */
+interface VideoAPI {
+  /** 提交一个视频生成任务 */
+  generate(params: CreateVideoTaskParams): Promise<VideoTask>
+  /** 查询单个任务状态 */
+  status(id: string): Promise<VideoTask | null>
+  /** 获取任务列表 */
+  list(limit?: number): Promise<VideoTask[]>
+  /** 取消在途任务 */
+  cancel(id: string): Promise<VideoTask | null>
+  /** 读取视频生成配置（不含 API Key） */
+  getConfig(): Promise<VideoConfigView>
+  /** 测试连接（校验配置完整性） */
+  testConfig(): Promise<{ ok: boolean; provider: 'seedance'; baseUrl: string; model: string }>
+  /** 订阅异步推送事件（progress / completed / failed），返回取消订阅函数 */
+  onEvent(callback: (event: VideoAsyncEvent) => void): () => void
+}
+
 /** window.electron 完整类型 */
 interface ElectronAPI {
   chat: ChatAPI
@@ -590,6 +617,7 @@ interface ElectronAPI {
   skill: SkillAPI
   kb: KbAPI
   voice: VoiceAPI
+  video: VideoAPI
   window: WindowAPI
   workspace: WorkspaceAPI
   wiki: WikiAPI
@@ -657,4 +685,6 @@ export type {
   CheckpointDeleteResult,
   ForkConversationParams,
   ConversationTreeResult,
+  VideoAPI,
+  VideoConfigView,
 }

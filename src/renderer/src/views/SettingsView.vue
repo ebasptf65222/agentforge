@@ -14,8 +14,17 @@ import VoiceConfig from '@/components/Settings/VoiceConfig.vue'
 import WorkspaceConfig from '@/components/Settings/WorkspaceConfig.vue'
 import GeneralSettings from '@/components/Settings/GeneralSettings.vue'
 import SchedulerConfig from '@/components/Settings/SchedulerConfig.vue'
+import VideoConfig from '@/components/Settings/VideoConfig.vue'
 
-type SettingsTab = 'models' | 'mcp' | 'skills' | 'voice' | 'workspace' | 'general' | 'scheduler'
+type SettingsTab =
+  | 'models'
+  | 'mcp'
+  | 'skills'
+  | 'voice'
+  | 'workspace'
+  | 'general'
+  | 'scheduler'
+  | 'video'
 
 const uiStore = useUiStore()
 const activeTab = ref<SettingsTab>('models')
@@ -30,6 +39,7 @@ const TAB_KEYWORDS: Record<SettingsTab, string[]> = {
   workspace: ['工作区', 'workspace', '文件', '目录', 'folder'],
   general: ['通用', 'general', '主题', 'theme', '审批', 'approval', '超时', 'timeout', '更新', 'update', '版本', 'version'],
   scheduler: ['定时', '任务', '调度', 'schedule', 'cron', '自动化', '夜间'],
+  video: ['视频', 'video', 'seedance', '生成视频', '影视', '剪辑'],
 }
 
 const tabOptions = computed(() => {
@@ -117,6 +127,9 @@ const paneStyle: CSSProperties = {
       </NTabPane>
       <NTabPane name="scheduler" tab="定时任务">
         <SchedulerConfig />
+      </NTabPane>
+      <NTabPane name="video" tab="视频生成">
+        <VideoConfig />
       </NTabPane>
     </NTabs>
   </div>
