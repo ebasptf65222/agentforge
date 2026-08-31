@@ -917,6 +917,10 @@ export class VideoEngine {
   }
 
   private async handleSucceeded(id: string, task: VideoTask, downloadUrl: string | null): Promise<void> {
+    if (!downloadUrl) {
+      // completed 但未提取到下载地址：不落文件，记录日志便于排查厂商响应结构变化
+      console.warn(`[Video] task ${id} completed but no download url found in provider response`)
+    }
     let outputPath: string | null = null
     try {
       if (downloadUrl) {

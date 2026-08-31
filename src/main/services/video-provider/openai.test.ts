@@ -107,14 +107,45 @@ describe('OpenAIVideoAdapter', () => {
     expect(body['seconds']).toBe('12')
   })
 
-  it('should poll via Agnes /agnesapi and map completed with metadata.url', async () => {
+  it('should poll via Agnes /agnesapi and map completed with top-level url (real payload shape)', async () => {
     const requests: Array<Parameters<HttpRequestFn>[0]> = []
     const request = makeRequestMock((input) => {
       requests.push(input)
       return {
         status: 200,
+        // /agnesapi 实测返回顶层 url，无 metadata 字段
         data: {
-          video_id: 'video_1',
+          id: 'task_1',
+          status: 'completed',
+          progress: 100,
+          url: 'https://cdn.example.com/video.mp4',
+        },
+      }
+    })
+
+    const adapter = new OpenAIVideoAdapter(request)
+    const result = await adapter.status('video_1', TEST_CONFIG)
+
+    expect(result).toEqual({
+      status: 'succeeded',
+      progress: 100,
+      downloadUrl: 'https://cdn.example.com/video.mp4',
+    })
+    expect(requests[0].method).toBe('GET')
+    expect(requests[0].url).toBe('https://api.agnes-ai.cn/agnesapi?video_id=video_1&model_name=agnes-video-2.5-flash')
+  })
+
+  it('should extract metadata.url from OpenAI-style /videos/{id} completion', async () => {
+    const request = makeRequestMock((input) => {
+      if (input.url.includes('/agnesapi')) {
+        const err = new Error('HTTP 404 Not Found') as Error & { status?: number }
+        err.status = 404
+        throw err
+      }
+      return {
+        status: 200,
+        data: {
+          id: 'video_1',
           status: 'completed',
           progress: 100,
           metadata: { url: 'https://cdn.example.com/video.mp4' },
@@ -130,8 +161,6 @@ describe('OpenAIVideoAdapter', () => {
       progress: 100,
       downloadUrl: 'https://cdn.example.com/video.mp4',
     })
-    expect(requests[0].method).toBe('GET')
-    expect(requests[0].url).toBe('https://api.agnes-ai.cn/agnesapi?video_id=video_1&model_name=agnes-video-2.5-flash')
   })
 
   it('should fall back to standard GET /videos/{id} when /agnesapi returns 404', async () => {

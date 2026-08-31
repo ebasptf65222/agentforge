@@ -194,12 +194,22 @@ function mapStatus(data: Record<string, unknown>): StatusResult {
   return { status: 'queued', progress: rawProgress ?? 5, downloadUrl: null }
 }
 
-/** 从完成响应里提取视频地址（metadata.url） */
+/**
+ * 从完成响应里提取视频地址。
+ * 兼容两种结构：/agnesapi 返回顶层 url（实测无 metadata 字段），
+ * OpenAI 风格 /videos/{id} 返回 metadata.url。
+ */
 function extractDownloadUrl(data: Record<string, unknown>): string | null {
+  const candidates: unknown[] = [data['url'], data['video_url'], data['download_url']]
   const metadata = data['metadata']
-  if (!metadata || typeof metadata !== 'object') return null
-  const url = (metadata as Record<string, unknown>)['url']
-  return typeof url === 'string' && url !== '' ? url : null
+  if (metadata && typeof metadata === 'object') {
+    const meta = metadata as Record<string, unknown>
+    candidates.push(meta['url'], meta['video_url'], meta['download_url'])
+  }
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.startsWith('http')) return candidate
+  }
+  return null
 }
 
 /**
