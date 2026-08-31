@@ -145,7 +145,7 @@ export const terminalExecTool: BuiltinTool = {
 
     try {
       const result = await new Promise<{ stdout: string; stderr: string; exitCode: number | null }>(
-        (resolve, reject) => {
+        (resolve, _reject) => {
           exec(command, options, (error, stdout, stderr) => {
             if (error) {
               // 区分超时和其他错误

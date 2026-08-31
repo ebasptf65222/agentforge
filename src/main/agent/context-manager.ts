@@ -16,9 +16,6 @@ import { estimateTokens, MIN_KEEP_ROUNDS } from './tokenizer'
 /** 默认上下文窗口大小（tokens） */
 const DEFAULT_CONTEXT_WINDOW = 128_000
 
-/** 系统提示词预留 token 数 */
-const SYSTEM_PROMPT_RESERVE = 4_000
-
 /** 工具定义预留 token 数 */
 const TOOL_DEFS_RESERVE = 2_000
 
@@ -81,7 +78,6 @@ export function manageContext(
   config: ContextManagementConfig,
 ): ContextManagementResult {
   const maxTokens = config.maxContextTokens || DEFAULT_CONTEXT_WINDOW
-  const systemReserve = config.systemPromptReserve ?? SYSTEM_PROMPT_RESERVE
   const toolReserve = config.toolDefsReserve ?? TOOL_DEFS_RESERVE
   const outputReserve = config.outputReserve ?? OUTPUT_RESERVE
   const minRecent = config.minRecentMessages ?? MIN_RECENT_MESSAGES

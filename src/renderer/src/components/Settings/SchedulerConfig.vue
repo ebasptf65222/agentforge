@@ -34,13 +34,10 @@ import {
   DeleteOutlined,
   RefreshOutlined,
   PlayArrowOutlined,
-  ScheduleOutlined,
   HistoryOutlined,
-  WarningOutlined,
 } from '@vicons/material'
 import type {
   ScheduledTask,
-  ScheduledTaskRun,
   ScheduleType,
   TaskRunStatus,
   CreateScheduledTaskParams,
@@ -102,12 +99,6 @@ const form = reactive<SchedulerFormState>({ ...DEFAULT_FORM })
 
 const isEditing = computed(() => editingId.value !== null)
 const modalTitle = computed(() => (isEditing.value ? '编辑定时任务' : '创建定时任务'))
-
-const scheduleTypeOptions = [
-  { label: 'Cron 表达式', value: 'cron' },
-  { label: '定时执行（一次性）', value: 'at' },
-  { label: '间隔执行', value: 'every' },
-]
 
 const approvalModeOptions = [
   { label: '建议模式', value: 'suggest' },
@@ -260,12 +251,14 @@ function formatSchedule(task: ScheduledTask): string {
     case 'at':
       return formatTimestamp(task.atMs)
     case 'every':
-      if (!task.everyMs) return '-'
-      const mins = Math.round(task.everyMs / 60_000)
-      if (mins < 60) return `每 ${mins} 分钟`
-      const hours = Math.round(mins / 60)
-      if (hours < 24) return `每 ${hours} 小时`
-      return `每 ${Math.round(hours / 24)} 天`
+      {
+        if (!task.everyMs) return '-'
+        const mins = Math.round(task.everyMs / 60_000)
+        if (mins < 60) return `每 ${mins} 分钟`
+        const hours = Math.round(mins / 60)
+        if (hours < 24) return `每 ${hours} 小时`
+        return `每 ${Math.round(hours / 24)} 天`
+      }
     default:
       return '-'
   }
@@ -408,7 +401,7 @@ const columns = computed<DataTableColumns<ScheduledTask>>(() => [
           {
             size: 'small',
             value: row.enabled,
-            onUpdateValue: (val: boolean) => handleToggle(row),
+            onUpdateValue: (_val: boolean) => handleToggle(row),
           },
         ),
         h(

@@ -4,7 +4,7 @@
 
 import type { BuiltinTool } from './types'
 import { AppError, ErrorCodes } from '../utils/error'
-import { isWikiInitialized, readIndex, readWikiPage, listWikiPages, listRawSources, readRawSource, appendLog, getWikiPath } from '../wiki/wiki-manager'
+import { isWikiInitialized, readIndex, readWikiPage, listWikiPages, listRawSources, getWikiPath } from '../wiki/wiki-manager'
 
 /** wiki_query 工具定义与执行函数 */
 export const wikiQueryTool: BuiltinTool = {
@@ -144,7 +144,6 @@ LLM Wiki 是一个由 AI 持续维护的结构化 Markdown 知识库，包含实
 
           const pages = await listWikiPages()
           const rawSources = await listRawSources()
-          const indexContent = await readIndex()
 
           return {
             isError: false,

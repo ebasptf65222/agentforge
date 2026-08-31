@@ -1,7 +1,6 @@
 // AgentForge P2-02: Checkpoint Repository
 // checkpoints 表数据访问层
 
-import type Database from 'better-sqlite3'
 import type { Checkpoint } from '@shared/types'
 import { getDatabase } from '../index'
 

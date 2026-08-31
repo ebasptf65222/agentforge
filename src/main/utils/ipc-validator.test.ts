@@ -29,8 +29,8 @@ describe('createValidatedHandler', () => {
   })
 
   it('should support synchronous handler', () => {
-    const validate = (params: Record<string, unknown>) => ({ id: params['id'] as number })
-    const handler = (validated: { id: number }) => validated.id * 2
+    const validate = (params: Record<string, unknown>): { id: number } => ({ id: params['id'] as number })
+    const handler = (validated: { id: number }): number => validated.id * 2
 
     const wrapped = createValidatedHandler(validate, handler)
 

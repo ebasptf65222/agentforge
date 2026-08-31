@@ -5,7 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemorySaver } from '@langchain/langgraph'
 import { executeWithStateGraph } from './state-graph'
 import { EventConverter } from './event-converter'
-import { ModelWrapper } from './model-adapter'
+import type { ModelWrapper } from './model-adapter'
+import type * as ApprovalModule from '../agent/approval'
 import type { WrappedTool } from './tool-adapter'
 import type { AgentEventCallbacks } from '../agent/types'
 import type { AgentExecutionRequest, ApprovalMode } from '../../shared/types'
@@ -16,7 +17,7 @@ import { ApprovalManager } from '../agent/approval'
 // 在 full-auto 模式下会触发 interrupt() 导致测试超时。
 // mock getToolRiskLevel 返回 'low' 使所有工具免审批，聚焦测试图逻辑。
 vi.mock('../agent/approval', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../agent/approval')>()
+  const actual = await importOriginal<ApprovalModule>()
   return {
     ...actual,
     getToolRiskLevel: vi.fn().mockReturnValue('low' as const),
@@ -75,7 +76,7 @@ function createOptions(overrides?: {
   outputs?: string[]
   maxSteps?: number
   abortSignal?: AbortSignal
-}) {
+}): Parameters<typeof executeWithStateGraph>[0] {
   const callbacks = createMockCallbacks()
   const eventConverter = new EventConverter(callbacks)
   const model = overrides?.model ?? createFakeModelWrapper(overrides?.outputs ?? ['Final Answer: Done.'])

@@ -2,12 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { StreamBatcher } from './stream-batcher'
 
 describe('StreamBatcher', () => {
-  let originalSetInterval: typeof setInterval
-  let originalClearInterval: typeof clearInterval
-
   beforeEach(() => {
-    originalSetInterval = global.setInterval
-    originalClearInterval = global.clearInterval
     vi.useFakeTimers()
   })
 

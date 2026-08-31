@@ -30,6 +30,7 @@ const FileTreeNodeItem = defineComponent({
     onContextMenu: {
       type: Function as PropType<(node: FileTreeNode, event: MouseEvent) => void>,
       required: false,
+      default: undefined,
     },
   },
   setup(props) {

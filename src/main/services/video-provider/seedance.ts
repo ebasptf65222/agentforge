@@ -155,10 +155,10 @@ const IMAGE_MIME: Record<string, string> = {
 }
 
 /**
- * 读取本地参考图并编码为 ARK 接受的 base64 data URI。
+ * 读取本地参考图并编码为 base64 data URI（OpenAI Videos 协议适配器复用）。
  * 格式：data:image/<ext>;base64,<base64>。找不到文件或超限时抛 AppError。
  */
-async function readImageDataUri(ref: VideoImageRef): Promise<string> {
+export async function readImageDataUri(ref: VideoImageRef): Promise<string> {
   let buffer: Buffer
   try {
     buffer = await readFile(ref.path)

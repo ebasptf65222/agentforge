@@ -1,13 +1,23 @@
-// M10/M11: 批量操作与 CSV 批量造片 IPC 通道注册与参数校验测试
+// M10/M11/M12: 批量操作、CSV 批量造片与统计导出 IPC 通道注册与参数校验测试
 // 通过 mock 引擎与 electron.ipcMain 捕获注册的 handler，验证：
 //  - 批量通道正确注册并委托到引擎
 //  - ids / rows 数组通过获取、空数组/非法输入被校验拦截
 //  - M11 parse-csv 读取文件后委托解析器；batch-generate 校验行后委托引擎
+//  - M12 stats / export-stats 委托统计服务，导出经保存对话框写文件
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // ─── Mock setup（hoisted，供 vi.mock factory 引用） ────────────
-const { capturedHandlers, mockEngine, mockParseCsvRows, mockReadFile } = vi.hoisted(() => {
+const {
+  capturedHandlers,
+  mockEngine,
+  mockParseCsvRows,
+  mockReadFile,
+  mockWriteFile,
+  mockShowSaveDialog,
+  mockAggregateVideoStats,
+  mockBuildStatsCsv,
+} = vi.hoisted(() => {
   const capturedHandlers: Record<string, (...args: unknown[]) => unknown> = {}
   const mockEngine = {
     retryTasks: vi.fn(),
@@ -15,10 +25,27 @@ const { capturedHandlers, mockEngine, mockParseCsvRows, mockReadFile } = vi.hois
     deleteTasks: vi.fn(),
     deleteSequences: vi.fn(),
     generateRows: vi.fn(),
+    getQueueSnapshot: vi.fn(),
+    pauseQueue: vi.fn(),
+    resumeQueue: vi.fn(),
+    setQueueConcurrency: vi.fn(),
   }
   const mockParseCsvRows = vi.fn()
   const mockReadFile = vi.fn()
-  return { capturedHandlers, mockEngine, mockParseCsvRows, mockReadFile }
+  const mockWriteFile = vi.fn()
+  const mockShowSaveDialog = vi.fn()
+  const mockAggregateVideoStats = vi.fn()
+  const mockBuildStatsCsv = vi.fn()
+  return {
+    capturedHandlers,
+    mockEngine,
+    mockParseCsvRows,
+    mockReadFile,
+    mockWriteFile,
+    mockShowSaveDialog,
+    mockAggregateVideoStats,
+    mockBuildStatsCsv,
+  }
 })
 
 vi.mock('electron', () => ({
@@ -28,12 +55,19 @@ vi.mock('electron', () => ({
     },
     removeHandler: () => undefined,
   },
+  dialog: { showSaveDialog: (...args: unknown[]) => mockShowSaveDialog(...args) },
+  BrowserWindow: { getAllWindows: () => [] },
 }))
 vi.mock('node:fs/promises', () => ({
   readFile: (...args: unknown[]) => mockReadFile(...args),
+  writeFile: (...args: unknown[]) => mockWriteFile(...args),
 }))
 vi.mock('../services/csv-batch', () => ({
   parseCsvRows: (...args: unknown[]) => mockParseCsvRows(...args),
+}))
+vi.mock('../services/video-stats', () => ({
+  aggregateVideoStats: (...args: unknown[]) => mockAggregateVideoStats(...args),
+  buildStatsCsv: (...args: unknown[]) => mockBuildStatsCsv(...args),
 }))
 vi.mock('../services/video-engine', () => ({
   getVideoEngine: () => mockEngine,
@@ -169,5 +203,121 @@ describe('video batch IPC', () => {
     expectValidationError(() => raw(null, { rows: [{ prompt: '  ' }] }))
     expectValidationError(() => raw(null, { rows: [{ prompt: 'ok', resolution: '4K' }] }))
     expectValidationError(() => raw(null, { rows: [{ prompt: 'ok', duration: -1 }] }))
+  })
+
+  // ─── M12: 统计与导出 ────────────────────────────────────────
+
+  it('registers the two M12 stats channels', () => {
+    registerVideoHandlers()
+    expect(capturedHandlers['video:stats']).toBeDefined()
+    expect(capturedHandlers['video:export-stats']).toBeDefined()
+  })
+
+  it('stats delegates with days and defaults when omitted (M12)', async () => {
+    mockAggregateVideoStats.mockReturnValue({ total: 0 })
+    registerVideoHandlers()
+
+    await handler('video:stats')(null, { days: 7 })
+    const calledWith = mockAggregateVideoStats.mock.calls[0]?.[0] as number
+    // since = now - 7 天（允许秒级误差）
+    expect(Math.abs(Date.now() - calledWith - 7 * 24 * 3600 * 1000)).toBeLessThan(5000)
+
+    await handler('video:stats')(null, undefined)
+    const second = mockAggregateVideoStats.mock.calls[1]?.[0] as number
+    expect(Math.abs(Date.now() - second - 30 * 24 * 3600 * 1000)).toBeLessThan(5000)
+  })
+
+  it('export-stats writes BOM CSV to the chosen path (M12)', async () => {
+    const overview = { total: 1 }
+    mockAggregateVideoStats.mockReturnValue(overview)
+    mockBuildStatsCsv.mockReturnValue('section,key\nsummary,ALL')
+    mockShowSaveDialog.mockResolvedValue({ canceled: false, filePath: 'D:/out/report.csv' })
+    mockWriteFile.mockResolvedValue(undefined)
+    registerVideoHandlers()
+
+    const result = (await handler('video:export-stats')(null, { days: 30 })) as {
+      canceled: boolean
+      path?: string
+    }
+
+    expect(result.canceled).toBe(false)
+    expect(result.path).toBe('D:/out/report.csv')
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      'D:/out/report.csv',
+      expect.stringContaining('\uFEFFsection,key'),
+      'utf8',
+    )
+  })
+
+  it('export-stats returns canceled without writing when dialog canceled (M12)', async () => {
+    mockAggregateVideoStats.mockReturnValue({ total: 0 })
+    mockShowSaveDialog.mockResolvedValue({ canceled: true })
+    registerVideoHandlers()
+
+    const result = (await handler('video:export-stats')(null, undefined)) as { canceled: boolean }
+
+    expect(result.canceled).toBe(true)
+    expect(mockWriteFile).not.toHaveBeenCalled()
+  })
+
+  it('rejects out-of-range days for stats channels (M12)', () => {
+    registerVideoHandlers()
+    const rawStats = handler('video:stats')
+    const rawExport = handler('video:export-stats')
+    const expectValidationError = (fn: () => unknown): void => {
+      try {
+        fn()
+        throw new Error('expected a validation error to be thrown')
+      } catch (error) {
+        expect((error as { code?: string }).code).toBe(ErrorCodes.VALIDATION_ERROR)
+      }
+    }
+
+    expectValidationError(() => rawStats(null, { days: 0 }))
+    expectValidationError(() => rawStats(null, { days: 366 }))
+    expectValidationError(() => rawExport(null, { days: 'x' }))
+  })
+
+  // ─── M13: 生成队列 ──────────────────────────────────────────
+
+  it('registers the four M13 queue channels and delegates to the engine', async () => {
+    const snapshot = { paused: false, maxConcurrent: 2, activeCount: 1, items: [] }
+    mockEngine.getQueueSnapshot.mockReturnValue(snapshot)
+    mockEngine.pauseQueue.mockReturnValue({ ...snapshot, paused: true })
+    mockEngine.resumeQueue.mockReturnValue(snapshot)
+    mockEngine.setQueueConcurrency.mockReturnValue({ ...snapshot, maxConcurrent: 5 })
+    registerVideoHandlers()
+
+    for (const ch of [
+      'video:queue',
+      'video:queue-pause',
+      'video:queue-resume',
+      'video:queue-concurrency',
+    ]) {
+      expect(capturedHandlers[ch]).toBeDefined()
+    }
+
+    expect(await handler('video:queue')(null, undefined)).toBe(snapshot)
+    expect(await handler('video:queue-pause')(null, undefined)).toMatchObject({ paused: true })
+    expect(await handler('video:queue-resume')(null, undefined)).toBe(snapshot)
+    await handler('video:queue-concurrency')(null, { limit: 5 })
+    expect(mockEngine.setQueueConcurrency).toHaveBeenCalledWith(5)
+  })
+
+  it('rejects invalid concurrency limits for queue-concurrency (M13)', () => {
+    registerVideoHandlers()
+    const raw = handler('video:queue-concurrency')
+    const expectValidationError = (fn: () => unknown): void => {
+      try {
+        fn()
+        throw new Error('expected a validation error to be thrown')
+      } catch (error) {
+        expect((error as { code?: string }).code).toBe(ErrorCodes.VALIDATION_ERROR)
+      }
+    }
+
+    expectValidationError(() => raw(null, { limit: 0 }))
+    expectValidationError(() => raw(null, { limit: 11 }))
+    expectValidationError(() => raw(null, { limit: 'x' }))
   })
 })

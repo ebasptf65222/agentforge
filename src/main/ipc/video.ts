@@ -2,8 +2,8 @@
 // 通道命名: video:generate / video:status / video:list / video:cancel
 // 渲染进程通过预加载暴露的 API 调用，实际逻辑委托给视频任务引擎。
 
-import { readFile } from 'node:fs/promises'
-import { ipcMain } from 'electron'
+import { readFile, writeFile } from 'node:fs/promises'
+import { ipcMain, dialog, BrowserWindow } from 'electron'
 import type {
   CreateVideoTaskParams,
   VideoAspect,
@@ -12,6 +12,9 @@ import type {
   VideoResolution,
   VideoSequence,
   VideoSequenceDetail,
+  VideoStatsExportResult,
+  VideoStatsOverview,
+  VideoQueueSnapshot,
   VideoTask,
 } from '@shared/types'
 import {
@@ -20,6 +23,7 @@ import {
   type VideoBatchResult,
 } from '../services/video-engine'
 import { parseCsvRows, type CsvParseResult } from '../services/csv-batch'
+import { aggregateVideoStats, buildStatsCsv } from '../services/video-stats'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getVideoSequenceById, listVideoSequences } from '../db/repos/video-sequence'
 import { listVideoTasksBySequence } from '../db/repos/video-task'
@@ -143,6 +147,65 @@ export async function handleVideoBatchGenerate(
   return getVideoEngine().generateRows(rows, concurrency)
 }
 
+/** M12：统计时间范围天数边界 */
+const STATS_MIN_DAYS = 1
+const STATS_MAX_DAYS = 365
+/** M12：统计时间范围缺省天数 */
+const STATS_DEFAULT_DAYS = 30
+
+/** 规整统计时间范围天数（缺省 30，钳制 1–365） */
+function normalizeStatsDays(days?: number): number {
+  if (days === undefined || days === null || !Number.isFinite(days)) return STATS_DEFAULT_DAYS
+  return Math.max(STATS_MIN_DAYS, Math.min(Math.round(days), STATS_MAX_DAYS))
+}
+
+/**
+ * M12：聚合生成历史统计（按时间/厂商/模型/状态）。
+ */
+export async function handleVideoStats(days?: number): Promise<VideoStatsOverview> {
+  const since = Date.now() - normalizeStatsDays(days) * 24 * 60 * 60 * 1000
+  return aggregateVideoStats(since)
+}
+
+/** 获取主窗口（导出保存对话框的 parent），无窗口时返回 undefined */
+function getMainWindow(): BrowserWindow | undefined {
+  const windows = BrowserWindow.getAllWindows()
+  if (windows.length === 0) return undefined
+  const win = windows[0]
+  return win.isDestroyed() ? undefined : win
+}
+
+/**
+ * M12：聚合统计并导出 CSV 报表。
+ * 弹出系统保存对话框（默认文件名 video-stats-YYYYMMDD.csv），
+ * 用户取消返回 { canceled: true }；否则写入 UTF-8 BOM 的 CSV 并返回落盘路径。
+ */
+export async function handleVideoExportStats(days?: number): Promise<VideoStatsExportResult> {
+  const overview = await handleVideoStats(days)
+  const now = new Date()
+  const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(
+    now.getDate(),
+  ).padStart(2, '0')}`
+  const parentWindow = getMainWindow()
+  const result = parentWindow
+    ? await dialog.showSaveDialog(parentWindow, {
+        title: '导出生成统计 CSV',
+        defaultPath: `video-stats-${stamp}.csv`,
+        filters: [{ name: 'CSV', extensions: ['csv'] }],
+      })
+    : await dialog.showSaveDialog({
+        title: '导出生成统计 CSV',
+        defaultPath: `video-stats-${stamp}.csv`,
+        filters: [{ name: 'CSV', extensions: ['csv'] }],
+      })
+  if (result.canceled || !result.filePath) {
+    return { canceled: true }
+  }
+  // UTF-8 BOM：保证 Excel 直接打开时正确识别编码
+  await writeFile(result.filePath, `\uFEFF${buildStatsCsv(overview)}`, 'utf8')
+  return { canceled: false, path: result.filePath }
+}
+
 /**
  * M11：校验批量生成的任务行数组。
  * 每行必须是对象且含非空字符串 prompt，其余可选字段按类型守卫过滤后透传。
@@ -230,6 +293,34 @@ export async function handleVideoTestConfig(provider?: VideoProvider): Promise<{
 }> {
   const config = loadVideoConfig(provider)
   return { ok: true, provider: config.provider, baseUrl: config.baseUrl, model: config.model }
+}
+
+/**
+ * M13：获取生成队列快照（排队任务、并发上限、暂停状态）。
+ */
+export async function handleVideoQueue(): Promise<VideoQueueSnapshot> {
+  return getVideoEngine().getQueueSnapshot()
+}
+
+/**
+ * M13：暂停队列出队（已提交厂商的任务继续轮询）。
+ */
+export function handleVideoQueuePause(): VideoQueueSnapshot {
+  return getVideoEngine().pauseQueue()
+}
+
+/**
+ * M13：恢复队列出队。
+ */
+export function handleVideoQueueResume(): VideoQueueSnapshot {
+  return getVideoEngine().resumeQueue()
+}
+
+/**
+ * M13：设置队列并发上限（1–10）。
+ */
+export function handleVideoQueueConcurrency(limit: number): VideoQueueSnapshot {
+  return getVideoEngine().setQueueConcurrency(limit)
 }
 
 /**
@@ -388,6 +479,35 @@ export function registerVideoHandlers(): void {
   ipcMain.removeHandler('video:get-config')
   ipcMain.handle('video:get-config', () => handleVideoConfig())
 
+  // M12：生成历史统计与 CSV 导出
+  ipcMain.removeHandler('video:stats')
+  ipcMain.handle(
+    'video:stats',
+    (_event, ...args) => {
+      const params = args[0]
+      const obj =
+        params === undefined || params === null
+          ? undefined
+          : (params as Record<string, unknown>)
+      const days = obj ? validateOptionalNumber(obj['days'], 'days', 1, 365) : undefined
+      return handleVideoStats(days)
+    },
+  )
+
+  ipcMain.removeHandler('video:export-stats')
+  ipcMain.handle(
+    'video:export-stats',
+    (_event, ...args) => {
+      const params = args[0]
+      const obj =
+        params === undefined || params === null
+          ? undefined
+          : (params as Record<string, unknown>)
+      const days = obj ? validateOptionalNumber(obj['days'], 'days', 1, 365) : undefined
+      return handleVideoExportStats(days)
+    },
+  )
+
   ipcMain.removeHandler('video:list-sequences')
   ipcMain.handle(
     'video:list-sequences',
@@ -407,6 +527,25 @@ export function registerVideoHandlers(): void {
     'video:sequence-detail',
     createValidatedHandler(p => ({ id: validateNonEmptyString(p['id'], 'id') }), ({ id }) =>
       handleVideoSequenceDetail(id),
+    ),
+  )
+
+  // M13：生成队列
+  ipcMain.removeHandler('video:queue')
+  ipcMain.handle('video:queue', () => handleVideoQueue())
+
+  ipcMain.removeHandler('video:queue-pause')
+  ipcMain.handle('video:queue-pause', () => handleVideoQueuePause())
+
+  ipcMain.removeHandler('video:queue-resume')
+  ipcMain.handle('video:queue-resume', () => handleVideoQueueResume())
+
+  ipcMain.removeHandler('video:queue-concurrency')
+  ipcMain.handle(
+    'video:queue-concurrency',
+    createValidatedHandler(
+      (p) => ({ limit: validateOptionalNumber(p['limit'], 'limit', 1, 10) }),
+      ({ limit }) => handleVideoQueueConcurrency(limit as number),
     ),
   )
 

@@ -6,7 +6,7 @@
 export type VideoProvider = 'seedance' | 'kling' | 'custom'
 
 /** 自定义厂商使用的 API 协议（复用内置适配器） */
-export type VideoCustomProtocol = 'ark' | 'kling'
+export type VideoCustomProtocol = 'ark' | 'kling' | 'openai'
 
 /** 视频任务状态 */
 export type VideoTaskStatus =
@@ -167,4 +167,78 @@ export interface VideoConfigView {
   /** 各厂商配置回显 */
   providers: Record<VideoProvider, VideoProviderConfigView>
   maxDuration: number
+}
+
+// ─── M12：生成历史统计 ─────────────────────────────────────────
+
+/** 统计分桶（按天 / 厂商 / 模型聚合的一行） */
+export interface VideoStatsBucket {
+  /** 桶标识：日期（YYYY-MM-DD）/ 厂商名 / 模型名 */
+  key: string
+  /** 任务行总数 */
+  total: number
+  /** 成功任务数 */
+  succeeded: number
+  /** 失败任务数 */
+  failed: number
+  /** 取消任务数 */
+  cancelled: number
+  /** 未到终态（queued/submitted/running）任务数 */
+  active: number
+  /** 成功率（%）：succeeded ÷ 终态数 × 100，无终态时为 0 */
+  successRate: number
+  /** 失败率（%）：failed ÷ 终态数 × 100，无终态时为 0 */
+  failureRate: number
+  /** 成功任务平均耗时（秒，createdAt→updatedAt），无成功任务时为 null */
+  avgElapsedSeconds: number | null
+  /** 成功产出视频总时长（秒，用量） */
+  videoSeconds: number
+}
+
+/** 生成历史统计总览（M12，实时聚合 video_tasks） */
+export interface VideoStatsOverview {
+  /** 统计起始时间戳（毫秒） */
+  since: number
+  /** 任务行总数 */
+  total: number
+  succeeded: number
+  failed: number
+  cancelled: number
+  /** 未到终态任务数 */
+  active: number
+  successRate: number
+  failureRate: number
+  avgElapsedSeconds: number | null
+  videoSeconds: number
+  /** 按天分桶（本地时区 YYYY-MM-DD，仅含有任务的日期） */
+  byDay: VideoStatsBucket[]
+  /** 按厂商分桶 */
+  byProvider: VideoStatsBucket[]
+  /** 按模型分桶 */
+  byModel: VideoStatsBucket[]
+}
+
+/** M12：导出统计 CSV 结果（用户取消时不落盘） */
+export type VideoStatsExportResult =
+  | { canceled: true }
+  | { canceled: false; path: string }
+
+// ─── M13：生成队列 ─────────────────────────────────────────────
+
+/** 队列中的一项（排队任务 + 位置，position 从 1 开始） */
+export interface VideoQueueItem {
+  task: VideoTask
+  position: number
+}
+
+/** 生成队列快照（M13，内存态 FIFO 队列） */
+export interface VideoQueueSnapshot {
+  /** 是否已暂停出队（暂停期间新任务保持排队，已提交任务不受影响） */
+  paused: boolean
+  /** 同时在途（已提交未终态）任务上限 */
+  maxConcurrent: number
+  /** 当前在途任务数 */
+  activeCount: number
+  /** 排队任务（按出队顺序） */
+  items: VideoQueueItem[]
 }

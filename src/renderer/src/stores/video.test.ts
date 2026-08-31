@@ -64,6 +64,12 @@ function mockElectronVideo(overrides?: Record<string, unknown>): Record<string, 
     deleteSequences: vi.fn(),
     parseCsv: vi.fn(),
     batchGenerate: vi.fn(),
+    stats: vi.fn(),
+    exportStats: vi.fn(),
+    queue: vi.fn(),
+    queuePause: vi.fn(),
+    queueResume: vi.fn(),
+    queueConcurrency: vi.fn(),
     getConfig: vi.fn(),
     testConfig: vi.fn(),
     listSequences: vi.fn().mockResolvedValue([]),
@@ -499,5 +505,105 @@ describe('video store', () => {
     await store.batchGenerate([])
 
     expect(api.batchGenerate).not.toHaveBeenCalled()
+  })
+
+  // ─── M12: 生成历史统计 ──────────────────────────────────────
+
+  it('fetchStats 拉取统计并缓存（M12）', async () => {
+    const overview = {
+      since: 1000,
+      total: 3,
+      succeeded: 2,
+      failed: 1,
+      cancelled: 0,
+      active: 0,
+      successRate: 66.67,
+      failureRate: 33.33,
+      avgElapsedSeconds: 20,
+      videoSeconds: 15,
+      byDay: [],
+      byProvider: [],
+      byModel: [],
+    }
+    const api = mockElectronVideo({ stats: vi.fn().mockResolvedValue(overview) })
+    const store = useVideoStore()
+
+    const result = await store.fetchStats(7)
+
+    expect(api.stats).toHaveBeenCalledWith(7)
+    expect(result.total).toBe(3)
+    expect(store.stats?.succeeded).toBe(2)
+    expect(store.statsDays).toBe(7)
+    expect(store.statsLoading).toBe(false)
+  })
+
+  it('fetchStats 缺省沿用当前范围（M12）', async () => {
+    const api = mockElectronVideo({ stats: vi.fn().mockResolvedValue(null) })
+    const store = useVideoStore()
+
+    await store.fetchStats()
+
+    expect(api.stats).toHaveBeenCalledWith(30)
+  })
+
+  it('exportStatsCsv 成功返回 true，取消返回 false（M12）', async () => {
+    const api = mockElectronVideo({
+      exportStats: vi.fn().mockResolvedValue({ canceled: false, path: 'D:/r.csv' }),
+    })
+    const store = useVideoStore()
+    expect(await store.exportStatsCsv()).toBe(true)
+    expect(api.exportStats).toHaveBeenCalledWith(30)
+
+    ;(api.exportStats as ReturnType<typeof vi.fn>).mockResolvedValue({ canceled: true })
+    expect(await store.exportStatsCsv()).toBe(false)
+  })
+
+  it('exportStatsCsv 出错向上抛出（M12）', async () => {
+    mockElectronVideo({
+      exportStats: vi.fn().mockRejectedValue(new Error('write failed')),
+    })
+    const store = useVideoStore()
+    await expect(store.exportStatsCsv()).rejects.toThrow('write failed')
+  })
+
+  // ─── M13: 生成队列 ──────────────────────────────────────────
+
+  it('refreshQueue 拉取并缓存队列快照（M13）', async () => {
+    const snapshot = { paused: false, maxConcurrent: 2, activeCount: 1, items: [] }
+    mockElectronVideo({ queue: vi.fn().mockResolvedValue(snapshot) })
+    const store = useVideoStore()
+
+    await store.refreshQueue()
+
+    expect(store.queue?.paused).toBe(false)
+    expect(store.queue?.activeCount).toBe(1)
+  })
+
+  it('pauseQueue / resumeQueue 同步快照（M13）', async () => {
+    const api = mockElectronVideo({
+      queuePause: vi.fn().mockResolvedValue({ paused: true, maxConcurrent: 2, activeCount: 0, items: [] }),
+      queueResume: vi.fn().mockResolvedValue({ paused: false, maxConcurrent: 2, activeCount: 0, items: [] }),
+    })
+    const store = useVideoStore()
+
+    await store.pauseQueue()
+    expect(store.queue?.paused).toBe(true)
+
+    await store.resumeQueue()
+    expect(store.queue?.paused).toBe(false)
+    expect(api.queuePause).toHaveBeenCalledTimes(1)
+    expect(api.queueResume).toHaveBeenCalledTimes(1)
+  })
+
+  it('setQueueConcurrency 传递上限并同步快照（M13）', async () => {
+    const api = mockElectronVideo({
+      queueConcurrency: vi.fn().mockResolvedValue({ paused: false, maxConcurrent: 5, activeCount: 0, items: [] }),
+    })
+    const store = useVideoStore()
+
+    await store.setQueueConcurrency(5)
+
+    expect(api.queueConcurrency).toHaveBeenCalledWith(5)
+    expect(store.queue?.maxConcurrent).toBe(5)
   })
 })

@@ -7,12 +7,8 @@ import type { BuiltinTool } from './types'
 import { AppError, ErrorCodes } from '../utils/error'
 import {
   listCheckpoints,
-  getCheckpointById,
   rollbackToCheckpoint,
   getCheckpointDiff,
-  getFileHistory,
-  cleanupCheckpoints,
-  deleteCheckpoint,
 } from '../checkpoint'
 
 // ─── checkpoint_list 工具 ─────────────────────────────────────

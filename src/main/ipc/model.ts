@@ -3,9 +3,7 @@
 // 通道命名: domain:action 格式 (model:list, model:create, ...)
 
 import { ipcMain, type IpcMainInvokeHandler } from 'electron'
-import type OpenAI from 'openai'
 import type { ModelConfig, ModelProvider } from '@shared/types'
-import { AppError, ErrorCodes } from '../utils/error'
 import {
   createModelConfig,
   getModelConfigMasked,

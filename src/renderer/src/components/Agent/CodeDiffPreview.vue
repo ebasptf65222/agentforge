@@ -29,7 +29,6 @@ const diffLines = computed<DiffLine[]>(() => {
   const n = newLines.length
 
   // 简单逐行比较（对于合理长度的 diff 足够）
-  const maxLen = Math.max(m, n)
   let oi = 0, ni = 0
 
   while (oi < m || ni < n) {

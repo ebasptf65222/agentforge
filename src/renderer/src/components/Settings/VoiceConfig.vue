@@ -13,7 +13,6 @@ import {
   NForm,
   NFormItem,
   NModal,
-  NSpace,
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import type {
@@ -250,7 +249,6 @@ async function updateAutoAwait(value: boolean): Promise<void> {
 // ─── Test buttons ─────────────────────────────────────────────
 
 const ttsTesting = ref(false)
-const sttTesting = ref(false)
 
 async function handleTtsTest(): Promise<void> {
   if (!settings.value?.voice.tts.apiKey) {

@@ -251,7 +251,7 @@ export function markTaskFinished(
   id: string,
   status: TaskRunStatus,
   durationMs: number,
-  summary?: string,
+  _summary?: string,
 ): void {
   const db: Database.Database = getDatabase()
   const now = Date.now()

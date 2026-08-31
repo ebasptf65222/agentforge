@@ -2,7 +2,7 @@
 // 将 mermaid 代码块渲染为 SVG 图表
 
 // mermaid 体积较大，改为首次渲染时动态加载，避免拖慢首屏
-type Mermaid = typeof import('mermaid')['default']
+import type Mermaid from 'mermaid'
 let mermaidPromise: Promise<Mermaid> | null = null
 
 /** 按需加载并初始化 mermaid */

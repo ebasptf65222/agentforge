@@ -520,7 +520,7 @@ function getDefaultSchema(): string {
 }
 
 function getDefaultIndex(): string {
-  return '# 🌐 LLM Wiki Index\n\n> 知识库目录 — 开始使用后自动填充\n\n---\n\n📄 **Wiki 目前为空**。\n\n请使用 \`wiki-ingest\` 工具添加原始资料开始编译知识库。\n'
+  return '# 🌐 LLM Wiki Index\n\n> 知识库目录 — 开始使用后自动填充\n\n---\n\n📄 **Wiki 目前为空**。\n\n请使用 `wiki-ingest` 工具添加原始资料开始编译知识库。\n'
 }
 
 function getDefaultLog(): string {

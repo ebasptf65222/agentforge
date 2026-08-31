@@ -16,9 +16,6 @@ import { AppError, ErrorCodes } from '../utils/error'
 /** 默认导航超时（毫秒） */
 const DEFAULT_NAVIGATION_TIMEOUT = 30_000
 
-/** 默认操作超时（毫秒） */
-const DEFAULT_OPERATION_TIMEOUT = 10_000
-
 /** 隐藏窗口默认宽度 */
 const DEFAULT_WIDTH = 1280
 

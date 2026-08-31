@@ -18,12 +18,12 @@ describe('session-manager Electron 兼容性', () => {
     const original = process.execPath
     const fakePath = '/fake/node/path'
 
-    // @ts-expect-error - 测试临时替换
+    // @ts-expect-error - 测试中临时替换只读属性，验证可被恢复
     process.execPath = fakePath
     expect(process.execPath).toBe(fakePath)
 
     // 恢复
-    // @ts-expect-error - 测试恢复
+    // @ts-expect-error - 测试结束后恢复原始 execPath
     process.execPath = original
     expect(process.execPath).toBe(original)
   })

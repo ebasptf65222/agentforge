@@ -383,7 +383,7 @@ const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
   {
     table: 'app_settings',
     column: 'video_custom_protocol',
-    comment: 'VIDEO-CUSTOM: 自定义厂商 API 协议（ark/kling）',
+    comment: 'VIDEO-CUSTOM: 自定义厂商 API 协议（ark/kling/openai）',
     sql: `ALTER TABLE app_settings ADD COLUMN video_custom_protocol TEXT`,
   },
   {

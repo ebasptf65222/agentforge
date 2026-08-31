@@ -4,12 +4,13 @@
 // 返回 ArrayBuffer 格式的音频数据
 
 import type OpenAI from 'openai'
+import type * as OpenAIModule from 'openai'
 import type { VoiceConfig, TtsOptions, TtsFormat, TtsVoice } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getSettings } from '../db/repos/app-settings'
 
 // openai SDK 体积较大，改为首次调用时动态加载，避免拖慢主进程启动
-type OpenAISdk = typeof import('openai')
+type OpenAISdk = typeof OpenAIModule
 let openaiSdkPromise: Promise<OpenAISdk> | null = null
 function loadOpenAI(): Promise<OpenAISdk> {
   if (!openaiSdkPromise) {
@@ -94,9 +95,12 @@ export class TtsService {
         { role: 'assistant', content: text },
       ],
       audio: { format: format === 'pcm16' ? 'wav' : format, voice },
-    } as any)
+      // MiMo 的 audio 参数未包含在 openai 官方类型中，此处经 unknown 双重断言透传
+    } as unknown as Parameters<typeof client.chat.completions.create>[0])
 
-    const message = response.choices?.[0]?.message as any
+    const message = response.choices?.[0]?.message as
+      | { audio?: { data?: string } }
+      | undefined
     const audioData = message?.audio?.data
     if (!audioData) {
       throw new AppError(

@@ -83,7 +83,7 @@ function openInstallModal(entry: McpCatalogEntry): void {
   installingEntry.value = entry
   // 初始化环境变量表单
   for (const key of Object.keys(envValues)) {
-    delete envValues[key]
+    Reflect.deleteProperty(envValues, key)
   }
   if (entry.envKeys) {
     for (const envKey of entry.envKeys) {

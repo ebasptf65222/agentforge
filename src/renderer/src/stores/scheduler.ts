@@ -7,8 +7,6 @@ import type {
   ScheduledTaskRun,
   CreateScheduledTaskParams,
   UpdateScheduledTaskParams,
-  ScheduleType,
-  TaskRunStatus,
 } from '@shared/types'
 import { showToast } from '@/utils/toast'
 

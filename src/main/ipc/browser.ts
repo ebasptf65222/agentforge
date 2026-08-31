@@ -224,7 +224,7 @@ async function handleFill(
   _event: unknown,
   params: Record<string, unknown>,
 ): Promise<{ filled: boolean; selector: string; value: string }> {
-  const selector = validateNonEmptyString(params['selector'], 'selector')
+  const checkedSelector = validateNonEmptyString(params['selector'], 'selector')
 
   if (typeof params['value'] !== 'string') {
     throw new AppError(
@@ -240,7 +240,7 @@ async function handleFill(
   const sessionId = validateOptionalString(params['sessionId'], 'sessionId')
   if (sessionId) options.sessionId = sessionId
 
-  return await fillInput(params['selector'], params['value'], options)
+  return await fillInput(checkedSelector, params['value'], options)
 }
 
 /**

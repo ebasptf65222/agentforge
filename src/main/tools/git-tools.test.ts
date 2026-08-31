@@ -2,7 +2,7 @@
 // Mock git 核心模块和 workspace IPC，验证工具参数校验与调用行为
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { AppError, ErrorCodes } from '../utils/error'
+import { ErrorCodes } from '../utils/error'
 import type { GitStatus, GitDiffResult, GitLogEntry, GitBranch, GitCommitResult, GitCreateBranchResult } from '@shared/types'
 
 // ─── Mock setup ─────────────────────────────────────────────────

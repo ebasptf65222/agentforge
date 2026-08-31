@@ -4,7 +4,6 @@
 // 架构优化批次C-3: 核心逻辑已移至 ModelAdapterRegistry（registry.ts）。
 // 本文件保留向后兼容的导出函数，委托给 registry 单例。
 
-import type { ModelProvider } from '@shared/types'
 import type { ModelAdapter } from './adapter'
 import {
   getModelAdapterRegistry,

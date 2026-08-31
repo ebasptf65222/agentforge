@@ -10,7 +10,7 @@ import type {
 } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { validateNonEmptyString } from '../utils/ipc-validator'
-import { getSchedulerService } from '../services/scheduler-service'
+import { getSchedulerService, type SchedulerService } from '../services/scheduler-service'
 
 // ─── 参数校验辅助 ───────────────────────────────────────────────
 
@@ -43,7 +43,7 @@ function assertSessionTarget(value: unknown): asserts value is 'main' | 'isolate
 async function handleCreate(
   _event: Electron.IpcMainInvokeEvent,
   params: unknown,
-) {
+): Promise<ReturnType<SchedulerService['createTask']>> {
   if (params === null || typeof params !== 'object') {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Create task params must be an object.')
   }
@@ -102,7 +102,7 @@ async function handleCreate(
 /**
  * scheduler:list - 列出所有定时任务
  */
-async function handleList() {
+async function handleList(): Promise<ReturnType<SchedulerService['listAllTasks']>> {
   return getSchedulerService().listAllTasks()
 }
 
@@ -112,7 +112,7 @@ async function handleList() {
 async function handleUpdate(
   _event: Electron.IpcMainInvokeEvent,
   params: unknown,
-) {
+): Promise<ReturnType<SchedulerService['updateTask']>> {
   if (params === null || typeof params !== 'object') {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Update task params must be an object.')
   }
@@ -149,7 +149,7 @@ async function handleUpdate(
 async function handleDelete(
   _event: Electron.IpcMainInvokeEvent,
   params: unknown,
-) {
+): Promise<{ success: boolean }> {
   if (params === null || typeof params !== 'object') {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Delete task params must be an object.')
   }
@@ -165,7 +165,7 @@ async function handleDelete(
 async function handleToggle(
   _event: Electron.IpcMainInvokeEvent,
   params: unknown,
-) {
+): Promise<ReturnType<SchedulerService['toggleTask']>> {
   if (params === null || typeof params !== 'object') {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Toggle task params must be an object.')
   }
@@ -183,7 +183,7 @@ async function handleToggle(
 async function handleRunNow(
   _event: Electron.IpcMainInvokeEvent,
   params: unknown,
-) {
+): Promise<ReturnType<SchedulerService['runTaskNow']>> {
   if (params === null || typeof params !== 'object') {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Run-now params must be an object.')
   }
@@ -198,7 +198,7 @@ async function handleRunNow(
 async function handleHistory(
   _event: Electron.IpcMainInvokeEvent,
   params: unknown,
-) {
+): Promise<ReturnType<SchedulerService['getTaskHistory']>> {
   if (params === null || typeof params !== 'object') {
     throw new AppError(ErrorCodes.VALIDATION_ERROR, 'History params must be an object.')
   }
@@ -214,7 +214,7 @@ async function handleHistory(
 async function handleRecentRuns(
   _event: Electron.IpcMainInvokeEvent,
   params: unknown,
-) {
+): Promise<ReturnType<SchedulerService['getRecentRuns']>> {
   const limit = params && typeof params === 'object' && 'limit' in params
     ? Number((params as Record<string, unknown>)['limit'])
     : 50

@@ -4,7 +4,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed, onUnmounted } from 'vue'
-import type { VideoTask, VideoAsyncEvent, VideoConfigView, VideoProvider, CreateVideoTaskParams, VideoSequence, VideoSequenceDetail } from '@shared/types'
+import type { VideoTask, VideoAsyncEvent, VideoConfigView, VideoProvider, CreateVideoTaskParams, VideoSequence, VideoSequenceDetail, VideoStatsOverview, VideoQueueSnapshot } from '@shared/types'
 import type { VideoCsvParseResult } from '@/types/electron-api'
 import { showToast } from '@/utils/toast'
 
@@ -30,6 +30,20 @@ export const useVideoStore = defineStore('video', () => {
 
   /** 已勾选的序列 id（批量操作） */
   const selectedSequenceIds = ref<string[]>([])
+
+  // ─── M12: 生成历史统计 ──────────────────────────────────────
+
+  /** 统计总览缓存 */
+  const stats = ref<VideoStatsOverview | null>(null)
+  /** 统计加载中 */
+  const statsLoading = ref(false)
+  /** 当前统计时间范围（天） */
+  const statsDays = ref(30)
+
+  // ─── M13: 生成队列 ──────────────────────────────────────────
+
+  /** 队列快照缓存 */
+  const queue = ref<VideoQueueSnapshot | null>(null)
 
   /** 事件订阅清理函数 */
   let stopEvent: (() => void) | null = null
@@ -151,6 +165,8 @@ export const useVideoStore = defineStore('video', () => {
     }
     // 子任务进度/终态会影响父序列聚合状态，周期性刷新序列列表
     void refreshSequences()
+    // M13：队列随事件刷新（终态释放并发槽位、任务进出队列）
+    void refreshQueue()
   }
 
   // ─── Actions ─────────────────────────────────────────────────
@@ -345,6 +361,70 @@ export const useVideoStore = defineStore('video', () => {
     })
   }
 
+  // ─── M12: 统计 Actions ─────────────────────────────────────
+
+  /** 拉取生成历史统计（days 缺省沿用上次范围，默认 30） */
+  async function fetchStats(days?: number): Promise<VideoStatsOverview> {
+    const range = days ?? statsDays.value
+    statsDays.value = range
+    statsLoading.value = true
+    try {
+      const result = (await window.electron.video.stats(range)) as VideoStatsOverview
+      stats.value = result
+      return result
+    } finally {
+      statsLoading.value = false
+    }
+  }
+
+  /** 导出统计 CSV 报表（弹出保存对话框）；用户取消不打扰 */
+  async function exportStatsCsv(days?: number): Promise<boolean> {
+    try {
+      const result = await window.electron.video.exportStats(days ?? statsDays.value)
+      if (result && typeof result === 'object' && 'canceled' in result && result.canceled) {
+        return false
+      }
+      const path =
+        result && typeof result === 'object' && 'path' in result
+          ? String(result.path)
+          : ''
+      showToast(`统计报表已导出：${path}`, 'success')
+      return true
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      throw error
+    }
+  }
+
+  // ─── M13: 队列 Actions ─────────────────────────────────────
+
+  /** 拉取队列快照 */
+  async function refreshQueue(): Promise<VideoQueueSnapshot | null> {
+    try {
+      queue.value = (await window.electron.video.queue()) as VideoQueueSnapshot
+    } catch {
+      // 队列快照拉取失败不打扰用户，保留上次快照
+    }
+    return queue.value
+  }
+
+  /** 暂停队列出队 */
+  async function pauseQueue(): Promise<void> {
+    queue.value = (await window.electron.video.queuePause()) as VideoQueueSnapshot
+    showToast('队列已暂停，进行中的任务不受影响', 'info')
+  }
+
+  /** 恢复队列出队 */
+  async function resumeQueue(): Promise<void> {
+    queue.value = (await window.electron.video.queueResume()) as VideoQueueSnapshot
+    showToast('队列已恢复', 'success')
+  }
+
+  /** 设置队列并发上限（1–10） */
+  async function setQueueConcurrency(limit: number): Promise<void> {
+    queue.value = (await window.electron.video.queueConcurrency(limit)) as VideoQueueSnapshot
+  }
+
   /** 刷新任务列表 */
   async function refresh(limit = 50): Promise<VideoTask[]> {
     loading.value = true
@@ -388,13 +468,14 @@ export const useVideoStore = defineStore('video', () => {
     return (await window.electron.video.getConfig()) as VideoConfigView
   }
 
-  /** 初始化：订阅事件流并拉取任务与序列列表 */
+  /** 初始化：订阅事件流并拉取任务、序列与队列快照 */
   function init(): void {
     if (!stopEvent) {
       stopEvent = window.electron.video.onEvent(handleEvent)
     }
     void refresh()
     void refreshSequences()
+    void refreshQueue()
   }
 
   /** 测试指定厂商配置（校验 key 解密与配置完整性） */
@@ -447,6 +528,18 @@ export const useVideoStore = defineStore('video', () => {
     // M11 CSV 批量造片
     parseCsv,
     batchGenerate,
+    // M12 生成历史统计
+    stats,
+    statsLoading,
+    statsDays,
+    fetchStats,
+    exportStatsCsv,
+    // M13 生成队列
+    queue,
+    refreshQueue,
+    pauseQueue,
+    resumeQueue,
+    setQueueConcurrency,
     refresh,
     refreshSequences,
     getSequenceDetail,

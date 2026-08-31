@@ -460,6 +460,23 @@ const video = {
 
   getConfig: (): Promise<unknown> => ipcRenderer.invoke('video:get-config'),
 
+  // M12：生成历史统计与 CSV 导出
+  stats: (days?: number): Promise<unknown> =>
+    ipcRenderer.invoke('video:stats', days !== undefined ? { days } : undefined),
+
+  exportStats: (days?: number): Promise<unknown> =>
+    ipcRenderer.invoke('video:export-stats', days !== undefined ? { days } : undefined),
+
+  // M13：生成队列
+  queue: (): Promise<unknown> => ipcRenderer.invoke('video:queue'),
+
+  queuePause: (): Promise<unknown> => ipcRenderer.invoke('video:queue-pause'),
+
+  queueResume: (): Promise<unknown> => ipcRenderer.invoke('video:queue-resume'),
+
+  queueConcurrency: (limit: number): Promise<unknown> =>
+    ipcRenderer.invoke('video:queue-concurrency', { limit }),
+
   listSequences: (limit?: number): Promise<unknown[]> =>
     ipcRenderer.invoke('video:list-sequences', limit !== undefined ? { limit } : undefined),
 

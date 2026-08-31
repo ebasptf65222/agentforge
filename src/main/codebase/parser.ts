@@ -172,7 +172,6 @@ export interface ParseResult {
 export function parseCodeFile(content: string, fileName: string): ParseResult {
   const language = detectLanguage(fileName)
   const lines = content.split('\n')
-  const lineCount = lines.length
 
   try {
     if (isBraceLanguage(language)) {
@@ -495,8 +494,6 @@ function parsePython(content: string, lines: string[]): ParseResult {
   const funcPattern = /^(\s*)(async\s+)?def\s+([A-Za-z_]\w*)\s*\([^)]*\)/
   // 类定义：class name(...):
   const classPattern = /^(\s*)class\s+([A-Za-z_]\w*)\s*(\([^)]*\))?:/
-  // 装饰器：@decorator
-  const decoratorPattern = /^(\s*)@([A-Za-z_][\w.]*)/
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -835,7 +832,7 @@ function createChunksFromSymbols(
 
     // 大符号需要进一步切分
     if (symEndIdx - symStartIdx + 1 > MAX_CHUNK_LINES || symTokens > MAX_CHUNK_TOKENS) {
-      const subChunks = splitLargeChunk(lines, symStartIdx, symEndIdx, sym.symbolType)
+      const subChunks = splitLargeChunk(lines, symStartIdx, symEndIdx)
       for (const sc of subChunks) {
         chunks.push({
           content: sc.content,
@@ -874,7 +871,7 @@ function createChunksFromSymbols(
         startLine: currentLine + 1,
         endLine: lines.length,
         tokenCount: tailTokens,
-        chunkIndex: chunkIndex++,
+        chunkIndex: chunkIndex,
       })
     }
   }
@@ -887,7 +884,6 @@ function splitLargeChunk(
   lines: string[],
   startIdx: number,
   endIdx: number,
-  symbolType: SymbolType,
 ): Array<{ content: string; startLine: number; endLine: number; tokenCount: number }> {
   const result: Array<{ content: string; startLine: number; endLine: number; tokenCount: number }> = []
   let current = startIdx

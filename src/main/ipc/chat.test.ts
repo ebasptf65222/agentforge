@@ -63,7 +63,7 @@ vi.mock('../db/repos/message', () => ({
 vi.mock('../db', () => ({
   getDatabase: vi.fn(() => ({
     transaction: vi.fn((fn: (...a: unknown[]) => unknown) => {
-      const tx = (...args: unknown[]) => fn(...args)
+      const tx = (...args: unknown[]): unknown => fn(...args)
       tx.immediate = tx
       return tx
     }),

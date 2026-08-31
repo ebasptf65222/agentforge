@@ -1,16 +1,18 @@
 // AgentForge: Copilot SDK 持久化会话管理器
 // 每个对话复用同一 session，启用 SDK 原生上下文压缩
 
+import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { CopilotClient } from '@github/copilot-sdk'
+import type * as CopilotSdkModule from '@github/copilot-sdk'
 import type { ActiveSessionInfo } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 
 // @github/copilot-sdk 启动即加载会拖慢主进程，改为首次创建会话时动态加载
-type CopilotSdk = typeof import('@github/copilot-sdk')
+type CopilotSdk = typeof CopilotSdkModule
 let copilotSdkPromise: Promise<CopilotSdk> | null = null
 function loadCopilotSdk(): Promise<CopilotSdk> {
   if (!copilotSdkPromise) {
@@ -425,7 +427,6 @@ function getSystemNodePath(): string {
     //   Linux:   .../electron/dist/electron
     // 通过 nvm 或 which 找到系统 Node.js
     try {
-      const { execFileSync } = require('node:child_process')
       // Windows 上用 where，Unix 上用 which
       const cmd = process.platform === 'win32' ? 'where' : 'which'
       const nodePath = execFileSync(cmd, ['node'], { encoding: 'utf-8', timeout: 5000 }).trim()
@@ -440,8 +441,6 @@ function getSystemNodePath(): string {
     }
 
     // 3. 尝试从 nvm 目录查找
-    const { join, dirname } = require('node:path')
-    const { existsSync } = require('node:fs')
 
     if (process.platform === 'win32') {
       // Windows: 从 electron.exe 路径向上查找 node.exe

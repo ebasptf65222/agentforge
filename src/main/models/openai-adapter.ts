@@ -3,13 +3,13 @@
 // timeout 30s, maxRetries 1, backoff 1000ms
 
 import type OpenAI from 'openai'
-import type { APIError, AuthenticationError, APIConnectionTimeoutError, APIUserAbortError } from 'openai'
+import type * as OpenAISdkModule from 'openai'
 import type { StreamChunk } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { ModelAdapter, type AdapterMessage } from './adapter'
 
 // openai SDK 体积较大，改为首次对话时动态加载，避免拖慢主进程启动
-type OpenAISdk = typeof import('openai')
+type OpenAISdk = typeof OpenAISdkModule
 let openaiSdkPromise: Promise<OpenAISdk> | null = null
 function loadOpenAISdk(): Promise<OpenAISdk> {
   if (!openaiSdkPromise) {

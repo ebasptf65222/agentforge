@@ -194,7 +194,7 @@ export interface UpdateSettingsParams {
   videoCustomApiKey?: string | null
   videoCustomBaseUrl?: string | null
   videoCustomModel?: string | null
-  videoCustomProtocol?: 'ark' | 'kling' | null
+  videoCustomProtocol?: 'ark' | 'kling' | 'openai' | null
   windowBounds?: WindowBounds | null
 }
 
@@ -301,7 +301,7 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     videoCustomApiKey: row.video_custom_api_key ?? undefined,
     videoCustomBaseUrl: row.video_custom_base_url ?? undefined,
     videoCustomModel: row.video_custom_model ?? undefined,
-    videoCustomProtocol: (row.video_custom_protocol ?? undefined) as 'ark' | 'kling' | undefined,
+    videoCustomProtocol: (row.video_custom_protocol ?? undefined) as 'ark' | 'kling' | 'openai' | undefined,
     windowBounds,
     updatedAt: row.updated_at,
   }

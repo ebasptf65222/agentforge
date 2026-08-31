@@ -3,8 +3,8 @@
 // 使用真实文件系统（临时目录）确保 realpath 和符号链接行为准确
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, existsSync } from 'node:fs'
-import { join, sep } from 'node:path'
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { isPathInWorkspace, resolveWorkspacePath } from './path-guard'
 import { AppError, ErrorCodes } from '../utils/error'

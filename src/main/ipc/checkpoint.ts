@@ -6,7 +6,6 @@ import { ipcMain, type IpcMainInvokeHandler } from 'electron'
 import { AppError, ErrorCodes } from '../utils/error'
 import {
   listCheckpoints,
-  getCheckpointById,
   rollbackToCheckpoint,
   getCheckpointDiff,
   getFileHistory,

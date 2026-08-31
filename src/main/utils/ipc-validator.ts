@@ -376,7 +376,7 @@ export function validateOptionalRecord(
  * @returns 校验后的对象
  * @throws {AppError} VALIDATION_ERROR
  */
-export function validateObject<T = Record<string, unknown>>(
+export function validateObject(
   value: unknown,
   field: string,
 ): Record<string, unknown> {

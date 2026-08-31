@@ -2,7 +2,7 @@
 // 6 个 browser_* 内置工具，注册到 ToolRegistry
 // 让 Agent 能够导航网页、截图、提取内容、点击元素、填写表单
 
-import type { ToolDefinition, ToolExecutionResult } from '@shared/types'
+import type { ToolDefinition, ToolExecutionResult, BrowserElementInfo } from '@shared/types'
 import type { BuiltinTool } from './types'
 import { AppError, ErrorCodes } from '../utils/error'
 import {
@@ -19,7 +19,7 @@ import {
 // ─── 辅助函数 ─────────────────────────────────────────────────
 
 /** 格式化 DOM 元素列表为可读文本 */
-function formatDomElements(elements: import('@shared/types').BrowserElementInfo[]): string {
+function formatDomElements(elements: BrowserElementInfo[]): string {
   if (elements.length === 0) {
     return '  (无元素)'
   }

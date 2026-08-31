@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell, session, Menu, powerMonitor } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   loadWindowState,
@@ -174,7 +175,7 @@ function createWindow(): BrowserWindow {
 
   const preloadPath = join(import.meta.dirname, '../preload/index.cjs')
   console.log('[AgentForge Main] Preload path:', preloadPath)
-  console.log('[AgentForge Main] Preload exists:', require('node:fs').existsSync(preloadPath))
+  console.log('[AgentForge Main] Preload exists:', existsSync(preloadPath))
 
   const mainWindow = new BrowserWindow({
     width: bounds.width,

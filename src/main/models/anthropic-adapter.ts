@@ -2,13 +2,13 @@
 // 使用 @anthropic-ai/sdk，支持 Claude 系列模型流式对话
 
 import type Anthropic from '@anthropic-ai/sdk'
-import type { APIError, AuthenticationError, APIConnectionTimeoutError, APIUserAbortError } from '@anthropic-ai/sdk'
+import type * as AnthropicSdkModule from '@anthropic-ai/sdk'
 import type { StreamChunk } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { ModelAdapter, type AdapterMessage } from './adapter'
 
 // @anthropic-ai/sdk 体积较大，改为首次对话时动态加载，避免拖慢主进程启动
-type AnthropicSdk = typeof import('@anthropic-ai/sdk')
+type AnthropicSdk = typeof AnthropicSdkModule
 let anthropicSdkPromise: Promise<AnthropicSdk> | null = null
 function loadAnthropicSdk(): Promise<AnthropicSdk> {
   if (!anthropicSdkPromise) {

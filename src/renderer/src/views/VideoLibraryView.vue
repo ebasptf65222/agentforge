@@ -20,8 +20,8 @@ import {
   NTag,
   NTooltip,
 } from 'naive-ui'
-import { RefreshOutlined, DeleteOutlined, CheckBoxOutlined, UploadFileOutlined, VideoLibraryOutlined } from '@vicons/material'
-import type { CreateVideoTaskParams, VideoTask, VideoTaskStatus, VideoSequence } from '@shared/types'
+import { RefreshOutlined, DeleteOutlined, CheckBoxOutlined, UploadFileOutlined, VideoLibraryOutlined, BarChartOutlined, FileDownloadOutlined, PauseCircleOutlined, PlayCircleOutlined } from '@vicons/material'
+import type { CreateVideoTaskParams, VideoTask, VideoTaskStatus, VideoSequence, VideoStatsBucket } from '@shared/types'
 import type { VideoCsvParseResult } from '@/types/electron-api'
 import { useVideoStore } from '@/stores/video'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -299,6 +299,108 @@ async function handleRunBatchGenerate(): Promise<void> {
   }
 }
 
+// ─── M12: 生成历史统计 ───────────────────────────────────────
+
+/** 统计模态可见性 */
+const showStatsModal = ref(false)
+/** 时间范围选项（天） */
+const STATS_RANGE_OPTIONS = [
+  { label: '近 7 天', value: 7 },
+  { label: '近 30 天', value: 30 },
+  { label: '近 90 天', value: 90 },
+]
+/** 统计范围变化中标记（避免重复请求） */
+const statsRangeChanging = ref(false)
+
+function openStatsModal(): void {
+  showStatsModal.value = true
+  if (!videoStore.stats) void refreshStats()
+}
+
+/** 切换时间范围并重新拉取 */
+async function handleStatsRangeChange(days: number): Promise<void> {
+  if (statsRangeChanging.value) return
+  statsRangeChanging.value = true
+  try {
+    await videoStore.fetchStats(days)
+  } finally {
+    statsRangeChanging.value = false
+  }
+}
+
+function refreshStats(): Promise<void> {
+  return videoStore.fetchStats().then(() => undefined)
+}
+
+function handleExportStats(): void {
+  void videoStore.exportStatsCsv()
+}
+
+/** 秒数转可读时长（秒 → "x 分 y 秒" / "x 秒"） */
+function formatElapsed(seconds: number | null): string {
+  if (seconds === null) return '—'
+  if (seconds < 60) return `${seconds} 秒`
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  return s > 0 ? `${m} 分 ${s} 秒` : `${m} 分钟`
+}
+
+/** 汇总指标卡 */
+const summaryCards = computed(() => {
+  const s = videoStore.stats
+  return [
+    { label: '任务总数', value: s ? String(s.total) : '—' },
+    { label: '成功', value: s ? String(s.succeeded) : '—' },
+    { label: '失败', value: s ? String(s.failed) : '—' },
+    { label: '取消', value: s ? String(s.cancelled) : '—' },
+    { label: '进行中', value: s ? String(s.active) : '—' },
+    { label: '成功率', value: s ? `${s.successRate}%` : '—' },
+    { label: '失败率', value: s ? `${s.failureRate}%` : '—' },
+    { label: '平均耗时', value: s ? formatElapsed(s.avgElapsedSeconds) : '—' },
+    { label: '用量（视频时长）', value: s ? formatElapsed(s.videoSeconds) : '—' },
+  ]
+})
+
+/** 分桶明细表结构（按厂商 / 模型 / 天） */
+const bucketTables = computed<{ title: string; buckets: VideoStatsBucket[] }[]>(() => {
+  const s = videoStore.stats
+  if (!s) return []
+  return [
+    { title: '按厂商', buckets: s.byProvider },
+    { title: '按模型', buckets: s.byModel },
+    { title: '按天', buckets: s.byDay },
+  ]
+})
+
+// ─── M13: 生成队列面板 ───────────────────────────────────────
+
+/** 队列面板是否展开 */
+const queueExpanded = ref(false)
+
+/** 队列是否可见：有排队任务或处于暂停态 */
+const queueVisible = computed(() => {
+  const q = videoStore.queue
+  return Boolean(q && (q.items.length > 0 || q.paused))
+})
+
+/** 并发上限选项（1–5，内部支持 1–10） */
+const CONCURRENCY_OPTIONS = [1, 2, 3, 4, 5].map((n) => ({ label: `${n}`, value: n }))
+
+async function handleQueueTogglePause(): Promise<void> {
+  const q = videoStore.queue
+  if (!q) return
+  if (q.paused) await videoStore.resumeQueue()
+  else await videoStore.pauseQueue()
+}
+
+function handleConcurrencyChange(limit: number): void {
+  void videoStore.setQueueConcurrency(limit)
+}
+
+function handleCancelQueued(taskId: string): void {
+  void videoStore.cancel(taskId)
+}
+
 onMounted(() => {
   videoStore.init()
 })
@@ -325,6 +427,15 @@ onMounted(() => {
         </span>
       </div>
       <div class="video-library__header-actions">
+        <NTooltip placement="left" :delay="400">
+          <template #trigger>
+            <NButton size="small" quaternary round type="primary" @click="openStatsModal">
+              <template #icon><BarChartOutlined :size="16" /></template>
+              统计
+            </NButton>
+          </template>
+          <span>生成历史统计与 CSV 报表导出（M12）</span>
+        </NTooltip>
         <NTooltip placement="left" :delay="400">
           <template #trigger>
             <NButton size="small" quaternary round type="primary" @click="openCsvModal">
@@ -364,6 +475,60 @@ onMounted(() => {
       <NSelect v-model:value="filterType" :options="TYPE_OPTIONS" size="small" class="video-library__type" />
       <NSelect v-model:value="statusFilter" :options="STATUS_OPTIONS" size="small" class="video-library__status" />
       <NInput v-model:value="keyword" size="small" clearable placeholder="搜索提示词 / 标题…" class="video-library__search" />
+    </div>
+
+    <!-- M13: 生成队列面板 -->
+    <div v-if="queueVisible && videoStore.queue" class="video-library__queue" :class="{ 'video-library__queue--paused': videoStore.queue.paused }">
+      <div class="video-library__queue-head">
+        <button
+          class="video-library__queue-toggle"
+          @click="queueExpanded = !queueExpanded"
+        >
+          <NTag size="small" :type="videoStore.queue.paused ? 'warning' : 'primary'" :bordered="false">
+            {{ videoStore.queue.paused ? '已暂停' : '队列中' }}
+          </NTag>
+          <span class="video-library__queue-summary">
+            进行中 {{ videoStore.queue.activeCount }} / 上限 {{ videoStore.queue.maxConcurrent }}
+            <template v-if="videoStore.queue.items.length > 0">
+              ，排队 {{ videoStore.queue.items.length }}
+            </template>
+          </span>
+        </button>
+        <div class="video-library__queue-actions">
+          <NSelect
+            :value="videoStore.queue.maxConcurrent"
+            :options="CONCURRENCY_OPTIONS"
+            size="tiny"
+            class="video-library__queue-concurrency"
+            @update:value="handleConcurrencyChange"
+          />
+          <NTooltip placement="left" :delay="400">
+            <template #trigger>
+              <NButton size="tiny" quaternary @click="handleQueueTogglePause">
+                <template #icon>
+                  <PlayCircleOutlined v-if="videoStore.queue.paused" :size="14" />
+                  <PauseCircleOutlined v-else :size="14" />
+                </template>
+                {{ videoStore.queue.paused ? '恢复' : '暂停' }}
+              </NButton>
+            </template>
+            <span>{{ videoStore.queue.paused ? '恢复出队提交' : '暂停出队（进行中任务不受影响）' }}</span>
+          </NTooltip>
+        </div>
+      </div>
+      <div v-if="queueExpanded && videoStore.queue.items.length > 0" class="video-library__queue-list">
+        <div
+          v-for="item in videoStore.queue.items"
+          :key="item.task.id"
+          class="video-library__queue-item"
+        >
+          <span class="video-library__queue-position">{{ item.position }}</span>
+          <span class="video-library__queue-prompt" :title="item.task.prompt">{{ item.task.prompt }}</span>
+          <NButton size="tiny" quaternary type="error" @click="handleCancelQueued(item.task.id)">
+            取消
+          </NButton>
+        </div>
+      </div>
     </div>
 
     <!-- 批量操作条（吸附） -->
@@ -648,6 +813,88 @@ onMounted(() => {
         </div>
       </NSpace>
     </NModal>
+
+    <!-- M12: 生成历史统计模态 -->
+    <NModal
+      :show="showStatsModal"
+      preset="card"
+      title="生成统计"
+      :bordered="false"
+      :style="{ width: '680px', maxWidth: '94vw' }"
+      @update:show="(v: boolean) => { showStatsModal = v }"
+    >
+      <NSpace vertical :size="14">
+        <div class="video-library__stats-toolbar">
+          <NSelect
+            :value="videoStore.statsDays"
+            :options="STATS_RANGE_OPTIONS"
+            size="small"
+            class="video-library__stats-range"
+            @update:value="handleStatsRangeChange"
+          />
+          <NButton size="small" quaternary :loading="videoStore.statsLoading" @click="refreshStats">
+            刷新
+          </NButton>
+          <NButton
+            size="small"
+            tertiary
+            type="primary"
+            :disabled="!videoStore.stats"
+            @click="handleExportStats"
+          >
+            <template #icon><FileDownloadOutlined :size="16" /></template>
+            导出 CSV
+          </NButton>
+        </div>
+
+        <NSpin :show="videoStore.statsLoading" size="small">
+          <div v-if="videoStore.stats" class="video-library__stats-body">
+            <!-- 汇总指标卡 -->
+            <div class="video-library__stats-cards">
+              <div
+                v-for="card in summaryCards"
+                :key="card.label"
+                class="video-library__stats-card"
+              >
+                <span class="video-library__stats-card-value">{{ card.value }}</span>
+                <span class="video-library__stats-card-label">{{ card.label }}</span>
+              </div>
+            </div>
+
+            <!-- 分桶明细 -->
+            <div
+              v-for="table in bucketTables"
+              :key="table.title"
+              class="video-library__stats-table"
+            >
+              <h4 class="video-library__stats-table-title">{{ table.title }}</h4>
+              <template v-if="table.buckets.length > 0">
+                <div class="video-library__stats-row video-library__stats-row--head">
+                  <span>维度</span><span>总数</span><span>成功</span><span>失败</span>
+                  <span>成功率</span><span>失败率</span><span>平均耗时</span><span>用量(秒)</span>
+                </div>
+                <div
+                  v-for="bucket in table.buckets"
+                  :key="bucket.key"
+                  class="video-library__stats-row"
+                >
+                  <span :title="bucket.key" class="video-library__stats-key">{{ bucket.key }}</span>
+                  <span>{{ bucket.total }}</span>
+                  <span>{{ bucket.succeeded }}</span>
+                  <span>{{ bucket.failed }}</span>
+                  <span>{{ bucket.successRate }}%</span>
+                  <span>{{ bucket.failureRate }}%</span>
+                  <span>{{ formatElapsed(bucket.avgElapsedSeconds) }}</span>
+                  <span>{{ bucket.videoSeconds }}</span>
+                </div>
+              </template>
+              <div v-else class="video-library__stats-empty">该范围内暂无数据</div>
+            </div>
+          </div>
+          <div v-else class="video-library__stats-empty">加载中…</div>
+        </NSpin>
+      </NSpace>
+    </NModal>
   </div>
 </template>
 
@@ -732,6 +979,95 @@ onMounted(() => {
 .video-library__search {
   flex: 1;
   min-width: 140px;
+}
+
+/* ─── M13: 生成队列面板 ─────────────────────────────────── */
+
+.video-library__queue {
+  margin-bottom: 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--af-brand, #818cf8) 30%, transparent);
+  background: var(--af-brand-dim, rgba(129, 140, 248, 0.12));
+}
+
+.video-library__queue--paused {
+  border-color: color-mix(in srgb, var(--af-warning, #f59e0b) 40%, transparent);
+}
+
+.video-library__queue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.video-library__queue-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.video-library__queue-summary {
+  font-size: 12px;
+  color: var(--af-text-secondary, #cbd5e1);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-library__queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.video-library__queue-concurrency {
+  width: 64px;
+}
+
+.video-library__queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 10px 8px;
+}
+
+.video-library__queue-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 3px 4px;
+  border-radius: 6px;
+}
+
+.video-library__queue-item:hover {
+  background: color-mix(in srgb, var(--af-brand, #818cf8) 10%, transparent);
+}
+
+.video-library__queue-position {
+  flex: none;
+  width: 18px;
+  text-align: center;
+  color: var(--af-text-muted, #94a3b8);
+  font-variant-numeric: tabular-nums;
+}
+
+.video-library__queue-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--af-text-primary, #f1f5f9);
 }
 
 /* 批量操作条 */
@@ -981,4 +1317,104 @@ onMounted(() => {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* ─── M12: 生成历史统计模态 ─────────────────────────────── */
+
+.video-library__stats-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.video-library__stats-range {
+  width: 130px;
+  flex-shrink: 0;
+}
+
+.video-library__stats-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.video-library__stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.video-library__stats-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border-radius: 10px;
+  background: var(--af-surface-muted, #1e293b);
+}
+
+.video-library__stats-card-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--af-text-primary, #f1f5f9);
+  font-variant-numeric: tabular-nums;
+}
+
+.video-library__stats-card-label {
+  font-size: 11px;
+  color: var(--af-text-muted, #94a3b8);
+  white-space: nowrap;
+}
+
+.video-library__stats-table-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--af-text-secondary, #cbd5e1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.video-library__stats-table-title::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--af-brand, #818cf8);
+}
+
+.video-library__stats-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1.6fr) repeat(7, minmax(52px, 1fr));
+  gap: 6px;
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--af-text-secondary, #cbd5e1);
+  font-variant-numeric: tabular-nums;
+}
+
+.video-library__stats-row:nth-child(even) {
+  background: var(--af-surface-muted, #1e293b);
+}
+
+.video-library__stats-row--head {
+  color: var(--af-text-muted, #94a3b8);
+  font-weight: 600;
+}
+
+.video-library__stats-key {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--af-text-primary, #f1f5f9);
+}
+
+.video-library__stats-empty {
+  font-size: 12px;
+  color: var(--af-text-muted, #94a3b8);
+  padding: 8px 0;
+}
+
 </style>

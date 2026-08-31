@@ -4,7 +4,7 @@
 
 import type { BuiltinTool } from './types'
 import { AppError, ErrorCodes } from '../utils/error'
-import { isWikiInitialized, listWikiPages, listRawSources, readIndex, readWikiPage, appendLog, getWikiPath } from '../wiki/wiki-manager'
+import { isWikiInitialized, listWikiPages, listRawSources, getWikiPath } from '../wiki/wiki-manager'
 
 /** wiki_lint 工具定义与执行函数 */
 export const wikiLintTool: BuiltinTool = {
@@ -62,7 +62,6 @@ export const wikiLintTool: BuiltinTool = {
         case 'scan': {
           const pages = await listWikiPages()
           const rawSources = await listRawSources()
-          const indexContent = await readIndex()
 
           // 构建扫描上下文
           const pageList = pages.map((p) => `  - ${p.title} (${p.path})${p.summary ? `: ${p.summary}` : ''}`).join('\n')
@@ -84,8 +83,6 @@ export const wikiLintTool: BuiltinTool = {
         case 'status': {
           const pages = await listWikiPages()
           const rawSources = await listRawSources()
-
-          const orphanCount = pages.filter((p) => p.linkedFrom.length === 0).length
 
           return {
             isError: false,

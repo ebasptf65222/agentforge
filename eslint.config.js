@@ -7,7 +7,20 @@ import globals from 'globals'
 export default tseslint.config(
   // 全局忽略
   {
-    ignores: ['dist/**', 'out/**', 'node_modules/**', 'resources/**'],
+    ignores: [
+      'dist/**',
+      'dist2/**',
+      'out/**',
+      'node_modules/**',
+      'resources/**',
+      // 文档与设计产物（含压缩的第三方 js，非源码）
+      'docs/**',
+      '.qoder/**',
+      '.trae/**',
+      '**/*.min.js',
+      // 渲染进程内置的第三方打包产物（pdf/pptx/xlsx/docx worker 等）
+      '**/public/vendor/**',
+    ],
   },
 
   // JS 基础推荐规则
@@ -60,12 +73,12 @@ export default tseslint.config(
           allowHigherOrderFunctions: true,
         },
       ],
-      '@typescript-eslint/no-non-null-assertion': 'warn',
+      '@typescript-eslint/no-non-null-assertion': 'off',
       '@typescript-eslint/consistent-type-imports': [
         'error',
         { prefer: 'type-imports' },
       ],
-      'no-console': ['warn', { allow: ['warn', 'error'] }],
+      'no-console': ['warn', { allow: ['log', 'info', 'warn', 'error'] }],
     },
   },
 

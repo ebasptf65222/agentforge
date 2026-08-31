@@ -172,8 +172,8 @@ export interface AppSettings {
   videoCustomBaseUrl?: string
   /** 自定义厂商模型名（必填） */
   videoCustomModel?: string
-  /** 自定义厂商 API 协议（ark=火山方舟兼容 / kling=TokenHub 兼容，默认 ark） */
-  videoCustomProtocol?: 'ark' | 'kling'
+  /** 自定义厂商 API 协议（ark=火山方舟兼容 / kling=TokenHub 兼容 / openai=OpenAI Videos 兼容，默认 ark） */
+  videoCustomProtocol?: 'ark' | 'kling' | 'openai'
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }

@@ -23,6 +23,12 @@ import { showToast } from '@/utils/toast'
 const settingsStore = useSettingsStore()
 const modelStore = useModelStore()
 
+// ─── 软件更新状态 ─────────────────────────────────────────────
+
+const appVersion = ref('')
+const updateState = ref<UpdateState>({ status: 'idle' })
+let unsubscribeUpdateState: (() => void) | null = null
+
 onMounted(async () => {
   await settingsStore.loadSettings()
   // Ensure the default-model select has options.

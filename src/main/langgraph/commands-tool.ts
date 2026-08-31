@@ -15,7 +15,6 @@ import type { DelegationToolContext } from './types'
 import type { AgentExecutionRequest, ExecutionResult } from '../../shared/types'
 import type { SessionExtras, SlashCommandConfig } from '../copilot/types'
 import { CopilotAgentBridge } from '../copilot/agent-bridge'
-import { getSettings } from '../db/repos/app-settings'
 import { generateId } from '../utils/id'
 
 /**
@@ -61,7 +60,6 @@ export function createCommandsTool(
       }
 
       try {
-        const settings = getSettings()
         const bridge = new CopilotAgentBridge({
           callbacks: ctx.callbacks,
           approvalTimeoutMs: ctx.approvalTimeoutMs,

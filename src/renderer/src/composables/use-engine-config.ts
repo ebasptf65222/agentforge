@@ -43,7 +43,8 @@ export const AGENT_MODE_OPTIONS: ReadonlyArray<{ value: string; label: string }>
 
 // ─── Composable ───────────────────────────────────────────────
 
-export function useEngineConfig() {
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Composable 返回大量 computed 引用，由推断得出类型
+export const useEngineConfig = () => {
   const settingsStore = useSettingsStore()
 
   const settings = computed<AppSettings | null>(() => settingsStore.settings)

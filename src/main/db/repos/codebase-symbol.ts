@@ -48,8 +48,6 @@ const VALID_SYMBOL_TYPES: SymbolType[] = [
   'function', 'method', 'class', 'interface', 'type', 'variable', 'import', 'export', 'constant', 'enum',
 ]
 
-const VALID_VISIBILITIES: SymbolVisibility[] = ['public', 'private', 'protected', 'default']
-
 /** 行 → 实体转换 */
 function rowToCodebaseSymbol(row: CodebaseSymbolRow): CodebaseSymbol {
   return {

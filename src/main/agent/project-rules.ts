@@ -12,8 +12,8 @@ const RULES_FILENAME = 'AGENTS.md'
 /** 最大文件大小：64KB */
 const MAX_RULES_SIZE = 64 * 1024
 
-/** 缓存的规则内容（按工作区路径缓存） */
-let cachedRules: { workspacePath: string; content: string; mtime: number } | null = null
+/** 缓存的规则内容（按工作区路径缓存，预留后续增量刷新使用） */
+const _cachedRules: { workspacePath: string; content: string; mtime: number } | null = null
 
 /**
  * 读取工作区中的 AGENTS.md 规则文件。

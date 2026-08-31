@@ -3,13 +3,11 @@
 
 import { createHash } from 'node:crypto'
 import { readFileSync, statSync, readdirSync, existsSync } from 'node:fs'
-import { join, relative, basename, extname } from 'node:path'
+import { join, basename, extname } from 'node:path'
 import type { CodebaseLanguage, CodebaseStats, CodebaseIndexProgress } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
-import { generateId } from '../utils/id'
-import { estimateTokens } from '../agent/tokenizer'
 import { parseCodeFile, detectLanguage, getSupportedCodeExtensions } from './parser'
-import type { ParseResult, ExtractedSymbol, ExtractedChunk } from './parser'
+import type { ExtractedSymbol, ExtractedChunk } from './parser'
 
 // 仓库层
 import {
@@ -30,7 +28,6 @@ import {
 import {
   deleteCodebaseChunksByFileId,
   batchCreateCodebaseChunks,
-  clearCodebaseChunkEmbeddings,
   countCodebaseChunks,
   countCodebaseChunksWithEmbeddings,
   listCodebaseChunks,

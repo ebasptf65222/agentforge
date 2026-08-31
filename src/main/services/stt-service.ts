@@ -3,12 +3,13 @@
 // 支持 openai / azure / custom 提供商
 
 import type OpenAI from 'openai'
+import type * as OpenAIModule from 'openai'
 import type { VoiceConfig, SttOptions } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getSettings } from '../db/repos/app-settings'
 
 // openai SDK 体积较大，改为首次调用时动态加载，避免拖慢主进程启动
-type OpenAISdk = typeof import('openai')
+type OpenAISdk = typeof OpenAIModule
 let openaiSdkPromise: Promise<OpenAISdk> | null = null
 function loadOpenAI(): Promise<OpenAISdk> {
   if (!openaiSdkPromise) {

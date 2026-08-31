@@ -72,7 +72,7 @@ function rowToTask(row: VideoTaskRow): VideoTask {
 }
 
 /**
- * 创建视频任务记录。
+ * 创建视频任务记录（M13 队列化：初始为 queued，由引擎队列按并发上限出队提交）。
  */
 export function createVideoTask(params: CreateVideoTaskRow): VideoTask {
   const db: Database.Database = getDatabase()
@@ -84,22 +84,15 @@ export function createVideoTask(params: CreateVideoTaskRow): VideoTask {
       (id, provider, provider_task_id, prompt, model, duration, resolution, aspect,
        status, progress, error_code, error_message, download_url, output_path,
        sequence_id, shot_index, is_chained, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     params.provider ?? 'seedance',
-    null,
     params.prompt,
     params.model,
     params.duration ?? 5,
     params.resolution ?? '720P',
     params.aspect ?? '16:9',
-    'submitted',
-    0,
-    null,
-    null,
-    null,
-    null,
     params.sequenceId ?? null,
     params.shotIndex ?? null,
     params.isChained ? 1 : 0,
@@ -178,6 +171,32 @@ export function listVideoTasks(limit = 50): VideoTask[] {
   const rows = db
     .prepare('SELECT * FROM video_tasks ORDER BY created_at DESC LIMIT ?')
     .all(Math.max(1, Math.min(limit, 200))) as VideoTaskRow[]
+  return rows.map(rowToTask)
+}
+
+/**
+ * 获取全部排队中（未提交厂商）的任务（M13 队列恢复用，按创建时间升序）。
+ * 仅含 is_chained = 0 的普通任务：连续性衔接镜头（is_chained = 1）
+ * 由序列编排推进，不应随重启自动提交。
+ */
+export function listQueuedVideoTasks(): VideoTask[] {
+  const db: Database.Database = getDatabase()
+  const rows = db
+    .prepare(
+      "SELECT * FROM video_tasks WHERE status = 'queued' AND is_chained = 0 ORDER BY created_at ASC, id ASC",
+    )
+    .all() as VideoTaskRow[]
+  return rows.map(rowToTask)
+}
+
+/**
+ * 获取指定创建时间之后（含）的全部任务行（M12 统计用，不分页）。
+ */
+export function listVideoTasksSince(sinceTs: number): VideoTask[] {
+  const db: Database.Database = getDatabase()
+  const rows = db
+    .prepare('SELECT * FROM video_tasks WHERE created_at >= ? ORDER BY created_at ASC')
+    .all(sinceTs) as VideoTaskRow[]
   return rows.map(rowToTask)
 }
 

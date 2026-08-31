@@ -2,7 +2,7 @@
 // 任务引擎通过统一接口驱动不同厂商（当前 M1 仅 Seedance）。
 // 各厂商 API 差异（鉴权、提交、轮询、状态映射）全部收口在适配器内。
 
-import type { VideoProvider, VideoResolution, VideoAspect, VideoImageRef } from '@shared/types'
+import type { VideoProvider, VideoResolution, VideoAspect, VideoImageRef, VideoCustomProtocol } from '@shared/types'
 
 /** 提交视频生成任务的规格 */
 export interface SubmitSpec {
@@ -54,8 +54,8 @@ export interface VideoProviderConfig {
   apiKey: string
   baseUrl: string
   model: string
-  /** 仅 custom 厂商：复用的协议实现（ark=火山方舟兼容 / kling=TokenHub 兼容），缺省 ark */
-  protocol?: 'ark' | 'kling'
+  /** 仅 custom 厂商：复用的协议实现（ark=火山方舟兼容 / kling=TokenHub 兼容 / openai=OpenAI Videos 兼容），缺省 ark */
+  protocol?: VideoCustomProtocol
 }
 
 /** 适配器工厂，供引擎按配置选择 */

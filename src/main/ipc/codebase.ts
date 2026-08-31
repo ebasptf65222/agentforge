@@ -29,7 +29,7 @@ let currentScanAbortController: AbortController | null = null
 async function handleScan(
   _event: unknown,
   params: Record<string, unknown>,
-) {
+): Promise<Awaited<ReturnType<typeof scanCodebase>>> {
   const rootPath = validateNonEmptyString(params['rootPath'], 'rootPath')
 
   // 取消正在进行的扫描

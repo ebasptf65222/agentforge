@@ -13,7 +13,7 @@ import {
   getKbDocumentById,
   listKbDocuments,
 } from '../db/repos/kb-document'
-import { batchCreateKbChunks, deleteKbChunksByDocumentId, getKbChunksByDocumentId } from '../db/repos/kb-chunk'
+import { batchCreateKbChunks, deleteKbChunksByDocumentId } from '../db/repos/kb-chunk'
 import { parseDocument } from './parser'
 import { chunkText } from './chunking'
 import { clearSearchCache } from './search'

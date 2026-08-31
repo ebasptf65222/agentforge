@@ -749,4 +749,112 @@ describe('VideoEngine', () => {
     expect(engine.get(s2.tasks[1].id)).toBeNull()
     engine.shutdown()
   })
+
+  // ─── M13: 生成队列 ──────────────────────────────────────────
+
+  it('should throttle submissions by queue concurrency (M13)', async () => {
+    const engine = new VideoEngine({
+      adapterFactory: () => makeAdapter([{ status: 'running' }]),
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 60_000,
+      maxConcurrent: 1,
+    })
+
+    const first = await engine.generate({ prompt: 'one' })
+    expect(first.status).toBe('submitted')
+
+    const second = await engine.generate({ prompt: 'two' })
+    expect(second.status).toBe('queued')
+
+    const snapshot = engine.getQueueSnapshot()
+    expect(snapshot.activeCount).toBe(1)
+    expect(snapshot.maxConcurrent).toBe(1)
+    expect(snapshot.items).toHaveLength(1)
+    expect(snapshot.items[0]?.task.id).toBe(second.id)
+    expect(snapshot.items[0]?.position).toBe(1)
+
+    // 提升并发上限后自动出队
+    engine.setQueueConcurrency(3)
+    await waitFor(() => engine.get(second.id)?.status === 'submitted')
+    expect(engine.getQueueSnapshot().items).toHaveLength(0)
+    engine.shutdown()
+  })
+
+  it('should pause and resume the queue (M13)', async () => {
+    const engine = new VideoEngine({
+      adapterFactory: () => makeAdapter([{ status: 'running' }]),
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 60_000,
+      maxConcurrent: 2,
+    })
+
+    const first = await engine.generate({ prompt: 'first' })
+    expect(first.status).toBe('submitted')
+
+    const snapshot = engine.pauseQueue()
+    expect(snapshot.paused).toBe(true)
+
+    const second = await engine.generate({ prompt: 'second' })
+    expect(second.status).toBe('queued')
+    // 暂停期间保持排队
+    expect(engine.get(second.id)?.status).toBe('queued')
+
+    engine.resumeQueue()
+    await waitFor(() => engine.get(second.id)?.status === 'submitted')
+    expect(engine.getQueueSnapshot().paused).toBe(false)
+    engine.shutdown()
+  })
+
+  it('should remove a queued task from the queue when cancelled (M13)', async () => {
+    const engine = new VideoEngine({
+      adapterFactory: () => makeAdapter([{ status: 'running' }]),
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 60_000,
+      maxConcurrent: 1,
+    })
+
+    await engine.generate({ prompt: 'in-flight' })
+    const queued = await engine.generate({ prompt: 'queued one' })
+    expect(engine.getQueueSnapshot().items).toHaveLength(1)
+
+    engine.cancel(queued.id)
+    expect(engine.get(queued.id)?.status).toBe('cancelled')
+    expect(engine.getQueueSnapshot().items).toHaveLength(0)
+    engine.shutdown()
+  })
+
+  it('should recover queued tasks from db in a fresh engine (M13)', async () => {
+    const first = new VideoEngine({
+      adapterFactory: () => makeAdapter([{ status: 'running' }]),
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 60_000,
+      maxConcurrent: 1,
+    })
+    first.pauseQueue()
+    const stuck = await first.generate({ prompt: 'stuck task' })
+    expect(stuck.status).toBe('queued')
+    first.shutdown()
+
+    // 新引擎实例（模拟重启）：遗留 queued 任务自动回队并提交
+    const second = new VideoEngine({
+      adapterFactory: () => makeAdapter([{ status: 'running' }]),
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 60_000,
+      maxConcurrent: 1,
+    })
+    const snapshot = second.getQueueSnapshot()
+    expect(snapshot.items.map((item) => item.task.id)).toContain(stuck.id)
+    await waitFor(() => second.get(stuck.id)?.status === 'submitted')
+    second.shutdown()
+  })
 })

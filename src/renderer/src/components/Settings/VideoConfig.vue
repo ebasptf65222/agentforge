@@ -48,11 +48,12 @@ const klingModel = ref('kling-video-v2.6')
 const customApiKey = ref('')
 const customBaseUrl = ref('')
 const customModel = ref('')
-const customProtocol = ref<'ark' | 'kling'>('ark')
+const customProtocol = ref<'ark' | 'kling' | 'openai'>('ark')
 
 const CUSTOM_PROTOCOL_OPTIONS = [
   { label: '火山方舟 ARK 兼容', value: 'ark' } as const,
   { label: '可灵 TokenHub 兼容', value: 'kling' } as const,
+  { label: 'OpenAI Videos 兼容', value: 'openai' } as const,
 ]
 
 const providerOptions = [

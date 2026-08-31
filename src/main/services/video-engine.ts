@@ -16,6 +16,8 @@ import type {
   VideoAsyncEvent,
   VideoImageRef,
   VideoProvider,
+  VideoQueueItem,
+  VideoQueueSnapshot,
   VideoSequence,
   VideoShot,
   VideoTask,
@@ -26,6 +28,7 @@ import {
   createVideoTask,
   deleteVideoTask,
   getVideoTaskById,
+  listQueuedVideoTasks,
   listVideoTasks,
   listVideoTasksBySequence,
   updateVideoTask,
@@ -64,17 +67,40 @@ export interface VideoBatchResult<T = string> {
   failed: Array<{ id: string; message: string }>
 }
 
+/** M13：队列并发上限的取值范围与缺省值 */
+export const QUEUE_CONCURRENCY_MIN = 1
+export const QUEUE_CONCURRENCY_MAX = 10
+export const QUEUE_CONCURRENCY_DEFAULT = 2
+
+/** M13：队列中的一项（任务 id + 提交时需透传的参考图） */
+interface QueueEntry {
+  taskId: string
+  imageRefs?: VideoImageRef[]
+}
+
 interface EngineState {
   /** 在途任务（未到达终态） */
   active: Map<string, VideoTask>
   timer: NodeJS.Timeout | null
   initialized: false
+  /** M13：待提交队列（FIFO），任务以 queued 状态落库后在此排队 */
+  queue: QueueEntry[]
+  /** M13：是否暂停出队 */
+  paused: boolean
+  /** M13：同时在途任务上限 */
+  maxConcurrent: number
+  /** M13：是否已执行过重启恢复（遗留 queued 任务回队） */
+  recovered: boolean
 }
 
 const state: EngineState = {
   active: new Map(),
   timer: null,
   initialized: false,
+  queue: [],
+  paused: false,
+  maxConcurrent: QUEUE_CONCURRENCY_DEFAULT,
+  recovered: false,
 }
 
 /**
@@ -108,7 +134,7 @@ export function loadVideoConfig(provider?: VideoProvider): VideoProviderConfig {
   let baseUrl: string
   let model: string
   let providerLabel: string
-  let protocol: 'ark' | 'kling' | undefined
+  let protocol: 'ark' | 'kling' | 'openai' | undefined
   if (active === 'kling') {
     apiKeyEnc = settings.videoKlingApiKey
     baseUrl = settings.videoKlingBaseUrl?.trim() || DEFAULT_KLING_BASE_URL
@@ -164,6 +190,10 @@ export class VideoEngine {
   private readonly maxPollFailures: number
   private pollFailures: Map<string, number>
   private pollIntervalMs: number
+  /** M13：出队循环进行中标记（runPump 同步维护） */
+  private pumping = false
+  /** M13：进行中的 pump Promise（重入时共享，保证 await pump 能等到本轮出队完成） */
+  private pumpPromise: Promise<void> | null = null
 
   constructor(options?: {
     adapterFactory?: (provider: VideoProvider) => VideoProviderAdapter
@@ -172,6 +202,7 @@ export class VideoEngine {
     download?: VideoDownloadFn
     pollIntervalMs?: number
     maxDuration?: number
+    maxConcurrent?: number
   }) {
     this.adapterFactory =
       options?.adapterFactory ?? ((provider) => createVideoProviderAdapter(provider))
@@ -182,6 +213,9 @@ export class VideoEngine {
     this.maxDuration = options?.maxDuration ?? 10
     this.maxPollFailures = options?.maxPollFailures ?? MAX_CONSECUTIVE_POLL_FAILURES
     this.pollFailures = new Map()
+    if (options?.maxConcurrent !== undefined) {
+      state.maxConcurrent = clampConcurrency(options.maxConcurrent)
+    }
   }
 
   private loadRuntimeConfig(provider?: VideoProvider): VideoProviderConfig {
@@ -199,6 +233,8 @@ export class VideoEngine {
 
   /**
    * 提交并跟踪一个视频生成任务（单镜头，M5 图生视频/首尾帧走此处）。
+   * M13 队列化：任务先以 queued 入队，由 pump 按并发上限出队提交；
+   * 返回时若未暂停且并发槽位充足则已提交（submitted）。
    */
   async generate(params: CreateVideoTaskParams): Promise<VideoTask> {
     const prompt = params.prompt.trim()
@@ -206,10 +242,10 @@ export class VideoEngine {
       throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Video prompt must not be empty')
     }
 
-    const config = this.configProvider()
-    const task = await this.submitSingle(params, config, {})
+    const task = this.enqueueSingle(params, {}, undefined)
     this.ensureTimer()
-    return task
+    await this.pump()
+    return getVideoTaskById(task.id) ?? task
   }
 
   /**
@@ -267,11 +303,11 @@ export class VideoEngine {
       return await this.runContinuitySequence(sequence, shots, params, config)
     }
 
-    // M6：并行跑批（所有镜头一次性提交，统一轮询）
+    // M6：并行跑批（M13 队列化：镜头任务入队，由队列按并发上限提交）
     const tasks: VideoTask[] = []
     for (let index = 0; index < shots.length; index++) {
       const shot = shots[index]
-      const task = await this.submitSingle(
+      const task = this.enqueueSingle(
         {
           prompt: shot.prompt,
           model: params.model,
@@ -280,13 +316,14 @@ export class VideoEngine {
           aspect: params.aspect,
           imageRefs: shot.imageRefs,
         },
-        config,
         { sequenceId: sequence.id, shotIndex: index },
+        config.provider,
       )
       tasks.push(task)
     }
 
     this.ensureTimer()
+    await this.pump()
     return { sequence, tasks }
   }
 
@@ -325,18 +362,23 @@ export class VideoEngine {
     return { sequence, tasks }
   }
 
-  /** 提交单个视频任务并加入轮询队列（generate / generateSequence 共用） */
-  private async submitSingle(
+  /**
+   * 将单任务参数落库为 queued 并加入提交队列（M13 队列化）。
+   * model 由当前厂商配置解析后随任务持久化，实际提交由 pump 完成。
+   */
+  private enqueueSingle(
     params: CreateVideoTaskParams,
-    config: VideoProviderConfig,
     meta: { sequenceId?: string | null; shotIndex?: number | null },
-  ): Promise<VideoTask> {
+    provider?: VideoProvider,
+    imageRefs?: VideoImageRef[],
+  ): VideoTask {
+    const config = this.configProvider(provider)
     const duration = Math.max(1, Math.min(Math.round(params.duration ?? 5), this.maxDuration))
     const resolution = params.resolution ?? '720P'
     const aspect = params.aspect ?? '16:9'
     const prompt = params.prompt.trim()
 
-    // 持久化任务（submitted）
+    // 持久化任务（queued），进入 FIFO 提交队列
     const task = createVideoTask({
       provider: config.provider,
       prompt,
@@ -347,9 +389,121 @@ export class VideoEngine {
       sequenceId: meta.sequenceId ?? null,
       shotIndex: meta.shotIndex ?? null,
     })
+    state.queue.push({
+      taskId: task.id,
+      imageRefs: params.imageRefs ?? imageRefs,
+    })
+    return task
+  }
 
-    // 提交到厂商并进入轮询队列
-    return this.submitPersisted(task, config, params.imageRefs)
+  /**
+   * M13：按并发上限从队列出队提交任务。
+   * 暂停中直接返回；已在出队时共享同一 Promise（保证 await 能等到本轮出队完成）。
+   * 提交失败的任务标记为 failed，不阻断其余任务。
+   */
+  private pump(): Promise<void> {
+    if (state.paused) return Promise.resolve()
+    if (this.pumping && this.pumpPromise) return this.pumpPromise
+    this.pumping = true
+    this.pumpPromise = this.runPump()
+      .catch(() => undefined)
+      .finally(() => {
+        this.pumpPromise = null
+      })
+    return this.pumpPromise
+  }
+
+  private async runPump(): Promise<void> {
+    try {
+      while (!state.paused && state.queue.length > 0 && state.active.size < state.maxConcurrent) {
+        const entry = state.queue.shift()
+        if (!entry) break
+        const task = getVideoTaskById(entry.taskId)
+        // 队列中的任务可能已被删除或取消，跳过失效项
+        if (!task || task.status !== 'queued') continue
+        try {
+          const config = this.configProvider(task.provider as VideoProvider)
+          await this.submitPersisted(task, config, entry.imageRefs)
+        } catch (error) {
+          await this.handleTerminal(
+            task.id,
+            task,
+            'failed',
+            ErrorCodes.VIDEO_API_ERROR,
+            error instanceof Error ? error.message : String(error),
+          )
+        }
+      }
+    } finally {
+      // 同步结束标记：循环退出后立刻允许下一次 pump 启动，
+      // 避免 pumpPromise 尚未清理时新的出队请求被旧 Promise 吞掉
+      this.pumping = false
+    }
+  }
+
+  // ─── M13：队列控制 ────────────────────────────────────────────
+
+  /** 重启恢复：把 DB 中遗留的普通 queued 任务（非衔接镜头）回队并尝试推进 */
+  private ensureQueueRecovered(): void {
+    if (state.recovered) return
+    state.recovered = true
+    try {
+      for (const task of listQueuedVideoTasks()) {
+        const exists = state.queue.some((entry) => entry.taskId === task.id)
+        if (!exists && !state.active.has(task.id)) {
+          state.queue.push({ taskId: task.id })
+        }
+      }
+    } catch {
+      // DB 不可用时忽略恢复，队列照常接收新任务
+    }
+    if (state.queue.length > 0 && !state.paused) {
+      // 微任务中再启动出队：保证本次快照能先返回排队明细
+      queueMicrotask(() => {
+        if (!state.paused) void this.pump()
+      })
+    }
+  }
+
+  /** 暂停出队：排队任务保持 queued，已提交厂商的任务继续轮询 */
+  pauseQueue(): VideoQueueSnapshot {
+    this.ensureQueueRecovered()
+    state.paused = true
+    return this.getQueueSnapshot()
+  }
+
+  /** 恢复出队并立即尝试推进 */
+  resumeQueue(): VideoQueueSnapshot {
+    this.ensureQueueRecovered()
+    state.paused = false
+    void this.pump()
+    return this.getQueueSnapshot()
+  }
+
+  /** 调节并发上限（1–10），只影响后续出队，不中断在途任务 */
+  setQueueConcurrency(limit: number): VideoQueueSnapshot {
+    state.maxConcurrent = clampConcurrency(limit)
+    void this.pump()
+    return this.getQueueSnapshot()
+  }
+
+  /** 获取队列快照（排队任务按出队顺序带位置） */
+  getQueueSnapshot(): VideoQueueSnapshot {
+    this.ensureQueueRecovered()
+    const items: VideoQueueItem[] = []
+    let position = 0
+    for (const entry of state.queue) {
+      const task = getVideoTaskById(entry.taskId)
+      if (!task || task.status !== 'queued') continue
+      position += 1
+      items.push({ task, position })
+    }
+    return {
+      paused: state.paused,
+      maxConcurrent: state.maxConcurrent,
+      activeCount: state.active.size,
+      items,
+    }
   }
 
   /**
@@ -418,6 +572,7 @@ export class VideoEngine {
       const updated =
         updateVideoTask(id, { status: 'cancelled', progress: task.progress }) ?? task
       state.active.delete(id)
+      state.queue = state.queue.filter((entry) => entry.taskId !== id)
       this.pollFailures.delete(id)
       this.reconcileParentSequence(id)
       this.ensureTimer()
@@ -453,9 +608,11 @@ export class VideoEngine {
       resolution: task.resolution,
       aspect: task.aspect,
     })
-    const submitted = await this.submitPersisted(newTask, config)
+    // M13 队列化：重试任务入队，由队列按并发上限提交
+    state.queue.push({ taskId: newTask.id })
     this.ensureTimer()
-    return submitted
+    await this.pump()
+    return getVideoTaskById(newTask.id) ?? newTask
   }
 
   /**
@@ -486,11 +643,12 @@ export class VideoEngine {
 
   /**
    * 批量生成一组单视频任务（M11：CSV 造片）。
-   * 复用受限并发逐个提交，个别行失败不阻断其余行。
+   * M13 队列化：全部行入队后由队列按并发上限提交；可临时提升本批并发。
+   * 提交即失败（厂商拒绝）的行计入 failed，其余（含仍在排队的行）计入 succeeded。
    *
    * @param rows - 已由 parseCsvRows 校验通过的任务参数
-   * @param concurrency - 并发上限，缺省用批量重试同款并发（避免集中触发厂商限流）
-   * @returns 成功任务列表与失败行明细（失败项 id 为原 prompt，用于 UI 定位）
+   * @param concurrency - 本批出队并发上限（临时生效，缺省沿用队列当前上限）
+   * @returns 成功入队任务列表与失败行明细（失败项 id 为原 prompt，用于 UI 定位）
    */
   async generateRows(
     rows: CreateVideoTaskParams[],
@@ -499,23 +657,49 @@ export class VideoEngine {
     const results: VideoBatchResult<VideoTask> = { succeeded: [], failed: [] }
     if (rows.length === 0) return results
 
+    // 早期校验默认厂商配置（缺 Key 等无效配置直接抛给调用方）
     const config = this.configProvider()
-    const limit = Math.max(1, concurrency ?? BATCH_RETRY_CONCURRENCY)
-    await runWithConcurrency(rows, limit, async (params) => {
+    const enqueued: VideoTask[] = []
+    for (const params of rows) {
       try {
         const prompt = params.prompt.trim()
         if (!prompt) {
           throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Video prompt must not be empty')
         }
-        results.succeeded.push(await this.submitSingle(params, config, {}))
+        enqueued.push(this.enqueueSingle(params, {}, config.provider))
       } catch (error) {
         results.failed.push({
           id: params.prompt,
           message: error instanceof Error ? error.message : String(error),
         })
       }
-    })
+    }
     this.ensureTimer()
+
+    // 本批临时提升并发上限，出队完成后恢复
+    const prevLimit = state.maxConcurrent
+    if (concurrency !== undefined) {
+      state.maxConcurrent = clampConcurrency(concurrency)
+    }
+    try {
+      await this.pump()
+    } finally {
+      state.maxConcurrent = prevLimit
+    }
+
+    // 重新分类：提交即失败 → failed；仍在排队/已提交 → succeeded
+    for (const task of enqueued) {
+      const fresh = getVideoTaskById(task.id)
+      if (!fresh) continue
+      if (fresh.status === 'failed' && !fresh.providerTaskId) {
+        results.failed.push({
+          id: fresh.prompt,
+          message: fresh.errorMessage ?? 'Video generation failed',
+        })
+      } else {
+        results.succeeded.push(fresh)
+      }
+    }
     return results
   }
 
@@ -597,6 +781,7 @@ export class VideoEngine {
       this.cancel(id)
     }
     state.active.delete(id)
+    state.queue = state.queue.filter((entry) => entry.taskId !== id)
     this.pollFailures.delete(id)
     deleteVideoTask(id)
     await this.removeOutputFile(task)
@@ -636,13 +821,18 @@ export class VideoEngine {
     }
   }
 
-  /** 关闭引擎（释放定时器） */
+  /** 关闭引擎（释放定时器与队列状态） */
   shutdown(): void {
     if (state.timer) {
       clearInterval(state.timer)
       state.timer = null
     }
     state.active.clear()
+    state.queue = []
+    state.paused = false
+    state.recovered = false
+    this.pumping = false
+    this.pumpPromise = null
   }
 
   // ─── 轮询 ─────────────────────────────────────────────────────
@@ -741,6 +931,8 @@ export class VideoEngine {
     this.reconcileParentSequence(id)
     // M8：若处于连续性衔接序列且存在下一个排队镜头，则截取尾帧并推进
     await this.advanceContinuity(id)
+    // M13：终态释放并发槽位，继续推进队列
+    void this.pump()
     this.stopTimerIfIdle()
   }
 
@@ -764,6 +956,8 @@ export class VideoEngine {
     // M8：连续性序列中途失败 → 取消其后续仍未提交的排队镜头
     this.cancelRemainingContinuity(task)
     this.reconcileParentSequence(id)
+    // M13：终态释放并发槽位，继续推进队列
+    void this.pump()
     this.stopTimerIfIdle()
   }
 
@@ -866,6 +1060,13 @@ async function defaultDownload(url: string, outputAbsolutePath: string): Promise
 
 function isTerminal(status: VideoTaskStatus): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled'
+}
+
+/** M13：并发上限钳制（1–10） */
+function clampConcurrency(limit: number): number {
+  const value = Math.round(limit)
+  if (!Number.isFinite(value)) return QUEUE_CONCURRENCY_DEFAULT
+  return Math.max(QUEUE_CONCURRENCY_MIN, Math.min(value, QUEUE_CONCURRENCY_MAX))
 }
 
 /** M9：可重试的任务状态 */

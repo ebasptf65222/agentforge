@@ -603,6 +603,54 @@ interface VideoCsvParseResult {
   headerMissingPrompt: boolean
 }
 
+/** M12：统计分桶（按天 / 厂商 / 模型聚合的一行） */
+interface VideoStatsBucket {
+  key: string
+  total: number
+  succeeded: number
+  failed: number
+  cancelled: number
+  active: number
+  successRate: number
+  failureRate: number
+  avgElapsedSeconds: number | null
+  videoSeconds: number
+}
+
+/** M12：生成历史统计总览 */
+interface VideoStatsOverview {
+  since: number
+  total: number
+  succeeded: number
+  failed: number
+  cancelled: number
+  active: number
+  successRate: number
+  failureRate: number
+  avgElapsedSeconds: number | null
+  videoSeconds: number
+  byDay: VideoStatsBucket[]
+  byProvider: VideoStatsBucket[]
+  byModel: VideoStatsBucket[]
+}
+
+/** M12：导出统计 CSV 结果（用户取消时不落盘） */
+type VideoStatsExportResult = { canceled: true } | { canceled: false; path: string }
+
+/** M13：队列中的一项（排队任务 + 位置，position 从 1 开始） */
+interface VideoQueueItem {
+  task: VideoTask
+  position: number
+}
+
+/** M13：生成队列快照 */
+interface VideoQueueSnapshot {
+  paused: boolean
+  maxConcurrent: number
+  activeCount: number
+  items: VideoQueueItem[]
+}
+
 interface VideoAPI {
   /** 提交一个视频生成任务 */
   generate(params: CreateVideoTaskParams): Promise<VideoTask>
@@ -635,6 +683,18 @@ interface VideoAPI {
     rows: CreateVideoTaskParams[],
     concurrency?: number,
   ): Promise<VideoBatchResult<VideoTask>>
+  /** 聚合生成历史统计（M12，days 缺省 30，1–365） */
+  stats(days?: number): Promise<VideoStatsOverview>
+  /** 导出统计 CSV 报表（M12，弹出保存对话框） */
+  exportStats(days?: number): Promise<VideoStatsExportResult>
+  /** 获取生成队列快照（M13） */
+  queue(): Promise<VideoQueueSnapshot>
+  /** 暂停队列出队（M13） */
+  queuePause(): Promise<VideoQueueSnapshot>
+  /** 恢复队列出队（M13） */
+  queueResume(): Promise<VideoQueueSnapshot>
+  /** 设置队列并发上限 1–10（M13） */
+  queueConcurrency(limit: number): Promise<VideoQueueSnapshot>
   /** 读取视频生成配置（不含 API Key，含多厂商回显） */
   getConfig(): Promise<VideoConfigView>
   /** 测试指定厂商连接（校验配置完整性） */
@@ -732,4 +792,9 @@ export type {
   VideoProvider,
   VideoCsvParseResult,
   VideoCsvSkippedRow,
+  VideoStatsBucket,
+  VideoStatsOverview,
+  VideoStatsExportResult,
+  VideoQueueItem,
+  VideoQueueSnapshot,
 }

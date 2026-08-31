@@ -7,7 +7,6 @@ import type {
   TtsFormat,
   TtsPlayState,
   SttRecordState,
-  VoiceModeState,
 } from './enums'
 
 // ─── 5.6 语音类型 ────────────────────────────────────────────────
