@@ -20,6 +20,7 @@ import { wikiIngestTool } from './wiki-ingest'
 import { wikiQueryTool } from './wiki-query'
 import { wikiLintTool } from './wiki-lint'
 import { scheduleTaskTool } from './schedule-task'
+import { videoGenerateTool } from './video-generate'
 
 /**
  * 初始化并注册所有内置工具到全局 ToolRegistry。
@@ -66,4 +67,7 @@ export function initBuiltinTools(): void {
 
   // 注册定时任务工具
   registry.registerBuiltin(scheduleTaskTool)
+
+  // 注册 AI 视频生成工具（M2）
+  registry.registerBuiltin(videoGenerateTool)
 }
