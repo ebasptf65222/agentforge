@@ -16,6 +16,7 @@ import { setEmbeddingConfig } from './knowledge-base/embedding'
 import { getMcpServerManager } from './mcp/manager'
 import { scanAndResetCorruptApiKeys } from './db/repos/model-config'
 import { getSchedulerService } from './services/scheduler-service'
+import { getVideoScheduleService } from './services/video-schedule-service'
 import {
   registerLocalFileSchemePrivileges,
   registerLocalFileProtocol,
@@ -72,6 +73,11 @@ registerCleanup(async () => {
 // 注册调度器关闭
 registerCleanup(() => {
   getSchedulerService().shutdown()
+})
+
+// M17: 注册视频批量调度器关闭（释放定时器）
+registerCleanup(() => {
+  getVideoScheduleService().shutdown()
 })
 
 // ─── CSP 策略（生产环境注入） ──────────────────────────────────────
@@ -361,12 +367,21 @@ if (!gotTheLock) {
       console.error('[AgentForge] Scheduler initialization failed:', error)
     }
 
+    // M17: 初始化视频批量调度器（为 cron 调度武装定时器）
+    try {
+      getVideoScheduleService().initialize()
+    } catch (error) {
+      console.error('[AgentForge] Video Scheduler initialization failed:', error)
+    }
+
     // 电源管理：系统休眠恢复后检查错过的任务
     powerMonitor.on('resume', () => {
       console.info('[AgentForge] System resumed. Checking missed scheduled tasks...')
       void getSchedulerService().checkMissedRuns().then(() => {
         getSchedulerService().rearm()
       })
+      // M17: 重排视频批量调度定时器
+      getVideoScheduleService().rearm()
     })
 
     app.on('activate', () => {

@@ -96,6 +96,9 @@ describe('app-settings repository', () => {
     if (!cols.some((c) => c.name === 'copilot_skip_custom_instructions')) {
       testDb.exec('ALTER TABLE app_settings ADD COLUMN copilot_skip_custom_instructions INTEGER DEFAULT 0')
     }
+    if (!cols.some((c) => c.name === 'video_routing_config')) {
+      testDb.exec('ALTER TABLE app_settings ADD COLUMN video_routing_config TEXT')
+    }
     vi.clearAllMocks()
   })
 
@@ -606,6 +609,40 @@ describe('app-settings repository', () => {
       const settings = getSettings()
       expect(settings.copilotReasoningEffort).toBe('high')
       expect(settings.theme).toBe('light')
+    })
+
+    // M15：跨厂商智能路由配置的读写
+    it('should persist and read back video routing config (M15)', () => {
+      const cfg = {
+        strategy: 'cost-optimized' as const,
+        providers: [
+          { provider: 'seedance' as const, costPerSecond: 0.5, qualityRank: 1, enabled: true },
+          { provider: 'kling' as const, costPerSecond: 1.0, qualityRank: 2, enabled: false },
+        ],
+      }
+      updateSettings({ videoRoutingConfig: cfg })
+      const settings = getSettings()
+      expect(settings.videoRoutingConfig?.strategy).toBe('cost-optimized')
+      const providers = settings.videoRoutingConfig!.providers
+      // normalize 会补齐 3 个默认厂商；断言我们写入的两个项被正确读回
+      expect(providers).toHaveLength(3)
+      const seedance = providers.find((p) => p.provider === 'seedance')!
+      const kling = providers.find((p) => p.provider === 'kling')!
+      expect(seedance.enabled).toBe(true)
+      expect(seedance.costPerSecond).toBe(0.5)
+      expect(kling.enabled).toBe(false)
+      expect(kling.costPerSecond).toBe(1.0)
+    })
+
+    it('should clear video routing config when set to null (M15)', () => {
+      updateSettings({
+        videoRoutingConfig: {
+          strategy: 'fixed',
+          providers: [],
+        },
+      })
+      updateSettings({ videoRoutingConfig: null })
+      expect(getSettings().videoRoutingConfig).toBeUndefined()
     })
   })
 })

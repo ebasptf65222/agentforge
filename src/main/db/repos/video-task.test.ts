@@ -41,6 +41,47 @@ describe('video-task repository (M14 asset management)', () => {
     expect(columns).toContain('favorite')
     expect(columns).toContain('tags')
     expect(columns).toContain('deleted_at')
+    // M16
+    expect(columns).toContain('image_refs')
+  })
+
+  it('should persist image_refs with style role and read back (M16)', () => {
+    const t = createVideoTask({
+      prompt: 'p',
+      model: 'm',
+      imageRefs: [
+        { path: '/tmp/a.png', role: 'first_frame' },
+        { path: '/tmp/b.png', role: 'style' },
+      ],
+    })
+    expect(t.imageRefs).toEqual([
+      { path: '/tmp/a.png', role: 'first_frame' },
+      { path: '/tmp/b.png', role: 'style' },
+    ])
+    // 持久化校验
+    const fetched = getVideoTaskById(t.id)
+    expect(fetched?.imageRefs).toEqual([
+      { path: '/tmp/a.png', role: 'first_frame' },
+      { path: '/tmp/b.png', role: 'style' },
+    ])
+  })
+
+  it('should default imageRefs to [] and tolerate empty / use updateVideoTask (M16)', () => {
+    const t = createVideoTask({ prompt: 'p', model: 'm' })
+    expect(t.imageRefs).toEqual([])
+
+    const updated = updateVideoTask(t.id, { imageRefs: [{ path: '/tmp/s.png', role: 'style' }] })
+    expect(updated?.imageRefs).toEqual([{ path: '/tmp/s.png', role: 'style' }])
+
+    // 覆盖写回空数组
+    const cleared = updateVideoTask(t.id, { imageRefs: [] })
+    expect(cleared?.imageRefs).toEqual([])
+  })
+
+  it('should tolerate corrupted image_refs json (M16)', () => {
+    const t = createVideoTask({ prompt: 'p', model: 'm' })
+    getDatabase().prepare('UPDATE video_tasks SET image_refs = ? WHERE id = ?').run('{bad json', t.id)
+    expect(getVideoTaskById(t.id)?.imageRefs).toEqual([])
   })
 
   it('should default favorite=false tags=[] deletedAt=null and update them (M14)', () => {

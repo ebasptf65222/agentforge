@@ -4,7 +4,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed, onUnmounted } from 'vue'
-import type { VideoTask, VideoAsyncEvent, VideoConfigView, VideoProvider, CreateVideoTaskParams, VideoSequence, VideoSequenceDetail, VideoStatsOverview, VideoQueueSnapshot, VideoExportAssetsResult, VideoTrashPurgeResult } from '@shared/types'
+import type { VideoTask, VideoAsyncEvent, VideoConfigView, VideoProvider, CreateVideoTaskParams, VideoSequence, VideoSequenceDetail, VideoRoutingConfig, VideoRoutingLogEntry, VideoStatsOverview, VideoQueueSnapshot, VideoExportAssetsResult, VideoTrashPurgeResult, VideoSchedule, VideoScheduleRun, CreateVideoScheduleParams, UpdateVideoScheduleParams, VideoPostprocessRun, VideoPostprocessResult, VideoSubtitleParams, VideoWatermarkParams, VideoConcatParams, VideoRenameParams, VideoTemplate, CreateVideoTemplateParams, UpdateVideoTemplateParams, VideoBillingOverview } from '@shared/types'
 import type { VideoCsvParseResult } from '@/types/electron-api'
 import { showToast } from '@/utils/toast'
 
@@ -22,6 +22,15 @@ export const useVideoStore = defineStore('video', () => {
 
   /** 是否在加载任务列表 */
   const loading = ref(false)
+
+  // ─── M15: 跨厂商智能路由状态 ──────────────────────────────────
+
+  /** 路由配置 */
+  const routingConfig = ref<VideoRoutingConfig | null>(null)
+  /** 路由决策日志 */
+  const routingLogs = ref<VideoRoutingLogEntry[]>([])
+  /** 路由加载中 */
+  const routingLoading = ref(false)
 
   // ─── M10: 批量选择状态 ──────────────────────────────────────
 
@@ -54,8 +63,44 @@ export const useVideoStore = defineStore('video', () => {
   /** 是否在加载回收站 */
   const trashLoading = ref(false)
 
+  // ─── M17: 视频批量调度状态 ──────────────────────────────────
+
+  /** 视频批量调度列表 */
+  const schedules = ref<VideoSchedule[]>([])
+  /** 调度加载中 */
+  const schedulesLoading = ref(false)
+  /** 当前查看历史的调度 id */
+  const scheduleHistoryId = ref<string | null>(null)
+  /** 当前调度执行历史 */
+  const scheduleHistory = ref<VideoScheduleRun[]>([])
+
+  // ─── M18: 成片后处理状态 ────────────────────────────────────
+
+  /** 后处理执行记录 */
+  const postprocessRuns = ref<VideoPostprocessRun[]>([])
+  /** 后处理执行中 */
+  const postprocessing = ref(false)
+
+  // ─── M19: 分镜模板库状态 ────────────────────────────────────
+
+  /** 分镜/序列模板列表 */
+  const templates = ref<VideoTemplate[]>([])
+  /** 模板加载中 */
+  const templatesLoading = ref(false)
+
+  // ─── M20: 成本与用量计费状态 ────────────────────────────────
+
+  /** 计费总览缓存 */
+  const billing = ref<VideoBillingOverview | null>(null)
+  /** 计费加载中 */
+  const billingLoading = ref(false)
+  /** 当前计费时间范围（天） */
+  const billingDays = ref(30)
+
   /** 事件订阅清理函数 */
   let stopEvent: (() => void) | null = null
+  let stopScheduleCompleted: (() => void) | null = null
+  let stopScheduleDisabled: (() => void) | null = null
 
   // ─── Getters ─────────────────────────────────────────────────
 
@@ -584,9 +629,22 @@ export const useVideoStore = defineStore('video', () => {
     if (!stopEvent) {
       stopEvent = window.electron.video.onEvent(handleEvent)
     }
+    if (!stopScheduleCompleted) {
+      stopScheduleCompleted = window.electron.video.onScheduleCompleted(() => {
+        void fetchSchedules()
+      })
+    }
+    if (!stopScheduleDisabled) {
+      stopScheduleDisabled = window.electron.video.onScheduleDisabled(() => {
+        void fetchSchedules()
+        showToast('定时批量任务因连续失败已被自动禁用', 'warning')
+      })
+    }
     void refresh()
     void refreshSequences()
     void refreshQueue()
+    void fetchSchedules()
+    void fetchTemplates()
   }
 
   /** 测试指定厂商配置（校验 key 解密与配置完整性） */
@@ -594,9 +652,318 @@ export const useVideoStore = defineStore('video', () => {
     await window.electron.video.testConfig(provider)
   }
 
+  // ─── M15: 跨厂商智能路由 actions ─────────────────────────────
+
+  /** 读取路由配置 */
+  async function fetchRoutingConfig(): Promise<VideoRoutingConfig | null> {
+    routingLoading.value = true
+    try {
+      const cfg = await window.electron.video.getRoutingConfig()
+      routingConfig.value = cfg
+      return cfg
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      return null
+    } finally {
+      routingLoading.value = false
+    }
+  }
+
+  /** 更新路由配置（持久化 + 同步引擎） */
+  async function updateRoutingConfig(
+    config: VideoRoutingConfig,
+  ): Promise<VideoRoutingConfig | null> {
+    try {
+      const normalized = await window.electron.video.setRoutingConfig(config)
+      routingConfig.value = normalized
+      return normalized
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      return null
+    }
+  }
+
+  /** 读取路由决策日志 */
+  async function fetchRoutingLogs(limit?: number): Promise<void> {
+    try {
+      routingLogs.value = await window.electron.video.getRoutingLogs(limit)
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+    }
+  }
+
+  /** 清空路由决策日志 */
+  async function clearRoutingLogs(): Promise<void> {
+    try {
+      await window.electron.video.clearRoutingLogs()
+      routingLogs.value = []
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+    }
+  }
+
+  // ─── M17: 视频批量调度 actions ───────────────────────────────
+
+  /** 拉取调度列表 */
+  async function fetchSchedules(limit?: number): Promise<void> {
+    schedulesLoading.value = true
+    try {
+      schedules.value = await window.electron.video.scheduleList(limit)
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+    } finally {
+      schedulesLoading.value = false
+    }
+  }
+
+  /** 创建调度 */
+  async function createSchedule(params: CreateVideoScheduleParams): Promise<VideoSchedule | null> {
+    try {
+      const schedule = await window.electron.video.scheduleCreate(params)
+      await fetchSchedules()
+      showToast(`已创建定时批量任务「${schedule.name}」`, 'success')
+      return schedule
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      return null
+    }
+  }
+
+  /** 更新调度 */
+  async function updateSchedule(
+    id: string,
+    params: UpdateVideoScheduleParams,
+  ): Promise<VideoSchedule | null> {
+    try {
+      const schedule = await window.electron.video.scheduleUpdate(id, params)
+      await fetchSchedules()
+      showToast('定时批量任务已更新', 'success')
+      return schedule
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      return null
+    }
+  }
+
+  /** 启停调度 */
+  async function toggleSchedule(id: string, enabled: boolean): Promise<void> {
+    try {
+      await window.electron.video.scheduleToggle(id, enabled)
+      await fetchSchedules()
+      showToast(enabled ? '定时任务已启用' : '定时任务已停用', 'info')
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+    }
+  }
+
+  /** 删除调度 */
+  async function deleteSchedule(id: string): Promise<void> {
+    try {
+      await window.electron.video.scheduleDelete(id)
+      schedules.value = schedules.value.filter((s) => s.id !== id)
+      if (scheduleHistoryId.value === id) {
+        scheduleHistoryId.value = null
+        scheduleHistory.value = []
+      }
+      showToast('定时任务已删除', 'success')
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+    }
+  }
+
+  /** 手动触发一次调度 */
+  async function runScheduleNow(id: string): Promise<void> {
+    try {
+      const run = await window.electron.video.scheduleRunNow(id)
+      showToast(run ? `已触发定时任务，提交 ${run.taskCount} 个任务` : '任务已触发（排队中）', 'success')
+      await fetchSchedules()
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+    }
+  }
+
+  /** 拉取调度执行历史 */
+  async function fetchScheduleHistory(id: string, limit?: number): Promise<void> {
+    scheduleHistoryId.value = id
+    try {
+      scheduleHistory.value = await window.electron.video.scheduleHistory(id, limit)
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+    }
+  }
+
+  // ─── M18: 成片后处理 actions ────────────────────────────────
+
+  /** 拉取后处理执行记录 */
+  async function fetchPostprocessRuns(limit?: number): Promise<void> {
+    try {
+      postprocessRuns.value = await window.electron.video.postprocessRuns(limit)
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+    }
+  }
+
+  /** 执行后处理并反馈结果；成功返回 run，失败返回 null */
+  async function runPostprocess(
+    fn: () => Promise<VideoPostprocessResult>,
+    successMsg: string,
+  ): Promise<boolean> {
+    postprocessing.value = true
+    try {
+      const result = await fn()
+      await fetchPostprocessRuns()
+      if (result.ok) {
+        showToast(successMsg, 'success')
+        return true
+      }
+      showToast(result.message || '后处理失败', 'warning')
+      return false
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      return false
+    } finally {
+      postprocessing.value = false
+    }
+  }
+
+  /** 字幕烧录 */
+  function postprocessSubtitle(params: VideoSubtitleParams): Promise<boolean> {
+    return runPostprocess(
+      () => window.electron.video.postprocessSubtitle(params),
+      '字幕已烧录到成片',
+    )
+  }
+
+  /** 水印叠加 */
+  function postprocessWatermark(params: VideoWatermarkParams): Promise<boolean> {
+    return runPostprocess(
+      () => window.electron.video.postprocessWatermark(params),
+      '水印已叠加到成片',
+    )
+  }
+
+  /** 多视频拼接 */
+  function postprocessConcat(params: VideoConcatParams): Promise<boolean> {
+    return runPostprocess(
+      () => window.electron.video.postprocessConcat(params),
+      '成片拼接完成',
+    )
+  }
+
+  /** 重命名成品 */
+  function postprocessRename(params: VideoRenameParams): Promise<boolean> {
+    return runPostprocess(
+      () => window.electron.video.postprocessRename(params),
+      '成片已重命名',
+    )
+  }
+
+  /** 归档成品 */
+  function postprocessArchive(taskIds: string[]): Promise<boolean> {
+    return runPostprocess(
+      () => window.electron.video.postprocessArchive({ taskIds }),
+      `已归档 ${taskIds.length} 个成片`,
+    )
+  }
+
+  // ─── M19: 分镜模板库 actions ────────────────────────────────
+
+  /** 拉取模板列表 */
+  async function fetchTemplates(limit?: number): Promise<void> {
+    templatesLoading.value = true
+    try {
+      templates.value = await window.electron.video.templateList(limit)
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+    } finally {
+      templatesLoading.value = false
+    }
+  }
+
+  /** 创建模板 */
+  async function createTemplate(params: CreateVideoTemplateParams): Promise<VideoTemplate | null> {
+    try {
+      const template = await window.electron.video.templateCreate(params)
+      await fetchTemplates()
+      showToast(`已保存模板「${template.name}」`, 'success')
+      return template
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      return null
+    }
+  }
+
+  /** 更新模板 */
+  async function updateTemplate(
+    id: string,
+    params: UpdateVideoTemplateParams,
+  ): Promise<VideoTemplate | null> {
+    try {
+      const template = await window.electron.video.templateUpdate(id, params)
+      await fetchTemplates()
+      showToast('模板已更新', 'success')
+      return template
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      return null
+    }
+  }
+
+  /** 删除模板 */
+  async function deleteTemplate(id: string): Promise<void> {
+    try {
+      await window.electron.video.templateDelete(id)
+      templates.value = templates.value.filter((t) => t.id !== id)
+      showToast('模板已删除', 'success')
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+    }
+  }
+
+  /** 按模板一键生成视频 */
+  async function generateFromTemplate(
+    id: string,
+    providerOverride?: VideoProvider,
+  ): Promise<boolean> {
+    try {
+      const result = await window.electron.video.templateGenerate(id, providerOverride)
+      if (result && result.taskIds && result.taskIds.length > 0) {
+        showToast(`已按模板提交 ${result.taskIds.length} 个视频任务`, 'success')
+        return true
+      }
+      showToast('模板任务已提交', 'success')
+      return true
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      return false
+    }
+  }
+
+  // ─── M20: 成本与用量计费 actions ────────────────────────────
+
+  /** 拉取计费总览 */
+  async function fetchBilling(days?: number): Promise<VideoBillingOverview | null> {
+    const range = days ?? billingDays.value
+    billingDays.value = range
+    billingLoading.value = true
+    try {
+      billing.value = await window.electron.video.billing(range)
+      return billing.value
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      return null
+    } finally {
+      billingLoading.value = false
+    }
+  }
+
   onUnmounted(() => {
     stopEvent?.()
     stopEvent = null
+    stopScheduleCompleted?.()
+    stopScheduleCompleted = null
+    stopScheduleDisabled?.()
+    stopScheduleDisabled = null
   })
 
   return {
@@ -668,6 +1035,48 @@ export const useVideoStore = defineStore('video', () => {
     getConfig,
     testConfig,
     init,
+    // M15 智能路由
+    routingConfig,
+    routingLogs,
+    routingLoading,
+    fetchRoutingConfig,
+    updateRoutingConfig,
+    fetchRoutingLogs,
+    clearRoutingLogs,
+    // M17 视频批量调度
+    schedules,
+    schedulesLoading,
+    scheduleHistoryId,
+    scheduleHistory,
+    fetchSchedules,
+    createSchedule,
+    updateSchedule,
+    toggleSchedule,
+    deleteSchedule,
+    runScheduleNow,
+    fetchScheduleHistory,
+    // M18 成片后处理
+    postprocessRuns,
+    postprocessing,
+    fetchPostprocessRuns,
+    postprocessSubtitle,
+    postprocessWatermark,
+    postprocessConcat,
+    postprocessRename,
+    postprocessArchive,
+    // M19 分镜模板库
+    templates,
+    templatesLoading,
+    fetchTemplates,
+    createTemplate,
+    updateTemplate,
+    deleteTemplate,
+    generateFromTemplate,
+    // M20 成本与用量计费
+    billing,
+    billingLoading,
+    billingDays,
+    fetchBilling,
   }
 })
 

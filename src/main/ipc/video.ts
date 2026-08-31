@@ -19,14 +19,40 @@ import type {
   VideoTask,
   VideoTrashPurgeResult,
   VideoTrashSnapshot,
+  VideoRoutingConfig,
+  VideoRoutingLogEntry,
+  VideoSchedule,
+  VideoScheduleRun,
+  CreateVideoScheduleParams,
+  UpdateVideoScheduleParams,
+  VideoTemplate,
+  CreateVideoTemplateParams,
+  UpdateVideoTemplateParams,
+  VideoPostprocessResult,
+  VideoBillingOverview,
 } from '@shared/types'
 import {
   getVideoEngine,
   loadVideoConfig,
   type VideoBatchResult,
 } from '../services/video-engine'
+import { normalizeRoutingConfig } from '../services/video-router'
+import { updateSettings } from '../db/repos/app-settings'
 import { parseCsvRows, type CsvParseResult } from '../services/csv-batch'
 import { aggregateVideoStats, buildStatsCsv } from '../services/video-stats'
+import { aggregateVideoBilling } from '../services/video-billing'
+import {
+  getVideoScheduleService,
+} from '../services/video-schedule-service'
+import { getVideoTemplateService } from '../services/video-template'
+import {
+  postprocessSubtitle,
+  postprocessWatermark,
+  postprocessConcat,
+  postprocessRename,
+  postprocessArchive,
+} from '../services/video-postprocess'
+import { listVideoPostprocessRuns } from '../db/repos/video-postprocess'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getVideoSequenceById, listVideoSequences } from '../db/repos/video-sequence'
 import { listVideoTasksBySequence, updateVideoTask } from '../db/repos/video-task'
@@ -411,6 +437,158 @@ export function handleVideoQueueConcurrency(limit: number): VideoQueueSnapshot {
   return getVideoEngine().setQueueConcurrency(limit)
 }
 
+// ─── M15：跨厂商智能路由 ───────────────────────────────────────
+
+/**
+ * M15：读取当前路由配置（含默认回退）。
+ */
+export function handleVideoGetRoutingConfig(): VideoRoutingConfig {
+  return getVideoEngine().getRoutingConfig()
+}
+
+/**
+ * M15：更新路由配置（规整后持久化 + 同步引擎内存路由）。
+ */
+export function handleVideoSetRoutingConfig(config: unknown): VideoRoutingConfig {
+  const normalized = normalizeRoutingConfig(config)
+  updateSettings({ videoRoutingConfig: normalized })
+  getVideoEngine().setRoutingConfig(normalized)
+  return getVideoEngine().getRoutingConfig()
+}
+
+/**
+ * M15：获取路由决策日志（最近 N 条，缺省 50）。
+ */
+export function handleVideoGetRoutingLogs(limit?: number): VideoRoutingLogEntry[] {
+  return getVideoEngine().getRoutingLogs(limit)
+}
+
+/**
+ * M15：清空路由决策日志。
+ */
+export function handleVideoClearRoutingLogs(): boolean {
+  getVideoEngine().clearRoutingLogs()
+  return true
+}
+
+// ─── M17：定时/脚本化批量 ──────────────────────────────────────
+
+export function handleVideoScheduleList(limit?: number): VideoSchedule[] {
+  return getVideoScheduleService().list(limit ?? 200)
+}
+
+export function handleVideoScheduleCreate(params: CreateVideoScheduleParams): VideoSchedule {
+  return getVideoScheduleService().create(params)
+}
+
+export function handleVideoScheduleUpdate(
+  id: string,
+  params: UpdateVideoScheduleParams,
+): VideoSchedule {
+  return getVideoScheduleService().update(id, params)
+}
+
+export function handleVideoScheduleToggle(id: string, enabled: boolean): VideoSchedule {
+  return getVideoScheduleService().toggle(id, enabled)
+}
+
+export function handleVideoScheduleDelete(id: string): void {
+  getVideoScheduleService().delete(id)
+}
+
+export function handleVideoScheduleRunNow(id: string): Promise<VideoScheduleRun | null> {
+  return getVideoScheduleService().runNow(id)
+}
+
+export function handleVideoScheduleHistory(id: string, limit?: number): VideoScheduleRun[] {
+  return getVideoScheduleService().history(id, limit ?? 50)
+}
+
+// ─── M18：成片后处理 ────────────────────────────────────────────
+
+export function handleVideoPostprocessRuns(limit?: number): VideoPostprocessRun[] {
+  return listVideoPostprocessRuns(limit ?? 50)
+}
+
+export function handleVideoPostprocessSubtitle(
+  taskId: string,
+  content: string,
+  outputName?: string,
+): Promise<VideoPostprocessResult> {
+  return postprocessSubtitle({ taskId, content, outputName })
+}
+
+export function handleVideoPostprocessWatermark(
+  taskId: string,
+  imagePath: string,
+  position: VideoPostprocessWatermarkPosition,
+  outputName?: string,
+): Promise<VideoPostprocessResult> {
+  return postprocessWatermark({ taskId, imagePath, position, outputName })
+}
+
+export function handleVideoPostprocessConcat(
+  taskIds: string[],
+  outputName?: string,
+): Promise<VideoPostprocessResult> {
+  return postprocessConcat({ taskIds, outputName })
+}
+
+export function handleVideoPostprocessRename(
+  taskId: string,
+  newName: string,
+): Promise<VideoPostprocessResult> {
+  return postprocessRename({ taskId, newName })
+}
+
+export function handleVideoPostprocessArchive(
+  taskIds: string[],
+): Promise<VideoPostprocessResult> {
+  return postprocessArchive({ taskIds })
+}
+
+type VideoPostprocessWatermarkPosition =
+  'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center'
+
+// ─── M19：分镜模板库 ────────────────────────────────────────────
+
+export function handleVideoTemplateList(limit?: number): VideoTemplate[] {
+  return getVideoTemplateService().list(limit ?? 200)
+}
+
+export function handleVideoTemplateCreate(params: CreateVideoTemplateParams): VideoTemplate {
+  return getVideoTemplateService().create(params)
+}
+
+export function handleVideoTemplateUpdate(
+  id: string,
+  params: UpdateVideoTemplateParams,
+): VideoTemplate {
+  return getVideoTemplateService().update(id, params)
+}
+
+export function handleVideoTemplateDelete(id: string): void {
+  getVideoTemplateService().delete(id)
+}
+
+export function handleVideoTemplateGet(id: string): VideoTemplate | null {
+  return getVideoTemplateService().get(id)
+}
+
+export function handleVideoTemplateGenerate(
+  id: string,
+  providerOverride?: VideoProvider,
+): Promise<VideoTask[] | { sequence: unknown; tasks: VideoTask[] }> {
+  return getVideoTemplateService().generateFromTemplate(id, providerOverride)
+}
+
+// ─── M20：成本与用量计费 ────────────────────────────────────────
+
+export function handleVideoBilling(days?: number): VideoBillingOverview {
+  const range = normalizeStatsDays(days)
+  return aggregateVideoBilling(Date.now() - range * 24 * 60 * 60 * 1000)
+}
+
 /**
  * 获取多镜头序列列表。
  */
@@ -715,5 +893,269 @@ export function registerVideoHandlers(): void {
             'custom',
           ]) as VideoProvider),
     ),
+  )
+
+  // M15：跨厂商智能路由
+  ipcMain.removeHandler('video:get-routing-config')
+  ipcMain.handle('video:get-routing-config', () => handleVideoGetRoutingConfig())
+
+  ipcMain.removeHandler('video:set-routing-config')
+  ipcMain.handle('video:set-routing-config', (event, config) =>
+    handleVideoSetRoutingConfig(config),
+  )
+
+  ipcMain.removeHandler('video:get-routing-logs')
+  ipcMain.handle(
+    'video:get-routing-logs',
+    (_event, ...args) => {
+      const params = args[0]
+      const obj =
+        params === undefined || params === null
+          ? undefined
+          : (params as Record<string, unknown>)
+      const limit = obj ? validateOptionalNumber(obj['limit'], 'limit', 1, 100) : undefined
+      return handleVideoGetRoutingLogs(limit)
+    },
+  )
+
+  ipcMain.removeHandler('video:clear-routing-logs')
+  ipcMain.handle('video:clear-routing-logs', () => handleVideoClearRoutingLogs())
+
+  // ─── M17：视频批量调度 ──────────────────────────────────────
+  ipcMain.removeHandler('video:schedule-list')
+  ipcMain.handle(
+    'video:schedule-list',
+    (_event, ...args) => {
+      const params = args[0]
+      const obj =
+        params === undefined || params === null
+          ? undefined
+          : (params as Record<string, unknown>)
+      const limit = obj ? validateOptionalNumber(obj['limit'], 'limit', 1, 500) : undefined
+      return handleVideoScheduleList(limit)
+    },
+  )
+
+  ipcMain.removeHandler('video:schedule-create')
+  ipcMain.handle('video:schedule-create', (event, params) =>
+    handleVideoScheduleCreate(params as CreateVideoScheduleParams),
+  )
+
+  ipcMain.removeHandler('video:schedule-update')
+  ipcMain.handle(
+    'video:schedule-update',
+    (event, payload) => {
+      const obj = (payload ?? {}) as Record<string, unknown>
+      const id = validateNonEmptyString(obj['id'], 'id')
+      const params = obj['params'] as UpdateVideoScheduleParams | undefined
+      return handleVideoScheduleUpdate(id, params ?? {})
+    },
+  )
+
+  ipcMain.removeHandler('video:schedule-toggle')
+  ipcMain.handle(
+    'video:schedule-toggle',
+    createValidatedHandler(
+      (p) => ({
+        id: validateNonEmptyString(p['id'], 'id'),
+        enabled: validateOptionalBoolean(p['enabled'], 'enabled') ?? true,
+      }),
+      ({ id, enabled }) => handleVideoScheduleToggle(id, enabled),
+    ),
+  )
+
+  ipcMain.removeHandler('video:schedule-delete')
+  ipcMain.handle(
+    'video:schedule-delete',
+    createValidatedHandler(p => ({ id: validateNonEmptyString(p['id'], 'id') }), ({ id }) =>
+      handleVideoScheduleDelete(id),
+    ),
+  )
+
+  ipcMain.removeHandler('video:schedule-run-now')
+  ipcMain.handle(
+    'video:schedule-run-now',
+    createValidatedHandler(p => ({ id: validateNonEmptyString(p['id'], 'id') }), ({ id }) =>
+      handleVideoScheduleRunNow(id),
+    ),
+  )
+
+  ipcMain.removeHandler('video:schedule-history')
+  ipcMain.handle(
+    'video:schedule-history',
+    (_event, ...args) => {
+      const params = args[0]
+      const obj =
+        params === undefined || params === null
+          ? undefined
+          : (params as Record<string, unknown>)
+      const id = obj ? validateNonEmptyString(obj['id'], 'id') : ''
+      const limit = obj ? validateOptionalNumber(obj['limit'], 'limit', 1, 200) : undefined
+      return handleVideoScheduleHistory(id, limit)
+    },
+  )
+
+  // ─── M18：成片后处理 ────────────────────────────────────────
+  ipcMain.removeHandler('video:postprocess-runs')
+  ipcMain.handle(
+    'video:postprocess-runs',
+    (_event, ...args) => {
+      const params = args[0]
+      const obj =
+        params === undefined || params === null
+          ? undefined
+          : (params as Record<string, unknown>)
+      const limit = obj ? validateOptionalNumber(obj['limit'], 'limit', 1, 200) : undefined
+      return handleVideoPostprocessRuns(limit)
+    },
+  )
+
+  ipcMain.removeHandler('video:postprocess-subtitle')
+  ipcMain.handle(
+    'video:postprocess-subtitle',
+    createValidatedHandler(
+      (p) => ({
+        taskId: validateNonEmptyString(p['taskId'], 'taskId'),
+        content: validateNonEmptyString(p['content'], 'content'),
+        outputName: validateOptionalString(p['outputName'], 'outputName'),
+      }),
+      ({ taskId, content, outputName }) =>
+        handleVideoPostprocessSubtitle(taskId, content, outputName),
+    ),
+  )
+
+  ipcMain.removeHandler('video:postprocess-watermark')
+  ipcMain.handle(
+    'video:postprocess-watermark',
+    createValidatedHandler(
+      (p) => ({
+        taskId: validateNonEmptyString(p['taskId'], 'taskId'),
+        imagePath: validateNonEmptyString(p['imagePath'], 'imagePath'),
+        position: validateOptionalEnum(
+          p['position'],
+          'position',
+          ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'],
+        ) as VideoPostprocessWatermarkPosition | undefined,
+        outputName: validateOptionalString(p['outputName'], 'outputName'),
+      }),
+      ({ taskId, imagePath, position, outputName }) =>
+        handleVideoPostprocessWatermark(
+          taskId,
+          imagePath,
+          position ?? 'bottom-right',
+          outputName,
+        ),
+    ),
+  )
+
+  ipcMain.removeHandler('video:postprocess-concat')
+  ipcMain.handle(
+    'video:postprocess-concat',
+    createValidatedHandler(
+      (p) => ({
+        taskIds: validateOptionalStringArray(p['taskIds'], 'taskIds') ?? [],
+        outputName: validateOptionalString(p['outputName'], 'outputName'),
+      }),
+      ({ taskIds, outputName }) => handleVideoPostprocessConcat(taskIds, outputName),
+    ),
+  )
+
+  ipcMain.removeHandler('video:postprocess-rename')
+  ipcMain.handle(
+    'video:postprocess-rename',
+    createValidatedHandler(
+      (p) => ({
+        taskId: validateNonEmptyString(p['taskId'], 'taskId'),
+        newName: validateNonEmptyString(p['newName'], 'newName'),
+      }),
+      ({ taskId, newName }) => handleVideoPostprocessRename(taskId, newName),
+    ),
+  )
+
+  ipcMain.removeHandler('video:postprocess-archive')
+  ipcMain.handle(
+    'video:postprocess-archive',
+    createValidatedHandler(
+      (p) => ({ taskIds: validateOptionalStringArray(p['taskIds'], 'taskIds') ?? [] }),
+      ({ taskIds }) => handleVideoPostprocessArchive(taskIds),
+    ),
+  )
+
+  // ─── M19：分镜模板库 ────────────────────────────────────────
+  ipcMain.removeHandler('video:template-list')
+  ipcMain.handle(
+    'video:template-list',
+    (_event, ...args) => {
+      const params = args[0]
+      const obj =
+        params === undefined || params === null
+          ? undefined
+          : (params as Record<string, unknown>)
+      const limit = obj ? validateOptionalNumber(obj['limit'], 'limit', 1, 500) : undefined
+      return handleVideoTemplateList(limit)
+    },
+  )
+
+  ipcMain.removeHandler('video:template-create')
+  ipcMain.handle('video:template-create', (event, params) =>
+    handleVideoTemplateCreate(params as CreateVideoTemplateParams),
+  )
+
+  ipcMain.removeHandler('video:template-update')
+  ipcMain.handle(
+    'video:template-update',
+    (event, payload) => {
+      const obj = (payload ?? {}) as Record<string, unknown>
+      const id = validateNonEmptyString(obj['id'], 'id')
+      const params = obj['params'] as UpdateVideoTemplateParams | undefined
+      return handleVideoTemplateUpdate(id, params ?? {})
+    },
+  )
+
+  ipcMain.removeHandler('video:template-delete')
+  ipcMain.handle(
+    'video:template-delete',
+    createValidatedHandler(p => ({ id: validateNonEmptyString(p['id'], 'id') }), ({ id }) =>
+      handleVideoTemplateDelete(id),
+    ),
+  )
+
+  ipcMain.removeHandler('video:template-get')
+  ipcMain.handle(
+    'video:template-get',
+    createValidatedHandler(p => ({ id: validateNonEmptyString(p['id'], 'id') }), ({ id }) =>
+      handleVideoTemplateGet(id),
+    ),
+  )
+
+  ipcMain.removeHandler('video:template-generate')
+  ipcMain.handle(
+    'video:template-generate',
+    createValidatedHandler(
+      (p) => ({
+        id: validateNonEmptyString(p['id'], 'id'),
+        providerOverride: validateOptionalEnum<VideoProvider>(p['providerOverride'], 'providerOverride', [
+          'seedance',
+          'kling',
+          'custom',
+        ]),
+      }),
+      ({ id, providerOverride }) => handleVideoTemplateGenerate(id, providerOverride),
+    ),
+  )
+
+  // ─── M20：成本与用量计费 ────────────────────────────────────
+  ipcMain.removeHandler('video:billing')
+  ipcMain.handle(
+    'video:billing',
+    (_event, ...args) => {
+      const params = args[0]
+      const obj =
+        params === undefined || params === null
+          ? undefined
+          : (params as Record<string, unknown>)
+      const days = obj ? validateOptionalNumber(obj['days'], 'days', 1, 365) : undefined
+      return handleVideoBilling(days)
+    },
   )
 }

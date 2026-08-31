@@ -81,6 +81,13 @@ export const videoGenerateTool: BuiltinTool = {
             '1 image = first frame; 2 images = first + last frame (max 2). ' +
             'Only supported when the default provider is Seedance.',
         },
+        styleRef: {
+          type: 'string',
+          description:
+            'M16: Local image file path (absolute) used as a style reference (风格参考图). ' +
+            'Anchors the visual style without fixing the first frame. Combine with `images` if needed. ' +
+            'Only supported when the default provider is Seedance.',
+        },
       },
       required: [],
     },
@@ -132,6 +139,9 @@ export const videoGenerateTool: BuiltinTool = {
 
     // 图生视频/首尾帧：最多 2 张，1 张=首帧，2 张=首尾帧
     const imageRefs = resolveImageRefs(args['images'])
+    // M16：可选风格参考图（独立角色 style，拼入参考图列表参与内联上传）
+    const styleRef = resolveStyleRef(args['styleRef'])
+    const combinedRefs = mergeImageRefs(imageRefs, styleRef)
 
     const task = await getVideoEngine().generate({
       prompt,
@@ -139,13 +149,15 @@ export const videoGenerateTool: BuiltinTool = {
       duration,
       resolution,
       aspect,
-      imageRefs,
+      imageRefs: combinedRefs,
     })
 
-    const imageCount = imageRefs?.length ?? 0
+    const imageCount = combinedRefs?.length ?? 0
+    const hasStyle = Boolean(styleRef)
+    const frameCount = hasStyle ? (combinedRefs?.length ?? 1) - 1 : imageCount
     const inputLine =
       imageCount > 0
-        ? `输入图片: ${imageCount} 张（${imageCount === 1 ? '首帧' : '首帧 + 尾帧'}）`
+        ? `输入图片: ${frameCount} 张${hasStyle ? ' + 1 张风格参考图' : ''}（${frameCount === 0 ? '仅风格参考' : frameCount === 1 ? '首帧' : '首帧 + 尾帧'}）`
         : `生成方式: 文生视频`
     const summary = [
       `视频生成任务已提交！`,
@@ -172,7 +184,8 @@ export const videoGenerateTool: BuiltinTool = {
         aspect: task.aspect,
         duration: task.duration,
         status: task.status,
-        imageCount: imageRefs?.length ?? 0,
+        imageCount: combinedRefs?.length ?? 0,
+        hasStyleRef: Boolean(styleRef),
       },
     }
   },
@@ -272,6 +285,32 @@ function resolveImageRefs(raw: unknown): VideoImageRef[] | undefined {
     { path: paths[0], role: 'first_frame' },
     { path: paths[1], role: 'last_frame' },
   ]
+}
+
+/**
+ * M16：解析可选的风格参考图（style_ref / styleRef 参数）。
+ * 返回单一 style 角色参考图，或 undefined。
+ */
+function resolveStyleRef(raw: unknown): VideoImageRef | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'styleRef must be a non-empty file path.')
+  }
+  return { path: raw.trim(), role: 'style' }
+}
+
+/**
+ * M16：合并首尾帧参考图与风格参考图。
+ * 保证风格参考图放在末尾，且总数量不超过上限（2 帧 + 1 风格 / 仅 1 风格）。
+ */
+function mergeImageRefs(
+  frames?: VideoImageRef[],
+  style?: VideoImageRef,
+): VideoImageRef[] | undefined {
+  if (!frames && !style) return undefined
+  const merged: VideoImageRef[] = [...(frames ?? [])]
+  if (style) merged.push(style)
+  return merged
 }
 
 /**

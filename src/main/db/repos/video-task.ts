@@ -3,7 +3,7 @@
 // 视频文件本体存储于 workspace/videos，output_path 保存相对路径。
 
 import type Database from 'better-sqlite3'
-import type { CreateVideoTaskParams, VideoProvider, VideoTask, VideoTaskStatus } from '@shared/types'
+import type { CreateVideoTaskParams, VideoImageRef, VideoProvider, VideoTask, VideoTaskStatus } from '@shared/types'
 import { getDatabase } from '../index'
 import { generateId } from '../../utils/id'
 
@@ -28,6 +28,10 @@ export interface UpdateVideoTaskParams {
   tags?: string[]
   /** M14：软删除时间戳（回收站；null 表示恢复） */
   deletedAt?: number | null
+  /** M16：参考图列表（整体覆盖，用于带图重试落库） */
+  imageRefs?: VideoImageRef[]
+  /** M18：是否已归档（成品已被移动到 archive 目录并打标） */
+  archived?: boolean
 }
 
 /** SQLite 行结构（snake_case，与 video_tasks 表一致） */
@@ -52,6 +56,8 @@ interface VideoTaskRow {
   favorite: number
   tags: string | null
   deleted_at: number | null
+  image_refs: string | null
+  archived: number
   created_at: number
   updated_at: number
 }
@@ -63,6 +69,24 @@ function parseTags(raw: string | null): string[] {
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     return parsed.filter((t): t is string => typeof t === 'string')
+  } catch {
+    return []
+  }
+}
+
+/** 解析 image_refs JSON 文本列；非法/空内容回退为空数组 */
+function parseImageRefs(raw: string | null): VideoImageRef[] {
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (r): r is VideoImageRef =>
+        typeof r === 'object' &&
+        r !== null &&
+        typeof (r as VideoImageRef).path === 'string' &&
+        ['first_frame', 'last_frame', 'style'].includes((r as VideoImageRef).role),
+    )
   } catch {
     return []
   }
@@ -90,6 +114,8 @@ function rowToTask(row: VideoTaskRow): VideoTask {
     favorite: Boolean(row.favorite),
     tags: parseTags(row.tags),
     deletedAt: row.deleted_at,
+    imageRefs: parseImageRefs(row.image_refs),
+    archived: Boolean(row.archived),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -107,8 +133,8 @@ export function createVideoTask(params: CreateVideoTaskRow): VideoTask {
     `INSERT INTO video_tasks
       (id, provider, provider_task_id, prompt, model, duration, resolution, aspect,
        status, progress, error_code, error_message, download_url, output_path,
-       sequence_id, shot_index, is_chained, created_at, updated_at)
-     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?)`,
+       sequence_id, shot_index, is_chained, favorite, tags, image_refs, created_at, updated_at)
+     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL, ?, ?, ?, 0, NULL, ?, ?, ?)`,
   ).run(
     id,
     params.provider ?? 'seedance',
@@ -120,6 +146,7 @@ export function createVideoTask(params: CreateVideoTaskRow): VideoTask {
     params.sequenceId ?? null,
     params.shotIndex ?? null,
     params.isChained ? 1 : 0,
+    JSON.stringify(params.imageRefs ?? []),
     now,
     now,
   )
@@ -312,6 +339,14 @@ export function updateVideoTask(id: string, params: UpdateVideoTaskParams): Vide
   if (params.deletedAt !== undefined) {
     setClauses.push('deleted_at = ?')
     values.push(params.deletedAt)
+  }
+  if (params.imageRefs !== undefined) {
+    setClauses.push('image_refs = ?')
+    values.push(JSON.stringify(params.imageRefs))
+  }
+  if (params.archived !== undefined) {
+    setClauses.push('archived = ?')
+    values.push(params.archived ? 1 : 0)
   }
 
   db.prepare(`UPDATE video_tasks SET ${setClauses.join(', ')} WHERE id = ?`).run(

@@ -23,14 +23,14 @@ export type VideoResolution = '480P' | '720P' | '1080P'
 /** 视频画面比例 */
 export type VideoAspect = '16:9' | '9:16' | '4:3' | '3:4' | '1:1'
 
-/** 图生视频图片角色：首帧 / 尾帧 */
-export type VideoImageRole = 'first_frame' | 'last_frame'
+/** 图生视频图片角色：首帧 / 尾帧 / 风格参考 */
+export type VideoImageRole = 'first_frame' | 'last_frame' | 'style'
 
 /** 图生视频的参考图片（本地文件，由适配器 base64 内联上传） */
 export interface VideoImageRef {
   /** 本地图片绝对路径 */
   path: string
-  /** 首帧 first_frame / 尾帧 last_frame */
+  /** 首帧 first_frame / 尾帧 last_frame / 风格参考 style */
   role: VideoImageRole
 }
 
@@ -66,6 +66,12 @@ export interface VideoTask {
   tags: string[]
   /** M14：软删除时间戳（回收站；null 表示未删除） */
   deletedAt: number | null
+  /** M15：本次任务的路由决策摘要（仅运行期展示，不落库） */
+  routing?: VideoRoutingSummary
+  /** M16：参考图列表（随任务持久化，可展示/带图重试） */
+  imageRefs: VideoImageRef[]
+  /** M18：是否已归档（成品已被移动到 archive 目录并打标） */
+  archived: boolean
   createdAt: number
   updatedAt: number
 }
@@ -83,6 +89,8 @@ export interface CreateVideoTaskParams {
   sequenceId?: string | null
   /** 序列内镜头序号 */
   shotIndex?: number | null
+  /** M15：手动指定厂商（覆盖智能路由策略；缺省由路由决策选择） */
+  providerOverride?: VideoProvider
 }
 
 /** 单个镜头（M6 多镜头顺序生成） */
@@ -271,3 +279,274 @@ export interface VideoTrashPurgeResult {
 export type VideoExportAssetsResult =
   | { canceled: true }
   | { canceled: false; targetDir: string; exported: number; skipped: Array<{ id: string; reason: string }> }
+
+// ─── M15：跨厂商智能路由 ───────────────────────────────────────
+
+/** 路由策略 */
+export type VideoRoutingStrategy = 'fixed' | 'cost-optimized' | 'quality-first'
+
+/** 厂商路由配置（价格与优先级，用于成本/质量策略） */
+export interface VideoProviderPricing {
+  provider: VideoProvider
+  /** 每秒视频成本（元），成本优先策略使用 */
+  costPerSecond: number
+  /** 质量优先级（1=最高，数字越大优先级越低），质量优先策略使用 */
+  qualityRank: number
+  /** 是否启用（未启用的厂商不参与路由） */
+  enabled: boolean
+}
+
+/** 智能路由配置 */
+export interface VideoRoutingConfig {
+  /** 路由策略 */
+  strategy: VideoRoutingStrategy
+  /** 各厂商价格与优先级配置 */
+  providers: VideoProviderPricing[]
+}
+
+/** 路由候选（日志条目中的候选厂商明细） */
+export interface VideoRoutingCandidate {
+  provider: VideoProvider
+  costPerSecond?: number
+  qualityRank?: number
+  /** 候选取舍原因 */
+  reason: string
+}
+
+/** 路由决策日志条目 */
+export interface VideoRoutingLogEntry {
+  /** 决策时间戳 */
+  timestamp: number
+  /** 任务提示词（截取前 50 字符） */
+  promptPreview: string
+  /** 选中的厂商 */
+  selectedProvider: VideoProvider
+  /** 路由策略 */
+  strategy: VideoRoutingStrategy
+  /** 决策原因 */
+  reason: string
+  /** 候选厂商列表（含价格/优先级） */
+  candidates: VideoRoutingCandidate[]
+}
+
+/** 任务上展示的路由决策摘要（运行期，不落库） */
+export interface VideoRoutingSummary {
+  strategy: VideoRoutingStrategy
+  selectedProvider: VideoProvider
+  reason: string
+}
+
+// ─── M17：定时/脚本化批量 ─────────────────────────────────────
+
+/** 视频批量调度触发方式：cron 定时 / manual 手动触发 */
+export type VideoScheduleTrigger = 'cron' | 'manual'
+
+/** 视频批量调度执行状态 */
+export type VideoScheduleRunStatus = 'ok' | 'error' | 'running' | 'skipped'
+
+/** 视频批量调度批次的生成配置 */
+export interface VideoBatchConfig {
+  /** 批量任务行（每条 prompt 一个单视频任务） */
+  rows: CreateVideoTaskParams[]
+  /** 本批出队并发上限（可选，用队列当前上限） */
+  concurrency?: number
+}
+
+/** 视频批量调度实体（持久化到 video_schedules 表） */
+export interface VideoSchedule {
+  id: string
+  name: string
+  enabled: boolean
+  trigger: VideoScheduleTrigger
+  /** cron 表达式（trigger='cron' 时必填） */
+  cronExpr: string | null
+  /** IANA 时区（可空，缺省系统时区） */
+  timezone: string | null
+  /** 批次生成配置 */
+  batch: VideoBatchConfig
+  nextRunAtMs: number | null
+  /** 正在执行的时间戳（防止并行触发） */
+  runningAtMs: number | null
+  lastRunAtMs: number | null
+  lastStatus: VideoScheduleRunStatus | null
+  /** 上一次执行提交的任务数 */
+  lastRunCount: number | null
+  runCount: number
+  /** 连续错误计数（≥5 自动禁用） */
+  errorCount: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** 视频批量调度执行记录 */
+export interface VideoScheduleRun {
+  id: string
+  scheduleId: string
+  startedAtMs: number
+  finishedAtMs: number | null
+  status: VideoScheduleRunStatus
+  /** 成功创建并入队的任务数 */
+  taskCount: number
+  /** 提交即失败的任务数 */
+  failedCount: number
+  summary: string | null
+  error: string | null
+}
+
+/** 创建视频批量调度参数 */
+export interface CreateVideoScheduleParams {
+  name: string
+  cronExpr?: string
+  timezone?: string
+  batch: VideoBatchConfig
+  enabled?: boolean
+  trigger?: VideoScheduleTrigger
+}
+
+/** 更新视频批量调度参数 */
+export interface UpdateVideoScheduleParams {
+  name?: string
+  enabled?: boolean
+  cronExpr?: string | null
+  timezone?: string | null
+  batch?: VideoBatchConfig
+  trigger?: VideoScheduleTrigger
+}
+
+// ─── M18：成片后处理 ─────────────────────────────────────────
+
+/** 后处理操作类型 */
+export type VideoPostprocessType = 'subtitle' | 'watermark' | 'concat' | 'rename' | 'archive'
+
+/** 后处理执行记录（持久化到 video_postprocess_runs 表） */
+export interface VideoPostprocessRun {
+  id: string
+  type: VideoPostprocessType
+  /** 输入源任务 id 列表 */
+  taskIds: string[]
+  /** 产物落盘相对路径（rename/archive 为 null） */
+  outputPath: string | null
+  /** 产物在视频库中的新任务 id（若生成独立成品） */
+  outputTaskId: string | null
+  status: 'ok' | 'error' | 'running'
+  message: string | null
+  createdAt: number
+}
+
+/** 拼接参数 */
+export interface VideoConcatParams {
+  taskIds: string[]
+  outputName?: string
+}
+
+/** 字幕烧录参数 */
+export interface VideoSubtitleParams {
+  taskId: string
+  /** SRT 字幕内容（烧录进画面） */
+  content: string
+  outputName?: string
+}
+
+/** 水印叠加参数 */
+export interface VideoWatermarkParams {
+  taskId: string
+  /** 水印图片绝对路径 */
+  imagePath: string
+  /** 位置：左上/右上/左下/右下/居中 */
+  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center'
+  outputName?: string
+}
+
+/** 重命名任务成品参数 */
+export interface VideoRenameParams {
+  taskId: string
+  newName: string
+}
+
+/** 归档任务参数（移动到 archive 目录并打标） */
+export interface VideoArchiveParams {
+  taskIds: string[]
+}
+
+/** M18：后处理批量结果 */
+export interface VideoPostprocessResult {
+  ok: boolean
+  message: string
+  run?: VideoPostprocessRun
+}
+
+// ─── M19：分镜模板库 ─────────────────────────────────────────
+
+/** 模板类型：单镜头 / 多镜头序列 */
+export type VideoTemplateType = 'shot' | 'sequence'
+
+/** 分镜/序列模板实体（持久化到 video_templates 表） */
+export interface VideoTemplate {
+  id: string
+  name: string
+  description: string
+  type: VideoTemplateType
+  resolution: VideoResolution
+  aspect: VideoAspect
+  /** 镜头列表（shot 类型长度为 1，sequence 类型 ≥1） */
+  shots: VideoShot[]
+  /** 是否为连续性衔接序列模板（仅 sequence 有效） */
+  continuity: boolean
+  model: string | null
+  tags: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+/** 创建模板参数 */
+export interface CreateVideoTemplateParams {
+  name: string
+  description?: string
+  type: VideoTemplateType
+  resolution?: VideoResolution
+  aspect?: VideoAspect
+  shots: VideoShot[]
+  continuity?: boolean
+  model?: string | null
+  tags?: string[]
+}
+
+/** 更新模板参数 */
+export interface UpdateVideoTemplateParams {
+  name?: string
+  description?: string
+  type?: VideoTemplateType
+  resolution?: VideoResolution
+  aspect?: VideoAspect
+  shots?: VideoShot[]
+  continuity?: boolean
+  model?: string | null
+  tags?: string[]
+}
+
+// ─── M20：成本与用量计费 ─────────────────────────────────────
+
+/** 计费分桶（按厂商 / 日期 / 模型聚合的一行） */
+export interface VideoBillingBucket {
+  key: string
+  /** 成功任务数 */
+  tasks: number
+  /** 成功产出视频总时长（秒） */
+  videoSeconds: number
+  /** 测算成本（元，=成功时长 × 厂商每秒单价） */
+  cost: number
+}
+
+/** 成本与用量计费总览（M20，实时聚合 video_tasks + 路由价格配置） */
+export interface VideoBillingOverview {
+  since: number
+  /** 成功任务总数 */
+  totalTasks: number
+  /** 成功产出视频总时长（秒） */
+  totalVideoSeconds: number
+  /** 测算总成本（元） */
+  totalCost: number
+  byProvider: VideoBillingBucket[]
+  byDay: VideoBillingBucket[]
+  byModel: VideoBillingBucket[]
+}

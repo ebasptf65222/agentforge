@@ -16,7 +16,19 @@ import {
   NSpin,
   NSelect,
 } from 'naive-ui'
-import type { VideoProvider } from '@shared/types'
+import type {
+  VideoProvider,
+  VideoRoutingConfig,
+  VideoRoutingLogEntry,
+  VideoProviderPricing,
+} from '@shared/types'
+import {
+  NRadio,
+  NRadioGroup,
+  NSwitch,
+  NModal,
+  NDataTable,
+} from 'naive-ui'
 import { useSettingsStore } from '@/stores/settings'
 import { useVideoStore } from '@/stores/video'
 import { showToast } from '@/utils/toast'
@@ -169,6 +181,7 @@ onMounted(async () => {
     // 配置读取失败时保留默认值
     showToast('读取视频配置失败', 'warning')
   }
+  await loadRoutingConfig()
 })
 
 async function saveConfig(): Promise<void> {
@@ -217,6 +230,119 @@ function handleOpenVideo(relativePath: string): void {
   workspaceStore.openFilePreview(relativePath)
   uiStore.openPreviewPanel()
 }
+
+// ─── M15: 跨厂商智能路由 ──────────────────────────────────────
+
+/** 路由策略 */
+const routingStrategy = ref<VideoRoutingConfig['strategy']>('fixed')
+/** 各厂商路由行（enabled / 每秒成本 / 质量优先级） */
+const routingProviders = ref<VideoProviderPricing[]>([])
+
+/** 成本/质量策略下各厂商的默认每秒成本（备用回显） */
+const ROUTE_PROVIDER_COST = {
+  seedance: 0.5,
+  kling: 1.0,
+  custom: 0.8,
+}
+
+async function loadRoutingConfig(): Promise<void> {
+  try {
+    const cfg = await videoStore.fetchRoutingConfig()
+    if (!cfg) return
+    routingStrategy.value = cfg.strategy
+    const byProvider = new Map<VideoProvider, VideoProviderPricing>()
+    for (const p of cfg.providers) byProvider.set(p.provider, p)
+    routingProviders.value = (['seedance', 'kling', 'custom'] as VideoProvider[]).map((provider) => ({
+      provider,
+      enabled: byProvider.get(provider)?.enabled ?? true,
+      costPerSecond: byProvider.get(provider)?.costPerSecond ?? ROUTE_PROVIDER_COST[provider],
+      qualityRank: byProvider.get(provider)?.qualityRank ?? (provider === 'seedance' ? 1 : provider === 'kling' ? 2 : 3),
+    }))
+  } catch {
+    // 读取失败保留默认
+  }
+}
+
+async function saveRoutingConfig(): Promise<void> {
+  try {
+    const config: VideoRoutingConfig = {
+      strategy: routingStrategy.value,
+      providers: routingProviders.value.map((p) => ({
+        provider: p.provider,
+        enabled: p.enabled,
+        costPerSecond: p.costPerSecond,
+        qualityRank: p.qualityRank,
+      })),
+    }
+    const saved = await videoStore.updateRoutingConfig(config)
+    if (saved) {
+      showToast('智能路由配置已保存', 'success')
+      await refreshRoutingLogs()
+    }
+  } catch (error) {
+    showToast(`保存路由配置失败: ${error instanceof Error ? error.message : String(error)}`, 'error')
+  }
+}
+
+// ─── M15: 路由决策日志 ────────────────────────────────────────
+
+const routingLogs = ref<VideoRoutingLogEntry[]>([])
+const logsLoading = ref(false)
+const logsVisible = ref(false)
+
+async function refreshRoutingLogs(): Promise<void> {
+  logsLoading.value = true
+  try {
+    await videoStore.fetchRoutingLogs(50)
+    routingLogs.value = videoStore.routingLogs
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+async function clearRoutingLogs(): Promise<void> {
+  try {
+    await videoStore.clearRoutingLogs()
+    routingLogs.value = []
+    showToast('路由日志已清空', 'success')
+  } catch (error) {
+    showToast(`清空失败: ${error instanceof Error ? error.message : String(error)}`, 'error')
+  }
+}
+
+function formatTimestamp(ts: number): string {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+}
+
+const logColumns = [
+  { title: '时间', key: 'timestamp' },
+  { title: '提示词', key: 'promptPreview' },
+  { title: '策略', key: 'strategy' },
+  { title: '选中厂商', key: 'selectedProvider' },
+  { title: '决策原因', key: 'reason' },
+]
+
+const logRows = computed(() =>
+  routingLogs.value.map((log, index) => ({
+    key: `${log.timestamp}-${index}`,
+    timestamp: formatTimestamp(log.timestamp),
+    promptPreview: log.promptPreview,
+    strategy:
+      log.strategy === 'cost-optimized'
+        ? '成本优先'
+        : log.strategy === 'quality-first'
+          ? '质量优先'
+          : '固定',
+    selectedProvider:
+      log.selectedProvider === 'seedance'
+        ? 'Seedance'
+        : log.selectedProvider === 'kling'
+          ? 'Kling'
+          : '自定义',
+    reason: log.reason,
+  })),
+)
 </script>
 
 <template>
@@ -275,6 +401,86 @@ function handleOpenVideo(relativePath: string): void {
         </NSpace>
       </NForm>
     </NCard>
+
+    <NCard title="智能路由（M15）" size="small" class="video-config__card" :bordered="false">
+      <NForm label-placement="top" :show-feedback="false">
+        <NFormItem label="路由策略">
+          <NRadioGroup v-model:value="routingStrategy">
+            <NSpace>
+              <NRadio value="fixed">固定厂商</NRadio>
+              <NRadio value="cost-optimized">成本优先</NRadio>
+              <NRadio value="quality-first">质量优先</NRadio>
+            </NSpace>
+          </NRadioGroup>
+        </NFormItem>
+
+        <div class="video-config__routing-grid">
+          <div
+            v-for="rp in routingProviders"
+            :key="rp.provider"
+            class="video-config__routing-row"
+          >
+            <NSwitch
+              v-model:value="rp.enabled"
+              size="small"
+              :disabled="routingStrategy === 'fixed'"
+            />
+            <span class="video-config__routing-name">{{ PROVIDER_LABELS[rp.provider] }}</span>
+            <span
+              v-if="routingStrategy === 'cost-optimized'"
+              class="video-config__routing-field"
+            >
+              <NInputNumber
+                v-model:value="rp.costPerSecond"
+                :min="0"
+                :max="100"
+                :step="0.1"
+                size="small"
+                placeholder="元/秒"
+              />
+              <span class="video-config__routing-unit">元/秒</span>
+            </span>
+            <span
+              v-else-if="routingStrategy === 'quality-first'"
+              class="video-config__routing-field"
+            >
+              <NInputNumber
+                v-model:value="rp.qualityRank"
+                :min="1"
+                :max="10"
+                size="small"
+                placeholder="优先级"
+              />
+              <span class="video-config__routing-unit">优先级(1最高)</span>
+            </span>
+          </div>
+        </div>
+
+        <NSpace style="margin-top: 12px">
+          <NButton type="primary" @click="saveRoutingConfig">保存路由配置</NButton>
+          <NButton @click="loadRoutingConfig">重置</NButton>
+          <NButton :loading="logsLoading" @click="refreshRoutingLogs">刷新日志</NButton>
+          <NButton @click="logsVisible = true">查看路由日志</NButton>
+          <NButton quaternary @click="clearRoutingLogs">清空日志</NButton>
+        </NSpace>
+      </NForm>
+    </NCard>
+
+    <NModal
+      v-model:show="logsVisible"
+      preset="card"
+      title="路由决策日志"
+      style="width: 860px; max-width: 92vw"
+    >
+      <NButton size="small" quaternary @click="clearRoutingLogs">清空日志</NButton>
+      <NDataTable
+        :columns="logColumns"
+        :data="logRows"
+        size="small"
+        :max-height="360"
+        class="video-config__log-table"
+      />
+    </NModal>
 
     <NCard title="多镜头序列" size="small" class="video-config__card" :bordered="false">
       <div v-if="videoStore.loading" class="video-config__loading">
@@ -354,5 +560,44 @@ function handleOpenVideo(relativePath: string): void {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.video-config__routing-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.video-config__routing-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--af-border, #334155);
+  border-radius: 8px;
+}
+
+.video-config__routing-name {
+  width: 96px;
+  font-weight: 500;
+}
+
+.video-config__routing-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.video-config__routing-field :deep(.n-input-number) {
+  width: 120px !important;
+}
+
+.video-config__routing-unit {
+  font-size: 12px;
+  color: var(--af-text-muted, #9ca3af);
+}
+
+.video-config__log-table {
+  margin-top: 8px;
 }
 </style>

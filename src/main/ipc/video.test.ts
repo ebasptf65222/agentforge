@@ -20,6 +20,7 @@ const {
   mockAggregateVideoStats,
   mockBuildStatsCsv,
   mockUpdateVideoTask,
+  mockUpdateSettings,
 } = vi.hoisted(() => {
   const capturedHandlers: Record<string, (...args: unknown[]) => unknown> = {}
   const mockEngine = {
@@ -39,6 +40,10 @@ const {
     purgeSequence: vi.fn(),
     emptyTrash: vi.fn(),
     exportAssets: vi.fn(),
+    getRoutingConfig: vi.fn(),
+    setRoutingConfig: vi.fn(),
+    getRoutingLogs: vi.fn(),
+    clearRoutingLogs: vi.fn(),
   }
   const mockParseCsvRows = vi.fn()
   const mockReadFile = vi.fn()
@@ -48,6 +53,7 @@ const {
   const mockAggregateVideoStats = vi.fn()
   const mockBuildStatsCsv = vi.fn()
   const mockUpdateVideoTask = vi.fn()
+  const mockUpdateSettings = vi.fn()
   return {
     capturedHandlers,
     mockEngine,
@@ -59,6 +65,7 @@ const {
     mockAggregateVideoStats,
     mockBuildStatsCsv,
     mockUpdateVideoTask,
+    mockUpdateSettings,
   }
 })
 
@@ -97,6 +104,10 @@ vi.mock('../db/repos/video-sequence', () => ({
 vi.mock('../db/repos/video-task', () => ({
   listVideoTasksBySequence: () => [],
   updateVideoTask: (...args: unknown[]) => mockUpdateVideoTask(...args),
+}))
+vi.mock('../db/repos/app-settings', () => ({
+  updateSettings: (...args: unknown[]) => mockUpdateSettings(...args),
+  getSettings: () => ({ videoRoutingConfig: undefined, videoProvider: 'seedance' }),
 }))
 vi.mock('../services/video-provider/seedance', () => ({ DEFAULT_ARK_BASE_URL: 'https://x' }))
 vi.mock('../services/video-provider/kling', () => ({
@@ -337,6 +348,34 @@ describe('video batch IPC', () => {
     expectValidationError(() => raw(null, { limit: 0 }))
     expectValidationError(() => raw(null, { limit: 11 }))
     expectValidationError(() => raw(null, { limit: 'x' }))
+  })
+
+  // ─── M15: 跨厂商智能路由 ─────────────────────────────────────
+
+  it('registers the four M15 routing channels and delegates to the engine', async () => {
+    const cfg = { strategy: 'cost-optimized', providers: [] }
+    mockEngine.getRoutingConfig.mockReturnValue(cfg)
+    mockEngine.getRoutingLogs.mockReturnValue([])
+    registerVideoHandlers()
+
+    for (const ch of [
+      'video:get-routing-config',
+      'video:set-routing-config',
+      'video:get-routing-logs',
+      'video:clear-routing-logs',
+    ]) {
+      expect(capturedHandlers[ch]).toBeDefined()
+    }
+
+    expect(await handler('video:get-routing-config')(null, undefined)).toBe(cfg)
+    await handler('video:set-routing-config')(null, { strategy: 'cost-optimized', providers: [] })
+    expect(mockEngine.setRoutingConfig).toHaveBeenCalled()
+    expect(mockUpdateSettings).toHaveBeenCalled()
+    await handler('video:get-routing-logs')(null, { limit: 10 })
+    expect(mockEngine.getRoutingLogs).toHaveBeenCalled()
+    mockEngine.clearRoutingLogs.mockReturnValue(undefined)
+    expect(await handler('video:clear-routing-logs')(null, undefined)).toBe(true)
+    expect(mockEngine.clearRoutingLogs).toHaveBeenCalled()
   })
 
   // ─── M14: 资产管理（收藏/标签/回收站/导出） ─────────────────

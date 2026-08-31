@@ -86,6 +86,8 @@ function mockElectronVideo(overrides?: Record<string, unknown>): Record<string, 
     emptyTrash: vi.fn().mockResolvedValue({ tasks: 0, sequences: 0 }),
     exportAssets: vi.fn(),
     onEvent: vi.fn().mockReturnValue(() => {}),
+    onScheduleCompleted: vi.fn().mockReturnValue(() => {}),
+    onScheduleDisabled: vi.fn().mockReturnValue(() => {}),
   }
   const api = { ...base, ...(overrides ?? {}) }
   ;(window as unknown as Record<string, unknown>)['electron'] = { video: api }

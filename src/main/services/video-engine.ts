@@ -25,6 +25,9 @@ import type {
   VideoTaskStatus,
   VideoTrashPurgeResult,
   VideoTrashSnapshot,
+  VideoRoutingConfig,
+  VideoRoutingLogEntry,
+  VideoRoutingSummary,
 } from '@shared/types'
 import {
   createQueuedVideoTask,
@@ -56,6 +59,7 @@ import { DEFAULT_KLING_BASE_URL, DEFAULT_KLING_MODEL } from './video-provider/kl
 import { normalizeCustomProtocol } from './video-provider/custom'
 import type { VideoProviderAdapter, VideoProviderConfig } from './video-provider/types'
 import { extractLastFrame } from '../utils/ffmpeg'
+import { VideoRouter, defaultRoutingConfig } from './video-router'
 import { AppError, ErrorCodes } from '../utils/error'
 
 /** 默认轮询间隔（毫秒） */
@@ -187,6 +191,18 @@ export function loadVideoConfig(provider?: VideoProvider): VideoProviderConfig {
 }
 
 /**
+ * 从应用设置读取跨厂商智能路由配置（M15）。
+ * 未配置或读取失败时回退默认配置（固定策略 + 全部厂商启用）。
+ */
+function loadRoutingConfig(): VideoRoutingConfig {
+  try {
+    return getSettings().videoRoutingConfig ?? defaultRoutingConfig()
+  } catch {
+    return defaultRoutingConfig()
+  }
+}
+
+/**
  * 视频任务引擎单例。
  */
 export class VideoEngine {
@@ -203,6 +219,8 @@ export class VideoEngine {
   private pumping = false
   /** M13：进行中的 pump Promise（重入时共享，保证 await pump 能等到本轮出队完成） */
   private pumpPromise: Promise<void> | null = null
+  /** M15：智能路由器（单例持有，跨 IPC 共享决策日志） */
+  private router: VideoRouter
 
   constructor(options?: {
     adapterFactory?: (provider: VideoProvider) => VideoProviderAdapter
@@ -212,6 +230,7 @@ export class VideoEngine {
     pollIntervalMs?: number
     maxDuration?: number
     maxConcurrent?: number
+    router?: VideoRouter
   }) {
     this.adapterFactory =
       options?.adapterFactory ?? ((provider) => createVideoProviderAdapter(provider))
@@ -225,6 +244,35 @@ export class VideoEngine {
     if (options?.maxConcurrent !== undefined) {
       state.maxConcurrent = clampConcurrency(options.maxConcurrent)
     }
+    this.router = options?.router ?? new VideoRouter(loadRoutingConfig())
+  }
+
+  /** 决策前刷新路由配置（同步读取最新设置，保证用户改动即时生效） */
+  private refreshRouterConfig(): void {
+    this.router.updateConfig(loadRoutingConfig())
+  }
+
+  // ─── M15：路由配置 / 日志访问（供 IPC 调用） ──────────────────
+
+  /** 读取当前路由配置（副本） */
+  getRoutingConfig(): VideoRoutingConfig {
+    this.refreshRouterConfig()
+    return this.router.getConfig()
+  }
+
+  /** 更新路由配置并同步到设置持久化（供 IPC set 使用） */
+  setRoutingConfig(config: VideoRoutingConfig): void {
+    this.router.updateConfig(config)
+  }
+
+  /** 获取路由决策日志（最近 N 条） */
+  getRoutingLogs(limit?: number): VideoRoutingLogEntry[] {
+    return this.router.getLogs(limit ?? 50)
+  }
+
+  /** 清空路由决策日志 */
+  clearRoutingLogs(): void {
+    this.router.clearLogs()
   }
 
   private loadRuntimeConfig(provider?: VideoProvider): VideoProviderConfig {
@@ -251,10 +299,28 @@ export class VideoEngine {
       throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Video prompt must not be empty')
     }
 
-    const task = this.enqueueSingle(params, {}, undefined)
+    // M15：手动厂商覆盖优先；否则走智能路由决策
+    let provider = params.providerOverride
+    let routingSummary: VideoRoutingSummary | undefined
+    if (!provider) {
+      this.refreshRouterConfig()
+      const decision = this.router.route(prompt, Math.round(params.duration ?? 5))
+      provider = decision.provider
+      routingSummary = {
+        strategy: this.router.getConfig().strategy,
+        selectedProvider: decision.provider,
+        reason: decision.reason,
+      }
+    }
+
+    const task = this.enqueueSingle(params, {}, provider)
+    if (routingSummary) task.routing = routingSummary
     this.ensureTimer()
     await this.pump()
-    return getVideoTaskById(task.id) ?? task
+    const persisted = getVideoTaskById(task.id) ?? task
+    // 路由摘要是运行期信息，不被持久化；合并回返回值供渲染层展示
+    if (routingSummary) persisted.routing = routingSummary
+    return persisted
   }
 
   /**
@@ -284,7 +350,21 @@ export class VideoEngine {
       }
     }
 
-    const config = this.configProvider()
+    // M15：手动厂商覆盖优先；否则走智能路由决策（整序列统一厂商）
+    let provider = params.providerOverride
+    let routingSummary: VideoRoutingSummary | undefined
+    if (!provider) {
+      this.refreshRouterConfig()
+      const decision = this.router.route(shots[0].prompt.trim(), Math.round(shots[0].duration ?? 5))
+      provider = decision.provider
+      routingSummary = {
+        strategy: this.router.getConfig().strategy,
+        selectedProvider: decision.provider,
+        reason: decision.reason,
+      }
+    }
+    const config = this.configProvider(provider)
+    void routingSummary
     const title =
       params.title?.trim() || `${shots[0].prompt.trim().slice(0, 30)}…`
     const continuity = Boolean(params.continuity)
@@ -397,6 +477,8 @@ export class VideoEngine {
       aspect,
       sequenceId: meta.sequenceId ?? null,
       shotIndex: meta.shotIndex ?? null,
+      // M16：参考图随任务持久化，便于展示与带图重试
+      imageRefs: params.imageRefs ?? imageRefs,
     })
     state.queue.push({
       taskId: task.id,
@@ -630,9 +712,11 @@ export class VideoEngine {
       duration: task.duration,
       resolution: task.resolution,
       aspect: task.aspect,
+      // M16：带图重试——复用原任务的参考图，不再退化为纯文生
+      imageRefs: task.imageRefs,
     })
     // M13 队列化：重试任务入队，由队列按并发上限提交
-    state.queue.push({ taskId: newTask.id })
+    state.queue.push({ taskId: newTask.id, imageRefs: task.imageRefs })
     this.ensureTimer()
     await this.pump()
     return getVideoTaskById(newTask.id) ?? newTask

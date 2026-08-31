@@ -42,9 +42,25 @@ import type {
   VideoAsyncEvent,
   VideoConfigView,
   VideoProvider,
+  VideoRoutingConfig,
+  VideoRoutingLogEntry,
   VideoSequence,
   VideoSequenceDetail,
   CreateVideoTaskParams,
+  VideoSchedule,
+  VideoScheduleRun,
+  CreateVideoScheduleParams,
+  UpdateVideoScheduleParams,
+  VideoPostprocessRun,
+  VideoPostprocessResult,
+  VideoConcatParams,
+  VideoSubtitleParams,
+  VideoWatermarkParams,
+  VideoRenameParams,
+  VideoTemplate,
+  CreateVideoTemplateParams,
+  UpdateVideoTemplateParams,
+  VideoBillingOverview,
 } from '@shared/types'
 
 /** 文件过滤器 */
@@ -736,6 +752,62 @@ interface VideoAPI {
   listSequences(limit?: number): Promise<VideoSequence[]>
   /** 获取多镜头序列详情（含镜头子任务）（M6） */
   getSequenceDetail(id: string): Promise<VideoSequenceDetail | null>
+  /** 读取跨厂商智能路由配置（M15） */
+  getRoutingConfig(): Promise<VideoRoutingConfig>
+  /** 更新跨厂商智能路由配置（M15），返回规整后的配置 */
+  setRoutingConfig(config: VideoRoutingConfig): Promise<VideoRoutingConfig>
+  /** 获取路由决策日志（最近 N 条，缺省 50）（M15） */
+  getRoutingLogs(limit?: number): Promise<VideoRoutingLogEntry[]>
+  /** 清空路由决策日志（M15） */
+  clearRoutingLogs(): Promise<boolean>
+  // ─── M17：视频批量调度 ───────────────────────────────────────
+  /** 获取视频批量调度列表（M17） */
+  scheduleList(limit?: number): Promise<VideoSchedule[]>
+  /** 创建视频批量调度（M17） */
+  scheduleCreate(params: CreateVideoScheduleParams): Promise<VideoSchedule>
+  /** 更新视频批量调度（M17） */
+  scheduleUpdate(id: string, params: UpdateVideoScheduleParams): Promise<VideoSchedule>
+  /** 启停视频批量调度（M17） */
+  scheduleToggle(id: string, enabled: boolean): Promise<VideoSchedule>
+  /** 删除视频批量调度（M17） */
+  scheduleDelete(id: string): Promise<void>
+  /** 手动触发一次视频批量调度（M17） */
+  scheduleRunNow(id: string): Promise<VideoScheduleRun | null>
+  /** 获取视频批量调度执行历史（M17） */
+  scheduleHistory(id: string, limit?: number): Promise<VideoScheduleRun[]>
+  /** 订阅视频批量调度完成事件（M17） */
+  onScheduleCompleted(callback: (data: unknown) => void): () => void
+  /** 订阅视频批量调度自动禁用事件（M17） */
+  onScheduleDisabled(callback: (data: unknown) => void): () => void
+  // ─── M18：成片后处理 ────────────────────────────────────────
+  /** 获取后处理执行记录（M18） */
+  postprocessRuns(limit?: number): Promise<VideoPostprocessRun[]>
+  /** 字幕烧录（M18） */
+  postprocessSubtitle(params: VideoSubtitleParams): Promise<VideoPostprocessResult>
+  /** 水印叠加（M18） */
+  postprocessWatermark(params: VideoWatermarkParams): Promise<VideoPostprocessResult>
+  /** 多视频拼接（M18） */
+  postprocessConcat(params: VideoConcatParams): Promise<VideoPostprocessResult>
+  /** 重命名成品（M18） */
+  postprocessRename(params: VideoRenameParams): Promise<VideoPostprocessResult>
+  /** 归档成品（M18） */
+  postprocessArchive(params: { taskIds: string[] }): Promise<VideoPostprocessResult>
+  // ─── M19：分镜模板库 ───────────────────────────────────────
+  /** 获取分镜/序列模板列表（M19） */
+  templateList(limit?: number): Promise<VideoTemplate[]>
+  /** 创建模板（M19） */
+  templateCreate(params: CreateVideoTemplateParams): Promise<VideoTemplate>
+  /** 更新模板（M19） */
+  templateUpdate(id: string, params: UpdateVideoTemplateParams): Promise<VideoTemplate>
+  /** 删除模板（M19） */
+  templateDelete(id: string): Promise<void>
+  /** 获取单个模板（M19） */
+  templateGet(id: string): Promise<VideoTemplate>
+  /** 一键按模板生成视频（M19，可选厂商覆盖） */
+  templateGenerate(id: string, providerOverride?: VideoProvider): Promise<{ taskIds: string[]; sequenceId: string | null }>
+  // ─── M20：成本与用量计费 ────────────────────────────────────
+  /** 获取成本与用量计费总览（M20，days 缺省 30，1–365） */
+  billing(days?: number): Promise<VideoBillingOverview>
 }
 
 /** window.electron 完整类型 */
@@ -828,4 +900,18 @@ export type {
   VideoStatsExportResult,
   VideoQueueItem,
   VideoQueueSnapshot,
+  VideoSchedule,
+  VideoScheduleRun,
+  CreateVideoScheduleParams,
+  UpdateVideoScheduleParams,
+  VideoPostprocessRun,
+  VideoPostprocessResult,
+  VideoConcatParams,
+  VideoSubtitleParams,
+  VideoWatermarkParams,
+  VideoRenameParams,
+  VideoTemplate,
+  CreateVideoTemplateParams,
+  UpdateVideoTemplateParams,
+  VideoBillingOverview,
 }

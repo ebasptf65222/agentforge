@@ -225,6 +225,74 @@ describe('VideoEngine', () => {
     engine.shutdown()
   })
 
+  it('should honor providerOverride and skip routing (M15)', async () => {
+    const requestedProviders: string[] = []
+    const adapter: VideoProviderAdapter = {
+      provider: 'kling',
+      submit: async () => ({ providerTaskId: 'kt-ovr' }),
+      status: async () => ({ status: 'queued' as const, progress: 5, downloadUrl: null }),
+    }
+    const engine = new VideoEngine({
+      adapterFactory: (provider) => {
+        requestedProviders.push(provider)
+        return adapter
+      },
+      configProvider: () => ({ ...TEST_CONFIG, provider: 'kling' }),
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 1000,
+    })
+
+    const task = await engine.generate({ prompt: 'a cat', providerOverride: 'kling' })
+    expect(requestedProviders).toContain('kling')
+    expect(task.provider).toBe('kling')
+    // 手动覆盖时无路由摘要
+    expect(task.routing).toBeUndefined()
+    engine.shutdown()
+  })
+
+  it('should attach routing summary when routing selects provider (M15)', async () => {
+    const requestedProviders: string[] = []
+    const adapter: VideoProviderAdapter = {
+      provider: 'seedance',
+      submit: async () => ({ providerTaskId: 'rt-1' }),
+      status: async () => ({ status: 'queued' as const, progress: 5, downloadUrl: null }),
+    }
+    const engine = new VideoEngine({
+      adapterFactory: (provider) => {
+        requestedProviders.push(provider)
+        return adapter
+      },
+      configProvider: () => ({ ...TEST_CONFIG, provider: 'seedance' }),
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 1000,
+    })
+
+    const task = await engine.generate({ prompt: 'a cat', duration: 5 })
+    expect(task.routing).toBeDefined()
+    expect(task.routing?.strategy).toBe('fixed')
+    expect(task.routing?.selectedProvider).toBe('seedance')
+    expect(task.routing?.reason).toBeTruthy()
+    engine.shutdown()
+  })
+
+  it('should expose routing config and logs via engine (M15)', async () => {
+    const engine = new VideoEngine({
+      adapterFactory: () => makeAdapter([]),
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 1000,
+    })
+    const cfg = engine.getRoutingConfig()
+    expect(cfg).toBeDefined()
+    expect(engine.getRoutingLogs()).toBeInstanceOf(Array)
+    engine.clearRoutingLogs()
+    expect(engine.getRoutingLogs()).toHaveLength(0)
+    engine.shutdown()
+  })
+
   it('should forward imageRefs to the adapter submit (M5)', async () => {
     let seenSpec: { imageRefs?: unknown[] } | null = null
     const adapter: VideoProviderAdapter = {
@@ -287,6 +355,37 @@ describe('VideoEngine', () => {
     await expect(
       engine.generateSequence({ shots: [{ prompt: 'only one' }] }),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    engine.shutdown()
+  })
+
+  it('should persist imageRefs on generate and carry them into retry (M16)', async () => {
+    const adapter: VideoProviderAdapter = {
+      provider: 'seedance',
+      submit: async () => ({ providerTaskId: 'prov-ref' }),
+      status: async () => ({ status: 'failed' as const, progress: 100, downloadUrl: null }),
+    }
+    const engine = new VideoEngine({
+      adapterFactory: () => adapter,
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 5,
+    })
+
+    const refs = [
+      { path: '/tmp/a.png', role: 'first_frame' as const },
+      { path: '/tmp/b.png', role: 'style' as const },
+    ]
+    const task = await engine.generate({ prompt: 'styled', imageRefs: refs })
+    expect(task.imageRefs).toEqual(refs)
+    // 任务持久化读回完整参考图
+    expect(engine.get(task.id)?.imageRefs).toEqual(refs)
+
+    await waitFor(() => engine.get(task.id)?.status === 'failed')
+    const retried = await engine.retry(task.id)
+    // M16：带图重试，不退化为纯文生
+    expect(retried.imageRefs).toEqual(refs)
+    expect(engine.get(retried.id)?.imageRefs).toEqual(refs)
     engine.shutdown()
   })
 

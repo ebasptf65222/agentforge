@@ -6,12 +6,31 @@
 import { computed } from 'vue'
 import { NButton, NProgress, NTag, NSpace, NIcon, NTooltip } from 'naive-ui'
 import { PlayArrowOutlined, StopOutlined, RefreshOutlined, StarBorderOutlined, StarFilled } from '@vicons/material'
-import type { VideoTask } from '@shared/types'
+import type { VideoTask, VideoRoutingStrategy, VideoProvider } from '@shared/types'
 import { useVideoStore } from '@/stores/video'
 
 const props = defineProps<{
   task: VideoTask
 }>()
+
+function routeStrategyLabel(strategy: VideoRoutingStrategy): string {
+  if (strategy === 'cost-optimized') return '成本优先'
+  if (strategy === 'quality-first') return '质量优先'
+  return '固定厂商'
+}
+
+function routeProviderLabel(provider: VideoProvider): string {
+  if (provider === 'kling') return 'Kling'
+  if (provider === 'custom') return '自定义厂商'
+  return 'Seedance'
+}
+
+/** M16：参考图角色中文标签 */
+function refRoleLabel(role: string): string {
+  if (role === 'style') return '风格参考图'
+  if (role === 'last_frame') return '尾帧'
+  return '首帧'
+}
 
 const emit = defineEmits<{
   /** 点击「在文件面板打开」 */
@@ -168,8 +187,28 @@ function fileName(filePath: string | null): string {
       </NTag>
     </div>
 
+    <!-- M16：参考图角色徽标 -->
+    <div v-if="task.imageRefs && task.imageRefs.length > 0" class="video-task-card__labels">
+      <NTag
+        v-for="(ref, index) in task.imageRefs"
+        :key="index"
+        size="tiny"
+        :bordered="false"
+        :type="ref.role === 'style' ? 'warning' : 'info'"
+        :title="ref.path"
+      >
+        {{ refRoleLabel(ref.role) }}
+      </NTag>
+    </div>
+
     <!-- 生成参数 -->
     <span class="video-task-card__meta">{{ metaText }}</span>
+
+    <!-- M15：路由决策摘要 -->
+    <div v-if="task.routing" class="video-task-card__route">
+      <NTag size="tiny" :bordered="false">{{ routeStrategyLabel(task.routing.strategy) }}</NTag>
+      <span>路由 → {{ routeProviderLabel(task.routing.selectedProvider) }}：{{ task.routing.reason }}</span>
+    </div>
 
     <!-- 进度 -->
     <div v-if="!terminal" class="video-task-card__progress">
@@ -261,6 +300,15 @@ function fileName(filePath: string | null): string {
   font-size: var(--af-font-xs, 11px);
   color: var(--af-text-muted, #9ca3af);
   font-variant-numeric: tabular-nums;
+}
+
+/* M15：路由决策摘要行 */
+.video-task-card__route {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--af-text-muted, #9ca3af);
 }
 
 /* M14：用户标签行 */

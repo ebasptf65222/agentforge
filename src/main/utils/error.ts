@@ -204,6 +204,8 @@ export const ErrorCodes = {
   VIDEO_DOWNLOAD_ERROR: 'VIDEO_DOWNLOAD_ERROR',
   /** 视频尾帧抽取失败（M8 连续性衔接所需 ffmpeg 截帧） */
   VIDEO_FRAME_EXTRACT_ERROR: 'VIDEO_FRAME_EXTRACT_ERROR',
+  /** 视频成片后处理失败（M18：字幕/水印/拼接 ffmpeg 调用失败） */
+  VIDEO_POSTPROCESS_ERROR: 'VIDEO_POSTPROCESS_ERROR',
 
   // ─── 通用 ────────────────────────────────────────────────────
   /** 数据库错误 */

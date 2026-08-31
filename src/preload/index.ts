@@ -506,6 +506,72 @@ const video = {
   testConfig: (provider?: string): Promise<unknown> =>
     ipcRenderer.invoke('video:test-config', provider !== undefined ? { provider } : undefined),
 
+  getRoutingConfig: (): Promise<unknown> => ipcRenderer.invoke('video:get-routing-config'),
+
+  setRoutingConfig: (config: unknown): Promise<unknown> =>
+    ipcRenderer.invoke('video:set-routing-config', config),
+
+  getRoutingLogs: (limit?: number): Promise<unknown> =>
+    ipcRenderer.invoke(
+      'video:get-routing-logs',
+      limit !== undefined ? { limit } : undefined,
+    ),
+
+  clearRoutingLogs: (): Promise<unknown> => ipcRenderer.invoke('video:clear-routing-logs'),
+
+  // M17：视频批量调度
+  scheduleList: (limit?: number): Promise<unknown[]> =>
+    ipcRenderer.invoke('video:schedule-list', limit !== undefined ? { limit } : undefined),
+  scheduleCreate: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('video:schedule-create', params),
+  scheduleUpdate: (id: string, params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('video:schedule-update', { id, params }),
+  scheduleToggle: (id: string, enabled: boolean): Promise<unknown> =>
+    ipcRenderer.invoke('video:schedule-toggle', { id, enabled }),
+  scheduleDelete: (id: string): Promise<void> =>
+    ipcRenderer.invoke('video:schedule-delete', { id }),
+  scheduleRunNow: (id: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:schedule-run-now', { id }),
+  scheduleHistory: (id: string, limit?: number): Promise<unknown[]> =>
+    ipcRenderer.invoke('video:schedule-history', { id, limit }),
+
+  onScheduleCompleted: (callback: (data: unknown) => void): (() => void) =>
+    onEvent('video:schedule-completed', callback),
+  onScheduleDisabled: (callback: (data: unknown) => void): (() => void) =>
+    onEvent('video:schedule-disabled', callback),
+
+  // M18：成片后处理
+  postprocessRuns: (limit?: number): Promise<unknown[]> =>
+    ipcRenderer.invoke('video:postprocess-runs', limit !== undefined ? { limit } : undefined),
+  postprocessSubtitle: (payload: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('video:postprocess-subtitle', payload),
+  postprocessWatermark: (payload: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('video:postprocess-watermark', payload),
+  postprocessConcat: (payload: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('video:postprocess-concat', payload),
+  postprocessRename: (payload: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('video:postprocess-rename', payload),
+  postprocessArchive: (taskIds: string[]): Promise<unknown> =>
+    ipcRenderer.invoke('video:postprocess-archive', { taskIds }),
+
+  // M19：分镜模板库
+  templateList: (limit?: number): Promise<unknown[]> =>
+    ipcRenderer.invoke('video:template-list', limit !== undefined ? { limit } : undefined),
+  templateCreate: (params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('video:template-create', params),
+  templateUpdate: (id: string, params: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('video:template-update', { id, params }),
+  templateDelete: (id: string): Promise<void> =>
+    ipcRenderer.invoke('video:template-delete', { id }),
+  templateGet: (id: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:template-get', { id }),
+  templateGenerate: (id: string, providerOverride?: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:template-generate', { id, providerOverride }),
+
+  // M20：成本与用量计费
+  billing: (days?: number): Promise<unknown> =>
+    ipcRenderer.invoke('video:billing', days !== undefined ? { days } : undefined),
+
   // 引擎异步推送 progress / completed / failed
   onEvent: (callback: (data: unknown) => void): (() => void) =>
     onEvent('video:event', callback),

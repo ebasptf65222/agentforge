@@ -3,6 +3,7 @@
 
 import type { ApprovalMode, MessageRole, ModelProvider, EngineType } from './enums'
 import type { VoiceConfig } from './voice'
+import type { VideoRoutingConfig } from './video'
 
 // ─── 5.2 核心实体接口 ────────────────────────────────────────────
 
@@ -174,6 +175,8 @@ export interface AppSettings {
   videoCustomModel?: string
   /** 自定义厂商 API 协议（ark=火山方舟兼容 / kling=TokenHub 兼容 / openai=OpenAI Videos 兼容，默认 ark） */
   videoCustomProtocol?: 'ark' | 'kling' | 'openai'
+  /** M15：跨厂商智能路由配置（JSON 字符串持久化） */
+  videoRoutingConfig?: VideoRoutingConfig
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }

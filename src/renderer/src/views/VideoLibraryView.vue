@@ -20,8 +20,8 @@ import {
   NTag,
   NTooltip,
 } from 'naive-ui'
-import { RefreshOutlined, DeleteOutlined, CheckBoxOutlined, UploadFileOutlined, VideoLibraryOutlined, BarChartOutlined, FileDownloadOutlined, PauseCircleOutlined, PlayCircleOutlined, StarOutlined, LabelOutlined, RestoreFromTrashOutlined, DeleteForeverOutlined, Inventory2Outlined } from '@vicons/material'
-import type { CreateVideoTaskParams, VideoTask, VideoTaskStatus, VideoSequence, VideoStatsBucket } from '@shared/types'
+import { RefreshOutlined, DeleteOutlined, CheckBoxOutlined, UploadFileOutlined, VideoLibraryOutlined, BarChartOutlined, FileDownloadOutlined, PauseCircleOutlined, PlayCircleOutlined, StarOutlined, LabelOutlined, RestoreFromTrashOutlined, DeleteForeverOutlined, Inventory2Outlined, ImageSearchOutlined, ConstructionOutlined } from '@vicons/material'
+import type { CreateVideoTaskParams, VideoImageRef, VideoTask, VideoTaskStatus, VideoSequence, VideoStatsBucket } from '@shared/types'
 import type { VideoCsvParseResult } from '@/types/electron-api'
 import { useVideoStore } from '@/stores/video'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -29,10 +29,17 @@ import { useUiStore } from '@/stores/ui'
 import { showToast } from '@/utils/toast'
 import SequenceCard from '@/components/video/SequenceCard.vue'
 import VideoTaskCard from '@/components/video/VideoTaskCard.vue'
+import VideoSchedulePanel from '@/components/video/VideoSchedulePanel.vue'
+import VideoPostprocessPanel from '@/components/video/VideoPostprocessPanel.vue'
+import VideoTemplateLibrary from '@/components/video/VideoTemplateLibrary.vue'
+import VideoBillingPanel from '@/components/video/VideoBillingPanel.vue'
 
 type FilterType = 'all' | 'task' | 'sequence'
 type StatusFilter = '' | 'active' | VideoTaskStatus
-type ViewMode = 'library' | 'trash'
+type ViewMode = 'library' | 'trash' | 'workbench'
+
+/** M17-M20 工作台子页签 */
+type WorkbenchTab = 'schedule' | 'postprocess' | 'template' | 'billing'
 
 const videoStore = useVideoStore()
 const workspaceStore = useWorkspaceStore()
@@ -44,6 +51,8 @@ const keyword = ref('')
 const selectionMode = ref(false)
 // M14：资产库 / 回收站视图与增强筛选
 const viewMode = ref<ViewMode>('library')
+// M17-M20 工作台子页签
+const workbenchTab = ref<WorkbenchTab>('schedule')
 const favoriteOnly = ref(false)
 const activeTag = ref<string | null>(null)
 
@@ -533,6 +542,115 @@ function handleCancelQueued(taskId: string): void {
   void videoStore.cancel(taskId)
 }
 
+// ─── M16: 参考图生成 ───────────────────────────────────────
+
+const showRefModal = ref(false)
+/** 首帧 / 尾帧 / 风格参考图路径 */
+const refFirstFrame = ref('')
+const refLastFrame = ref('')
+const refStyle = ref('')
+/** 生成参数 */
+const refPrompt = ref('')
+const refDuration = ref(5)
+const refResolution = ref<'480P' | '720P' | '1080P'>('720P')
+const refAspect = ref<'16:9' | '9:16' | '4:3' | '3:4' | '1:1'>('16:9')
+/** 提交中 */
+const refSubmitting = ref(false)
+
+const RESOLUTION_OPTIONS = [
+  { label: '480P', value: '480P' },
+  { label: '720P', value: '720P' },
+  { label: '1080P', value: '1080P' },
+]
+const ASPECT_OPTIONS = [
+  { label: '16:9', value: '16:9' },
+  { label: '9:16', value: '9:16' },
+  { label: '4:3', value: '4:3' },
+  { label: '3:4', value: '3:4' },
+  { label: '1:1', value: '1:1' },
+]
+
+function refFileName(path: string): string {
+  if (!path) return ''
+  return path.replace(/\\/g, '/').split('/').pop() ?? ''
+}
+
+/** 选择一个本地图片文件 */
+async function pickRefImage(target: 'first' | 'last' | 'style'): Promise<void> {
+  const path = await window.electron.file.selectFile({
+    title: target === 'style' ? '选择风格参考图' : '选择参考图',
+    filters: [
+      {
+        name: '图片',
+        extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'],
+      },
+    ],
+  })
+  if (!path || typeof path !== 'string') return
+  if (target === 'first') refFirstFrame.value = path
+  else if (target === 'last') refLastFrame.value = path
+  else refStyle.value = path
+}
+
+function clearRefSelection(target: 'first' | 'last' | 'style'): void {
+  if (target === 'first') refFirstFrame.value = ''
+  else if (target === 'last') refLastFrame.value = ''
+  else refStyle.value = ''
+}
+
+/** 组装参考图列表（首帧 → 尾帧 → 风格） */
+function buildRefImages(): VideoImageRef[] {
+  const refs: VideoImageRef[] = []
+  if (refFirstFrame.value) refs.push({ path: refFirstFrame.value, role: 'first_frame' })
+  if (refLastFrame.value) refs.push({ path: refLastFrame.value, role: 'last_frame' })
+  if (refStyle.value) refs.push({ path: refStyle.value, role: 'style' })
+  return refs
+}
+
+const canSubmitRef = computed(
+  () => !refSubmitting.value && refPrompt.value.trim() !== '' && buildRefImages().length > 0,
+)
+
+function openRefModal(): void {
+  refFirstFrame.value = ''
+  refLastFrame.value = ''
+  refStyle.value = ''
+  refPrompt.value = ''
+  refDuration.value = 5
+  refResolution.value = '720P'
+  refAspect.value = '16:9'
+  showRefModal.value = true
+}
+
+async function handleSubmitRef(): Promise<void> {
+  const prompt = refPrompt.value.trim()
+  if (!prompt) {
+    showToast('请输入提示词', 'warning')
+    return
+  }
+  const imageRefs = buildRefImages()
+  if (imageRefs.length === 0) {
+    showToast('至少选择一张参考图', 'warning')
+    return
+  }
+  refSubmitting.value = true
+  try {
+    await videoStore.generate({
+      prompt,
+      duration: refDuration.value,
+      resolution: refResolution.value,
+      aspect: refAspect.value,
+      imageRefs,
+    })
+    showRefModal.value = false
+    showToast('已提交参考图生成任务', 'success')
+  } catch {
+    // store 已 toast 具体错误，保持模态开启便于修改
+  } finally {
+    refSubmitting.value = false
+  }
+}
+
 onMounted(() => {
   videoStore.init()
 })
@@ -583,6 +701,17 @@ onMounted(() => {
             <template #icon><Inventory2Outlined :size="15" /></template>
             回收站
           </NButton>
+          <NButton
+            size="small"
+            :secondary="viewMode === 'workbench'"
+            :quaternary="viewMode !== 'workbench'"
+            :type="viewMode === 'workbench' ? 'primary' : 'default'"
+            round
+            @click="viewMode = 'workbench'"
+          >
+            <template #icon><ConstructionOutlined :size="15" /></template>
+            工作台
+          </NButton>
         </div>
         <NTooltip placement="left" :delay="400">
           <template #trigger>
@@ -601,6 +730,15 @@ onMounted(() => {
             </NButton>
           </template>
           <span>从 CSV 批量导入提示词生成视频（M11）</span>
+        </NTooltip>
+        <NTooltip placement="left" :delay="400">
+          <template #trigger>
+            <NButton size="small" quaternary round type="primary" @click="openRefModal">
+              <template #icon><ImageSearchOutlined :size="16" /></template>
+              参考图生成
+            </NButton>
+          </template>
+          <span>本地上传参考图（首帧/尾帧/风格）生成视频（M16）</span>
         </NTooltip>
         <NTooltip placement="left" :delay="400">
           <template #trigger>
@@ -658,7 +796,7 @@ onMounted(() => {
     </div>
 
     <!-- M14：回收站工具条 -->
-    <div v-else class="video-library__toolbar">
+    <div v-else-if="viewMode === 'trash'" class="video-library__toolbar">
       <span class="video-library__trash-hint">
         回收站中的内容保留文件，可恢复或彻底删除
       </span>
@@ -679,6 +817,46 @@ onMounted(() => {
           将彻底删除回收站中的全部内容及其落盘文件，不可恢复，确认清空？
         </NPopconfirm>
       </NSpace>
+    </div>
+
+    <!-- M17-M20：工作台子页签工具条 -->
+    <div v-else-if="viewMode === 'workbench'" class="video-library__workbench-tabs">
+      <NButton
+        size="small"
+        :type="workbenchTab === 'schedule' ? 'primary' : 'default'"
+        :secondary="workbenchTab === 'schedule'"
+        round
+        @click="workbenchTab = 'schedule'"
+      >
+        定时批量
+      </NButton>
+      <NButton
+        size="small"
+        :type="workbenchTab === 'postprocess' ? 'primary' : 'default'"
+        :secondary="workbenchTab === 'postprocess'"
+        round
+        @click="workbenchTab = 'postprocess'"
+      >
+        成片后处理
+      </NButton>
+      <NButton
+        size="small"
+        :type="workbenchTab === 'template' ? 'primary' : 'default'"
+        :secondary="workbenchTab === 'template'"
+        round
+        @click="workbenchTab = 'template'"
+      >
+        分镜模板
+      </NButton>
+      <NButton
+        size="small"
+        :type="workbenchTab === 'billing' ? 'primary' : 'default'"
+        :secondary="workbenchTab === 'billing'"
+        round
+        @click="workbenchTab = 'billing'"
+      >
+        成本计费
+      </NButton>
     </div>
 
     <!-- M13: 生成队列面板（仅资产库视图） -->
@@ -938,7 +1116,7 @@ onMounted(() => {
       </NSpin>
 
       <!-- M14：回收站视图 -->
-      <NSpin v-else :show="videoStore.trashLoading" size="small">
+      <NSpin v-else-if="viewMode === 'trash'" :show="videoStore.trashLoading" size="small">
         <div v-if="!trashHasItems && !videoStore.trashLoading" class="video-library__empty">
           <div class="video-library__empty-icon">
             <NIcon :size="44"><Inventory2Outlined /></NIcon>
@@ -1058,6 +1236,14 @@ onMounted(() => {
           </section>
         </template>
       </NSpin>
+
+      <!-- M17-M20：成片工作台视图 -->
+      <div v-else class="video-library__workbench">
+        <VideoSchedulePanel v-if="workbenchTab === 'schedule'" />
+        <VideoPostprocessPanel v-else-if="workbenchTab === 'postprocess'" />
+        <VideoTemplateLibrary v-else-if="workbenchTab === 'template'" />
+        <VideoBillingPanel v-else-if="workbenchTab === 'billing'" />
+      </div>
     </div>
 
     <!-- M14：标签编辑模态 -->
@@ -1261,6 +1447,106 @@ onMounted(() => {
         </NSpin>
       </NSpace>
     </NModal>
+
+    <!-- M16: 参考图生成模态 -->
+    <NModal
+      :show="showRefModal"
+      preset="card"
+      title="参考图生成"
+      :bordered="false"
+      :mask-closable="!refSubmitting"
+      :style="{ width: '560px', maxWidth: '94vw' }"
+      @update:show="(v: boolean) => { if (!v) showRefModal = v }"
+    >
+      <NSpace vertical :size="14">
+        <!-- 参考图选择 -->
+        <div class="video-library__ref-section">
+          <span class="video-library__csv-label">参考图（首帧 / 尾帧 / 风格，至少选择一个）</span>
+          <div class="video-library__ref-grid">
+            <div class="video-library__ref-field">
+              <span class="video-library__ref-name">首帧</span>
+              <div class="video-library__ref-control">
+                <NButton size="tiny" tertiary @click="pickRefImage('first')">
+                  <template #icon><ImageSearchOutlined :size="14" /></template>
+                  选择
+                </NButton>
+                <span v-if="refFirstFrame" class="video-library__ref-file" :title="refFirstFrame">
+                  {{ refFileName(refFirstFrame) }}
+                </span>
+                <NButton v-if="refFirstFrame" size="tiny" quaternary type="error" @click="clearRefSelection('first')">
+                  清除
+                </NButton>
+              </div>
+            </div>
+            <div class="video-library__ref-field">
+              <span class="video-library__ref-name">尾帧</span>
+              <div class="video-library__ref-control">
+                <NButton size="tiny" tertiary @click="pickRefImage('last')">
+                  <template #icon><ImageSearchOutlined :size="14" /></template>
+                  选择
+                </NButton>
+                <span v-if="refLastFrame" class="video-library__ref-file" :title="refLastFrame">
+                  {{ refFileName(refLastFrame) }}
+                </span>
+                <NButton v-if="refLastFrame" size="tiny" quaternary type="error" @click="clearRefSelection('last')">
+                  清除
+                </NButton>
+              </div>
+            </div>
+            <div class="video-library__ref-field">
+              <span class="video-library__ref-name">风格参考</span>
+              <div class="video-library__ref-control">
+                <NButton size="tiny" tertiary @click="pickRefImage('style')">
+                  <template #icon><ImageSearchOutlined :size="14" /></template>
+                  选择
+                </NButton>
+                <span v-if="refStyle" class="video-library__ref-file" :title="refStyle">
+                  {{ refFileName(refStyle) }}
+                </span>
+                <NButton v-if="refStyle" size="tiny" quaternary type="error" @click="clearRefSelection('style')">
+                  清除
+                </NButton>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 提示词 -->
+        <div class="video-library__ref-section">
+          <span class="video-library__csv-label">提示词（画面内容描述）</span>
+          <NInput v-model:value="refPrompt" type="textarea" :rows="3" placeholder="描述画面内容、动作、风格、光线、镜头运动…" />
+        </div>
+
+        <!-- 生成参数 -->
+        <div class="video-library__ref-row">
+          <span class="video-library__ref-name">时长(秒)</span>
+          <NInputNumber v-model:value="refDuration" :min="4" :max="15" size="small" class="video-library__ref-duration" />
+          <span class="video-library__ref-name">分辨率</span>
+          <NSelect v-model:value="refResolution" :options="RESOLUTION_OPTIONS" size="small" class="video-library__ref-select" />
+          <span class="video-library__ref-name">比例</span>
+          <NSelect v-model:value="refAspect" :options="ASPECT_OPTIONS" size="small" class="video-library__ref-select" />
+        </div>
+
+        <div class="video-library__ref-hint">
+          参考图将由适配器 base64 内联上传。当前仅 Seedance 厂商支持参考图；Kling 会返回可读错误。
+        </div>
+
+        <div class="video-library__csv-actions">
+          <NButton size="small" quaternary :disabled="refSubmitting" @click="showRefModal = false">
+            取消
+          </NButton>
+          <NButton
+            size="small"
+            type="primary"
+            :disabled="!canSubmitRef"
+            :loading="refSubmitting"
+            @click="handleSubmitRef"
+          >
+            开始生成
+          </NButton>
+        </div>
+      </NSpace>
+    </NModal>
   </div>
 </template>
 
@@ -1364,6 +1650,30 @@ onMounted(() => {
 .video-library__tag-hint {
   font-size: 12px;
   color: var(--af-text-muted, #94a3b8);
+}
+
+/* ─── M17-M20: 工作台子页签 / 内容 ───────────────────────── */
+
+.video-library__workbench-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.video-library__workbench {
+  animation: videoWbFadeIn 0.2s ease;
+}
+
+@keyframes videoWbFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .video-library__trash-hint {
@@ -1846,6 +2156,79 @@ onMounted(() => {
   font-size: 12px;
   color: var(--af-text-muted, #94a3b8);
   padding: 8px 0;
+}
+
+/* ─── M16: 参考图生成模态 ───────────────────────────────── */
+
+.video-library__ref-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.video-library__ref-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--af-surface-muted, #1e293b);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.video-library__ref-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.video-library__ref-name {
+  flex: none;
+  width: 64px;
+  font-size: 12px;
+  color: var(--af-text-secondary, #cbd5e1);
+}
+
+.video-library__ref-control {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.video-library__ref-file {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--af-text-muted, #94a3b8);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-library__ref-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.video-library__ref-duration {
+  width: 96px;
+}
+
+.video-library__ref-select {
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.video-library__ref-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--af-text-muted, #94a3b8);
+  background: var(--af-surface-muted, #1e293b);
+  border-radius: 8px;
+  padding: 10px 12px;
 }
 
 </style>

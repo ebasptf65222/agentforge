@@ -3,10 +3,11 @@
 // 与 Spec v0.2 §6.6 表结构一致
 
 import type Database from 'better-sqlite3'
-import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
+import type { AppSettings, ApprovalMode, EngineType, ShortcutConfig, VideoRoutingConfig, VoiceConfig, WorkspaceConfig } from '@shared/types'
 import type { ReasoningEffort, WireApiMode, ContextTier, ReasoningSummary } from '../../copilot/types'
 import { getDatabase } from '../index'
 import { AppError, ErrorCodes } from '../../utils/error'
+import { normalizeRoutingConfig } from '../../services/video-router'
 
 /**
  * SQLite 行类型（数据库存储格式）。
@@ -66,6 +67,7 @@ interface AppSettingsRow {
   video_custom_base_url: string | null
   video_custom_model: string | null
   video_custom_protocol: string | null
+  video_routing_config: string | null
   window_bounds: string | null
   updated_at: number
 }
@@ -195,6 +197,7 @@ export interface UpdateSettingsParams {
   videoCustomBaseUrl?: string | null
   videoCustomModel?: string | null
   videoCustomProtocol?: 'ark' | 'kling' | 'openai' | null
+  videoRoutingConfig?: VideoRoutingConfig | null
   windowBounds?: WindowBounds | null
 }
 
@@ -235,6 +238,15 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
       windowBounds = JSON.parse(row.window_bounds) as WindowBounds
     } catch {
       windowBounds = undefined
+    }
+  }
+
+  let videoRoutingConfig: VideoRoutingConfig | undefined
+  if (row.video_routing_config !== null) {
+    try {
+      videoRoutingConfig = normalizeRoutingConfig(JSON.parse(row.video_routing_config))
+    } catch {
+      videoRoutingConfig = undefined
     }
   }
 
@@ -302,6 +314,7 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     videoCustomBaseUrl: row.video_custom_base_url ?? undefined,
     videoCustomModel: row.video_custom_model ?? undefined,
     videoCustomProtocol: (row.video_custom_protocol ?? undefined) as 'ark' | 'kling' | 'openai' | undefined,
+    videoRoutingConfig,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -724,6 +737,13 @@ export function updateSettings(params: UpdateSettingsParams): void {
   if (params.videoCustomProtocol !== undefined) {
     setClauses.push('video_custom_protocol = ?')
     values.push(params.videoCustomProtocol === null ? null : params.videoCustomProtocol)
+  }
+
+  if (params.videoRoutingConfig !== undefined) {
+    setClauses.push('video_routing_config = ?')
+    values.push(
+      params.videoRoutingConfig === null ? null : JSON.stringify(params.videoRoutingConfig),
+    )
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

@@ -387,6 +387,18 @@ const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
     sql: `ALTER TABLE app_settings ADD COLUMN video_custom_protocol TEXT`,
   },
   {
+    table: 'app_settings',
+    column: 'video_routing_config',
+    comment: 'VIDEO-M15: 跨厂商智能路由配置（JSON 字符串）',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_routing_config TEXT`,
+  },
+  {
+    table: 'video_tasks',
+    column: 'image_refs',
+    comment: 'VIDEO-M16: 参考图列表（JSON 数组，角色 first_frame/last_frame/style）',
+    sql: `ALTER TABLE video_tasks ADD COLUMN image_refs TEXT`,
+  },
+  {
     table: 'kb_documents',
     column: 'content_hash',
     comment: 'RAG-FIX-02: 文档内容哈希（快速去重）',
@@ -457,6 +469,12 @@ const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
     column: 'deleted_at',
     comment: 'VIDEO-M14: 软删除时间戳（回收站，NULL 表示未删除）',
     sql: `ALTER TABLE video_sequences ADD COLUMN deleted_at INTEGER`,
+  },
+  {
+    table: 'video_tasks',
+    column: 'archived',
+    comment: 'VIDEO-M18: 是否已归档（移入 archive 目录并打标）',
+    sql: `ALTER TABLE video_tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`,
   },
 ] as const
 
@@ -562,6 +580,71 @@ const TABLE_MIGRATIONS: readonly { table: string; sql: string }[] = [
       updated_at       INTEGER NOT NULL
     )`,
   },
+  {
+    table: 'video_schedules',
+    sql: `CREATE TABLE IF NOT EXISTS video_schedules (
+      id               TEXT PRIMARY KEY,
+      name             TEXT NOT NULL,
+      enabled          INTEGER NOT NULL DEFAULT 1,
+      trigger          TEXT NOT NULL DEFAULT 'cron',
+      cron_expr        TEXT,
+      timezone         TEXT,
+      batch_config     TEXT NOT NULL DEFAULT '{}',
+      next_run_at_ms   INTEGER,
+      running_at_ms    INTEGER,
+      last_run_at_ms   INTEGER,
+      last_status      TEXT,
+      last_run_count   INTEGER,
+      run_count        INTEGER NOT NULL DEFAULT 0,
+      error_count      INTEGER NOT NULL DEFAULT 0,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL
+    )`,
+  },
+  {
+    table: 'video_schedule_runs',
+    sql: `CREATE TABLE IF NOT EXISTS video_schedule_runs (
+      id              TEXT PRIMARY KEY,
+      schedule_id     TEXT NOT NULL REFERENCES video_schedules(id) ON DELETE CASCADE,
+      started_at_ms   INTEGER NOT NULL,
+      finished_at_ms  INTEGER,
+      status          TEXT NOT NULL DEFAULT 'running',
+      task_count      INTEGER NOT NULL DEFAULT 0,
+      failed_count    INTEGER NOT NULL DEFAULT 0,
+      summary         TEXT,
+      error           TEXT
+    )`,
+  },
+  {
+    table: 'video_postprocess_runs',
+    sql: `CREATE TABLE IF NOT EXISTS video_postprocess_runs (
+      id               TEXT PRIMARY KEY,
+      type             TEXT NOT NULL,
+      task_ids         TEXT NOT NULL DEFAULT '[]',
+      output_path      TEXT,
+      output_task_id   TEXT,
+      status           TEXT NOT NULL DEFAULT 'running',
+      message          TEXT,
+      created_at       INTEGER NOT NULL
+    )`,
+  },
+  {
+    table: 'video_templates',
+    sql: `CREATE TABLE IF NOT EXISTS video_templates (
+      id           TEXT PRIMARY KEY,
+      name         TEXT NOT NULL,
+      description  TEXT NOT NULL DEFAULT '',
+      type         TEXT NOT NULL DEFAULT 'shot',
+      resolution   TEXT NOT NULL DEFAULT '720P',
+      aspect       TEXT NOT NULL DEFAULT '16:9',
+      shots        TEXT NOT NULL DEFAULT '[]',
+      continuity   INTEGER NOT NULL DEFAULT 0,
+      model        TEXT,
+      tags         TEXT NOT NULL DEFAULT '[]',
+      created_at   INTEGER NOT NULL,
+      updated_at   INTEGER NOT NULL
+    )`,
+  },
 ] as const
 
 /**
@@ -579,6 +662,15 @@ const VIDEO_INDEXES: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_video_tasks_status ON video_tasks(status)`,
   `CREATE INDEX IF NOT EXISTS idx_video_tasks_created ON video_tasks(created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_video_tasks_sequence ON video_tasks(sequence_id)`,
+] as const
+
+/** 视频调度/模板/后处理相关索引（幂等，M17/M18/M19）。 */
+const VIDEO_EXTRA_INDEXES: readonly string[] = [
+  `CREATE INDEX IF NOT EXISTS idx_video_schedules_enabled ON video_schedules(enabled)`,
+  `CREATE INDEX IF NOT EXISTS idx_video_schedules_next_run ON video_schedules(next_run_at_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_video_schedule_runs_schedule ON video_schedule_runs(schedule_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_video_postprocess_created ON video_postprocess_runs(created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_video_templates_updated ON video_templates(updated_at DESC)`,
 ] as const
 
 /**
@@ -615,6 +707,11 @@ function runConditionalMigrations(db: Database.Database): void {
 
 // 视频任务索引
   VIDEO_INDEXES.forEach((sql) => {
+    db.exec(sql)
+  })
+
+// 视频调度/模板/后处理索引（M17/M18/M19）
+  VIDEO_EXTRA_INDEXES.forEach((sql) => {
     db.exec(sql)
   })
 

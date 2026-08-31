@@ -1,0 +1,441 @@
+<script setup lang="ts">
+// M17: VideoSchedulePanel - 定时/脚本化批量造片面板
+//  - 列出所有视频批量调度（cron 定时 / 手动批量）。
+//  - 支持创建/编辑调度：cron 表达式（含常用预设）、批量任务行（每行一个 prompt）、并发上限。
+//  - 支持启停 / 删除 / 立即执行 / 查看执行历史。
+
+import { computed, onMounted, reactive, ref } from 'vue'
+import {
+  NButton,
+  NCard,
+  NEmpty,
+  NForm,
+  NFormItem,
+  NInput,
+  NInputNumber,
+  NModal,
+  NPopconfirm,
+  NSpace,
+  NSpin,
+  NSelect,
+  NTag,
+  NText,
+  NTooltip,
+} from 'naive-ui'
+import {
+  PlusOutlined,
+  PlayCircleOutlined,
+  DeleteOutlined,
+  HistoryOutlined,
+  EditOutlined,
+  ScheduleOutlined,
+} from '@vicons/material'
+import type {
+  CreateVideoScheduleParams,
+  UpdateVideoScheduleParams,
+  VideoSchedule,
+} from '@shared/types'
+import { useVideoStore } from '@/stores/video'
+import { showToast } from '@/utils/toast'
+
+const videoStore = useVideoStore()
+
+const loading = computed(() => videoStore.schedulesLoading)
+
+// ─── 常用 cron 预设 ─────────────────────────────────────────────
+const CRON_PRESETS = [
+  { label: '每小时（0 分）', value: '0 * * * *' },
+  { label: '每天 00:00', value: '0 0 * * *' },
+  { label: '每天 09:00', value: '0 9 * * *' },
+  { label: '每周一 09:00', value: '0 9 * * 1' },
+  { label: '每月 1 日 09:00', value: '0 9 1 * *' },
+  { label: '每分钟（测试）', value: '* * * * *' },
+]
+
+const TIMEZONES = [
+  { label: '系统默认时区', value: '' },
+  { label: '亚洲/上海 (Asia/Shanghai)', value: 'Asia/Shanghai' },
+  { label: '亚洲/香港 (Asia/Hong_Kong)', value: 'Asia/Hong_Kong' },
+  { label: '欧洲/伦敦 (Europe/London)', value: 'Europe/London' },
+  { label: '美洲/纽约 (America/New_York)', value: 'America/New_York' },
+]
+
+// ─── 表单状态 ─────────────────────────────────────────────────
+interface ScheduleForm {
+  name: string
+  cronExpr: string
+  timezone: string
+  concurrency: number | null
+  prompts: string
+}
+
+const showModal = ref(false)
+const editingId = ref<string | null>(null)
+const modalSaving = ref(false)
+const form = reactive<ScheduleForm>({
+  name: '',
+  cronExpr: '0 9 * * *',
+  timezone: '',
+  concurrency: 2,
+  prompts: '',
+})
+
+function resetForm(): void {
+  editingId.value = null
+  form.name = ''
+  form.cronExpr = '0 9 * * *'
+  form.timezone = ''
+  form.concurrency = 2
+  form.prompts = ''
+}
+
+function openCreate(): void {
+  resetForm()
+  showModal.value = true
+}
+
+function openEdit(schedule: VideoSchedule): void {
+  editingId.value = schedule.id
+  form.name = schedule.name
+  form.cronExpr = schedule.cronExpr ?? '0 9 * * *'
+  form.timezone = schedule.timezone ?? ''
+  form.concurrency = schedule.batch.concurrency ?? 2
+  form.prompts = (schedule.batch.rows ?? [])
+    .map((r) => r.prompt)
+    .filter(Boolean)
+    .join('\n')
+  showModal.value = true
+}
+
+function promptsToRows(): { prompt: string }[] {
+  return form.prompts
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((prompt) => ({ prompt }))
+}
+
+async function saveSchedule(): Promise<void> {
+  if (!form.name.trim()) {
+    showToast('请输入调度名称', 'warning')
+    return
+  }
+  if (promptsToRows().length === 0) {
+    showToast('至少输入一条任务 prompt', 'warning')
+    return
+  }
+  const batch = {
+    rows: promptsToRows(),
+    concurrency: form.concurrency ?? undefined,
+  }
+  modalSaving.value = true
+  try {
+    if (editingId.value) {
+      const params: UpdateVideoScheduleParams = {
+        name: form.name.trim(),
+        cronExpr: form.cronExpr.trim() || null,
+        timezone: form.timezone || null,
+        batch,
+      }
+      await videoStore.updateSchedule(editingId.value, params)
+    } else {
+      const params: CreateVideoScheduleParams = {
+        name: form.name.trim(),
+        cronExpr: form.cronExpr.trim(),
+        timezone: form.timezone || undefined,
+        batch,
+        enabled: true,
+        trigger: 'cron',
+      }
+      await videoStore.createSchedule(params)
+    }
+    showModal.value = false
+  } finally {
+    modalSaving.value = false
+  }
+}
+
+// ─── 执行历史 ─────────────────────────────────────────────────
+const showHistoryModal = ref(false)
+
+async function openHistory(schedule: VideoSchedule): Promise<void> {
+  await videoStore.fetchScheduleHistory(schedule.id)
+  showHistoryModal.value = true
+}
+
+function formatRunTime(ms: number | null): string {
+  if (ms === null) return '—'
+  return new Date(ms).toLocaleString()
+}
+
+const runStatusMap: Record<string, { color: string; text: string }> = {
+  ok: { color: 'success', text: '成功' },
+  error: { color: 'error', text: '失败' },
+  running: { color: 'info', text: '执行中' },
+  skipped: { color: 'warning', text: '跳过' },
+}
+
+onMounted(() => {
+  void videoStore.fetchSchedules()
+})
+</script>
+
+<template>
+  <div class="schedule-panel">
+    <div class="schedule-panel__header">
+      <h3 class="schedule-panel__title">
+        <ScheduleOutlined class="schedule-panel__title-icon" />
+        定时/脚本化批量造片
+      </h3>
+      <NButton type="primary" size="small" :disabled="loading" @click="openCreate">
+        <template #icon><PlusOutlined /></template>
+        新建调度
+      </NButton>
+    </div>
+
+    <NSpin :show="loading">
+      <NEmpty v-if="!loading && videoStore.schedules.length === 0" description="还没有定时批量任务">
+        <template #extra>
+          <NButton type="primary" size="small" @click="openCreate">新建调度</NButton>
+        </template>
+      </NEmpty>
+
+      <div v-else class="schedule-panel__list">
+        <NCard v-for="schedule in videoStore.schedules" :key="schedule.id" :bordered="true">
+          <div class="schedule-card__head">
+            <div class="schedule-card__name">
+              <NTag :type="schedule.enabled ? 'success' : 'default'" size="small">
+                {{ schedule.trigger === 'cron' ? 'Cron 定时' : '手动批量' }}
+              </NTag>
+              <span class="schedule-card__title">{{ schedule.name }}</span>
+            </div>
+            <NSpace size="small">
+              <NTooltip>
+                <template #trigger>
+                  <NButton size="tiny" quaternary @click="openEdit(schedule)">
+                    <template #icon><EditOutlined /></template>
+                  </NButton>
+                </template>
+                编辑
+              </NTooltip>
+              <NTooltip>
+                <template #trigger>
+                  <NButton size="tiny" quaternary @click="videoStore.runScheduleNow(schedule.id)">
+                    <template #icon><PlayCircleOutlined /></template>
+                  </NButton>
+                </template>
+                立即执行
+              </NTooltip>
+              <NTooltip>
+                <template #trigger>
+                  <NButton size="tiny" quaternary @click="openHistory(schedule)">
+                    <template #icon><HistoryOutlined /></template>
+                  </NButton>
+                </template>
+                执行历史
+              </NTooltip>
+              <NPopconfirm @positive-click="videoStore.deleteSchedule(schedule.id)">
+                <template #trigger>
+                  <NButton size="tiny" quaternary type="error">
+                    <template #icon><DeleteOutlined /></template>
+                  </NButton>
+                </template>
+                确认删除该定时任务？
+              </NPopconfirm>
+              <NButton
+                size="tiny"
+                :type="schedule.enabled ? 'default' : 'primary'"
+                :disabled="schedule.runningAtMs !== null"
+                @click="videoStore.toggleSchedule(schedule.id, !schedule.enabled)"
+              >
+                {{ schedule.enabled ? '停用' : '启用' }}
+              </NButton>
+            </NSpace>
+          </div>
+
+          <div class="schedule-card__cron">
+            <NTag v-if="schedule.cronExpr" type="info" size="small">
+              <code>{{ schedule.cronExpr }}</code>
+            </NTag>
+            <NText v-if="schedule.timezone" depth="3" class="schedule-card__tz">
+              {{ schedule.timezone }}
+            </NText>
+          </div>
+
+          <div class="schedule-card__meta">
+            <NText depth="3">
+              共 {{ (schedule.batch.rows ?? []).length }} 行任务
+              <template v-if="schedule.batch.concurrency">
+                · 并发 {{ schedule.batch.concurrency }}
+              </template>
+            </NText>
+            <NText depth="3">
+              运行 {{ schedule.runCount }} 次
+              <template v-if="schedule.lastStatus">
+                · 上次
+                <NTag size="tiny" :type="runStatusMap[schedule.lastStatus]?.color as never">
+                  {{ runStatusMap[schedule.lastStatus]?.text }}
+                </NTag>
+              </template>
+              <template v-if="schedule.runningAtMs !== null"> · 执行中</template>
+            </NText>
+          </div>
+        </NCard>
+      </div>
+    </NSpin>
+
+    <!-- 新建/编辑调度 -->
+    <NModal
+      v-model:show="showModal"
+      preset="card"
+      :style="{ width: '640px' }"
+      :title="editingId ? '编辑定时调度' : '新建定时调度'"
+    >
+      <NForm label-placement="top" class="schedule-form">
+        <NFormItem label="调度名称">
+          <NInput v-model:value="form.name" placeholder="例如：每日早报视频" />
+        </NFormItem>
+        <NFormItem label="cron 表达式">
+          <NInput v-model:value="form.cronExpr" placeholder="0 9 * * *" />
+        </NFormItem>
+        <NFormItem label="常用预设">
+          <NSelect
+            :value="null"
+            placeholder="点击选择预设"
+            :options="CRON_PRESETS"
+            size="small"
+            @update:value="(v: string) => (form.cronExpr = v)"
+          />
+        </NFormItem>
+        <NFormItem label="时区">
+          <NSelect v-model:value="form.timezone" :options="TIMEZONES" />
+        </NFormItem>
+        <NFormItem label="批量任务行（每行一个 prompt）">
+          <NInput
+            v-model:value="form.prompts"
+            type="textarea"
+            :rows="6"
+            placeholder="逐行输入视频 prompt，一行一个任务"
+          />
+        </NFormItem>
+        <NFormItem label="并发上限（可选）">
+          <NInputNumber v-model:value="form.concurrency" :min="1" :max="10" style="width: 120px" />
+        </NFormItem>
+      </NForm>
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="showModal = false">取消</NButton>
+          <NButton type="primary" :loading="modalSaving" @click="saveSchedule">保存</NButton>
+        </NSpace>
+      </template>
+    </NModal>
+
+    <!-- 执行历史 -->
+    <NModal
+      v-model:show="showHistoryModal"
+      preset="card"
+      :style="{ width: '680px' }"
+      title="执行历史"
+    >
+      <NEmpty
+        v-if="videoStore.scheduleHistory.length === 0"
+        description="暂无执行记录"
+        style="padding: 24px 0"
+      />
+      <div v-else class="schedule-history">
+        <div v-for="run in videoStore.scheduleHistory" :key="run.id" class="schedule-history__row">
+          <div class="schedule-history__main">
+            <NTag size="tiny" :type="runStatusMap[run.status]?.color as never">
+              {{ runStatusMap[run.status]?.text }}
+            </NTag>
+            <NText depth="2">{{ formatRunTime(run.startedAtMs) }}</NText>
+            <NText depth="3">
+              提交 {{ run.taskCount }} 个
+              <template v-if="run.failedCount">· 失败 {{ run.failedCount }}</template>
+            </NText>
+          </div>
+          <div v-if="run.summary || run.error" class="schedule-history__note">
+            <NText depth="3">{{ run.summary ?? run.error }}</NText>
+          </div>
+        </div>
+      </div>
+    </NModal>
+  </div>
+</template>
+
+<style scoped>
+.schedule-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.schedule-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+}
+.schedule-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.schedule-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.schedule-card__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.schedule-card__title {
+  font-weight: 600;
+}
+.schedule-card__cron {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.schedule-card__tz {
+  font-size: 12px;
+}
+.schedule-card__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.schedule-form {
+  max-height: 60vh;
+  overflow: auto;
+}
+.schedule-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50vh;
+  overflow: auto;
+}
+.schedule-history__row {
+  padding: 8px 10px;
+  border: 1px solid var(--n-border-color, rgba(128, 128, 128, 0.2));
+  border-radius: 6px;
+}
+.schedule-history__main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.schedule-history__note {
+  margin-top: 6px;
+}
+</style>
