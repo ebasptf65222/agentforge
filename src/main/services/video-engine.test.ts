@@ -2,7 +2,8 @@
 // 注入 mock adapter / configProvider / download，验证生成 → 轮询 → 成功/失败/取消 的完整生命周期。
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { writeFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { initDatabase, closeDatabase } from '../db/index'
@@ -363,7 +364,7 @@ describe('VideoEngine', () => {
     engine.shutdown()
   })
 
-  it('should delete a task and its record (M9)', async () => {
+  it('should move a task to the recycle bin keeping its record (M9/M14)', async () => {
     const adapter: VideoProviderAdapter = {
       provider: 'seedance',
       submit: async () => ({ providerTaskId: 'p' }),
@@ -380,11 +381,14 @@ describe('VideoEngine', () => {
     const t = await engine.generate({ prompt: 'x' })
     await waitFor(() => engine.get(t.id)?.status === 'succeeded')
     await engine.deleteTask(t.id)
-    expect(engine.get(t.id)).toBeNull()
+    // M14：软删——记录保留但带删除时间戳，主列表不再出现
+    expect(engine.get(t.id)?.deletedAt).not.toBeNull()
+    expect(engine.list().map((task) => task.id)).not.toContain(t.id)
+    expect(engine.listTrash().tasks.map((task) => task.id)).toContain(t.id)
     engine.shutdown()
   })
 
-  it('should delete a sequence and its child tasks (M9)', async () => {
+  it('should move a sequence and its child tasks to the recycle bin (M9/M14)', async () => {
     const adapter: VideoProviderAdapter = {
       provider: 'seedance',
       submit: async () => ({ providerTaskId: 'p' }),
@@ -404,9 +408,11 @@ describe('VideoEngine', () => {
     await waitFor(() => getVideoSequenceById(sequence.id)?.status === 'succeeded')
     await engine.deleteSequence(sequence.id)
 
-    expect(engine.get(tasks[0].id)).toBeNull()
-    expect(engine.get(tasks[1].id)).toBeNull()
-    expect(getVideoSequenceById(sequence.id)).toBeNull()
+    // M14：软删——序列与子任务记录均保留，带删除时间戳
+    expect(getVideoSequenceById(sequence.id)?.deletedAt).not.toBeNull()
+    expect(engine.get(tasks[0].id)?.deletedAt).not.toBeNull()
+    expect(engine.get(tasks[1].id)?.deletedAt).not.toBeNull()
+    expect(engine.listTrash().sequences.map((s) => s.id)).toContain(sequence.id)
     engine.shutdown()
   })
 
@@ -717,8 +723,10 @@ describe('VideoEngine', () => {
 
     const result = await engine.deleteTasks([a.id, b.id])
     expect(result.succeeded).toEqual(expect.arrayContaining([a.id, b.id]))
-    expect(engine.get(a.id)).toBeNull()
-    expect(engine.get(b.id)).toBeNull()
+    // M14：软删——记录保留，主列表不再出现
+    expect(engine.get(a.id)?.deletedAt).not.toBeNull()
+    expect(engine.get(b.id)?.deletedAt).not.toBeNull()
+    expect(engine.list().map((task) => task.id)).not.toContain(a.id)
     engine.shutdown()
   })
 
@@ -743,10 +751,11 @@ describe('VideoEngine', () => {
 
     const result = await engine.deleteSequences([s1.sequence.id, s2.sequence.id])
     expect(result.succeeded).toHaveLength(2)
-    expect(getVideoSequenceById(s1.sequence.id)).toBeNull()
-    expect(getVideoSequenceById(s2.sequence.id)).toBeNull()
-    expect(engine.get(s1.tasks[0].id)).toBeNull()
-    expect(engine.get(s2.tasks[1].id)).toBeNull()
+    // M14：软删——序列与子任务记录保留，带删除时间戳
+    expect(getVideoSequenceById(s1.sequence.id)?.deletedAt).not.toBeNull()
+    expect(getVideoSequenceById(s2.sequence.id)?.deletedAt).not.toBeNull()
+    expect(engine.get(s1.tasks[0].id)?.deletedAt).not.toBeNull()
+    expect(engine.get(s2.tasks[1].id)?.deletedAt).not.toBeNull()
     engine.shutdown()
   })
 
@@ -856,5 +865,157 @@ describe('VideoEngine', () => {
     expect(snapshot.items.map((item) => item.task.id)).toContain(stuck.id)
     await waitFor(() => second.get(stuck.id)?.status === 'submitted')
     second.shutdown()
+  })
+
+  // ─── M14: 回收站与资产管理 ──────────────────────────────────
+
+  /** 构建真实落盘下载（导出测试需要磁盘上的成品文件） */
+  function makeDownloadingEngine(pollIntervalMs = 5): VideoEngine {
+    return new VideoEngine({
+      adapterFactory: () =>
+        makeAdapter([{ status: 'succeeded', progress: 100, downloadUrl: 'https://x/v.mp4' }]),
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      download: async (_url, absPath) => {
+        await mkdir(join(absPath, '..'), { recursive: true })
+        await writeFile(absPath, 'mp4-bytes')
+      },
+      pollIntervalMs,
+    })
+  }
+
+  it('should soft-delete a task keeping its file, then restore it (M14)', async () => {
+    const engine = makeDownloadingEngine()
+    const t = await engine.generate({ prompt: 'keep me' })
+    await waitFor(() => engine.get(t.id)?.status === 'succeeded')
+    const outputPath = engine.get(t.id)?.outputPath as string
+    const absPath = join(workspacePath, outputPath)
+    expect(existsSync(absPath)).toBe(true)
+
+    await engine.deleteTask(t.id)
+    // 软删：记录保留 + 文件保留 + 主列表隐藏 + 回收站可见
+    expect(engine.get(t.id)?.deletedAt).not.toBeNull()
+    expect(existsSync(absPath)).toBe(true)
+    expect(engine.list().map((task) => task.id)).not.toContain(t.id)
+    expect(engine.listTrash().tasks.map((task) => task.id)).toContain(t.id)
+
+    engine.restoreTask(t.id)
+    expect(engine.get(t.id)?.deletedAt).toBeNull()
+    expect(engine.list().map((task) => task.id)).toContain(t.id)
+    expect(existsSync(absPath)).toBe(true)
+    engine.shutdown()
+  })
+
+  it('should purge a trashed task removing record and file (M14)', async () => {
+    const engine = makeDownloadingEngine()
+    const t = await engine.generate({ prompt: 'purge me' })
+    await waitFor(() => engine.get(t.id)?.status === 'succeeded')
+    const absPath = join(workspacePath, engine.get(t.id)?.outputPath as string)
+
+    await engine.deleteTask(t.id)
+    await engine.purgeTask(t.id)
+    expect(engine.get(t.id)).toBeNull()
+    expect(existsSync(absPath)).toBe(false)
+    expect(engine.listTrash().tasks).toHaveLength(0)
+    engine.shutdown()
+  })
+
+  it('should empty the trash purging every trashed task and sequence (M14)', async () => {
+    const engine = makeDownloadingEngine()
+    const a = await engine.generate({ prompt: 'trash-a' })
+    await waitFor(() => engine.get(a.id)?.status === 'succeeded')
+    const { sequence } = await engine.generateSequence({
+      shots: [{ prompt: 'seq-a' }, { prompt: 'seq-b' }],
+    })
+    await waitFor(() => getVideoSequenceById(sequence.id)?.status === 'succeeded')
+
+    await engine.deleteTask(a.id)
+    await engine.deleteSequence(sequence.id)
+    expect(engine.listTrash().tasks).toHaveLength(3) // 1 独立任务 + 2 子镜头
+    expect(engine.listTrash().sequences).toHaveLength(1)
+
+    const result = await engine.emptyTrash()
+    expect(result.tasks).toBe(3)
+    expect(result.sequences).toBe(1)
+    expect(engine.listTrash().tasks).toHaveLength(0)
+    expect(engine.listTrash().sequences).toHaveLength(0)
+    expect(engine.get(a.id)).toBeNull()
+    expect(getVideoSequenceById(sequence.id)).toBeNull()
+    engine.shutdown()
+  })
+
+  it('should restore a sequence together with its children (M14)', async () => {
+    const engine = makeDownloadingEngine()
+    const { sequence, tasks } = await engine.generateSequence({
+      shots: [{ prompt: 'a' }, { prompt: 'b' }],
+    })
+    await waitFor(() => getVideoSequenceById(sequence.id)?.status === 'succeeded')
+
+    await engine.deleteSequence(sequence.id)
+    expect(engine.get(tasks[0].id)?.deletedAt).not.toBeNull()
+
+    engine.restoreSequence(sequence.id)
+    expect(getVideoSequenceById(sequence.id)?.deletedAt).toBeNull()
+    expect(engine.get(tasks[0].id)?.deletedAt).toBeNull()
+    expect(engine.get(tasks[1].id)?.deletedAt).toBeNull()
+    engine.shutdown()
+  })
+
+  it('should export succeeded assets with conflict rename (M14)', async () => {
+    const engine = makeDownloadingEngine()
+    const t = await engine.generate({ prompt: 'export me' })
+    await waitFor(() => engine.get(t.id)?.status === 'succeeded')
+    const task = engine.get(t.id)
+    const baseName = (task?.outputPath as string).split(/[\\/]/).pop() as string
+
+    const targetDir = join(tempDir, 'export-out')
+    mkdirSync(targetDir, { recursive: true })
+    // 预置同名文件，验证冲突自动追加 -2 序号
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(targetDir, baseName), 'existing')
+
+    const result = await engine.exportAssets({ taskIds: [t.id], sequenceIds: [], targetDir })
+    expect(result.canceled).toBe(false)
+    if (!result.canceled) {
+      expect(result.exported).toBe(1)
+      expect(result.skipped).toHaveLength(0)
+    }
+    const files = readdirSync(targetDir).sort()
+    expect(files).toContain(baseName)
+    expect(files).toContain(baseName.replace('.mp4', '-2.mp4'))
+    expect(readFileSync(join(targetDir, baseName.replace('.mp4', '-2.mp4')), 'utf8')).toBe('mp4-bytes')
+    engine.shutdown()
+  })
+
+  it('should expand sequences and skip missing tasks when exporting (M14)', async () => {
+    const engine = makeDownloadingEngine()
+    const { sequence } = await engine.generateSequence({
+      shots: [{ prompt: 'a' }, { prompt: 'b' }],
+    })
+    await waitFor(() => getVideoSequenceById(sequence.id)?.status === 'succeeded')
+
+    const targetDir = join(tempDir, 'export-seq')
+    const result = await engine.exportAssets({
+      taskIds: ['missing-id'],
+      sequenceIds: [sequence.id],
+      targetDir,
+    })
+    expect(result.canceled).toBe(false)
+    if (!result.canceled) {
+      // 序列展开为 2 个成功子镜头；missing-id 计入 skipped
+      expect(result.exported).toBe(2)
+      expect(result.skipped).toHaveLength(1)
+      expect(result.skipped[0]?.id).toBe('missing-id')
+    }
+    expect(readdirSync(targetDir)).toHaveLength(2)
+    engine.shutdown()
+  })
+
+  it('should reject exporting with an empty target directory (M14)', async () => {
+    const engine = makeDownloadingEngine()
+    await expect(
+      engine.exportAssets({ taskIds: [], sequenceIds: [], targetDir: '   ' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    engine.shutdown()
   })
 })

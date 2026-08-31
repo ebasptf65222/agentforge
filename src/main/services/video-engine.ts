@@ -8,12 +8,13 @@
 //
 // 厂商差异由 provider 适配器封装；配置由 configProvider 注入（默认从 settings 读取）。
 
-import { unlink, writeFile, mkdir } from 'node:fs/promises'
+import { copyFile, mkdir, unlink, access, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
   CreateVideoSequenceParams,
   CreateVideoTaskParams,
   VideoAsyncEvent,
+  VideoExportAssetsResult,
   VideoImageRef,
   VideoProvider,
   VideoQueueItem,
@@ -22,6 +23,8 @@ import type {
   VideoShot,
   VideoTask,
   VideoTaskStatus,
+  VideoTrashPurgeResult,
+  VideoTrashSnapshot,
 } from '@shared/types'
 import {
   createQueuedVideoTask,
@@ -30,15 +33,20 @@ import {
   getVideoTaskById,
   listQueuedVideoTasks,
   listInFlightVideoTasks,
+  listTrashedVideoTasks,
   listVideoTasks,
   listVideoTasksBySequence,
+  restoreVideoTasksBySequence,
+  softDeleteVideoTasksBySequence,
   updateVideoTask,
 } from '../db/repos/video-task'
 import {
   createVideoSequence,
   deleteVideoSequence,
   getVideoSequenceById,
+  listTrashedVideoSequences,
   reconcileVideoSequence,
+  updateVideoSequence,
 } from '../db/repos/video-sequence'
 import { getSettings } from '../db/repos/app-settings'
 import { decryptApiKey } from '../utils/encryption'
@@ -784,7 +792,9 @@ export class VideoEngine {
     return reconciled ?? seq
   }
 
-  /** 删除一条视频任务记录及其落盘文件（M9） */
+  /**
+   * 移入回收站：软删任务记录（M14），非终态先取消；落盘文件保留至彻底删除。
+   */
   async deleteTask(id: string): Promise<void> {
     const task = getVideoTaskById(id)
     if (!task) {
@@ -796,14 +806,15 @@ export class VideoEngine {
     state.active.delete(id)
     state.queue = state.queue.filter((entry) => entry.taskId !== id)
     this.pollFailures.delete(id)
-    deleteVideoTask(id)
-    await this.removeOutputFile(task)
+    updateVideoTask(id, { deletedAt: Date.now() })
     if (task.sequenceId) {
       reconcileVideoSequence(task.sequenceId)
     }
   }
 
-  /** 删除一个多镜头序列及其全部子任务与落盘文件（M9） */
+  /**
+   * 移入回收站：软删序列及其全部子镜头（M14），非终态先取消；落盘文件保留至彻底删除。
+   */
   async deleteSequence(sequenceId: string): Promise<void> {
     const seq = getVideoSequenceById(sequenceId)
     if (!seq) {
@@ -812,15 +823,182 @@ export class VideoEngine {
     const children = listVideoTasksBySequence(sequenceId)
     for (const child of children) {
       if (!isTerminal(child.status)) {
+        updateVideoTask(child.id, { status: 'cancelled', progress: child.progress })
         state.active.delete(child.id)
         this.pollFailures.delete(child.id)
       }
     }
+    state.queue = state.queue.filter(
+      (entry) => !children.some((child) => child.id === entry.taskId),
+    )
+    const now = Date.now()
+    softDeleteVideoTasksBySequence(sequenceId, now)
+    updateVideoSequence(sequenceId, { deletedAt: now })
+  }
+
+  // ─── M14：回收站与资产管理 ───────────────────────────────────
+
+  /** 获取回收站快照（已软删任务 + 序列） */
+  listTrash(limit?: number): VideoTrashSnapshot {
+    return {
+      tasks: listTrashedVideoTasks(limit),
+      sequences: listTrashedVideoSequences(limit),
+    }
+  }
+
+  /** 从回收站恢复任务（清除软删标记，M14） */
+  restoreTask(id: string): VideoTask {
+    const task = getVideoTaskById(id)
+    if (!task) {
+      throw new AppError(ErrorCodes.VIDEO_TASK_NOT_FOUND, `Video task not found: ${id}`)
+    }
+    return updateVideoTask(id, { deletedAt: null }) ?? task
+  }
+
+  /** 从回收站恢复序列及其全部子镜头（M14） */
+  restoreSequence(sequenceId: string): VideoSequence {
+    const seq = getVideoSequenceById(sequenceId)
+    if (!seq) {
+      throw new AppError(ErrorCodes.VIDEO_SEQUENCE_NOT_FOUND, `Video sequence not found: ${sequenceId}`)
+    }
+    restoreVideoTasksBySequence(sequenceId)
+    const restored = updateVideoSequence(sequenceId, { deletedAt: null }) ?? seq
+    reconcileVideoSequence(sequenceId)
+    return getVideoSequenceById(sequenceId) ?? restored
+  }
+
+  /** 彻底删除回收站中的任务：硬删记录并删除落盘文件（M14） */
+  async purgeTask(id: string): Promise<void> {
+    const task = getVideoTaskById(id)
+    if (!task) {
+      throw new AppError(ErrorCodes.VIDEO_TASK_NOT_FOUND, `Video task not found: ${id}`)
+    }
+    state.active.delete(id)
+    state.queue = state.queue.filter((entry) => entry.taskId !== id)
+    this.pollFailures.delete(id)
+    deleteVideoTask(id)
+    await this.removeOutputFile(task)
+    if (task.sequenceId) {
+      reconcileVideoSequence(task.sequenceId)
+    }
+  }
+
+  /** 彻底删除回收站中的序列及其全部子任务与落盘文件（M14） */
+  async purgeSequence(sequenceId: string): Promise<void> {
+    const seq = getVideoSequenceById(sequenceId)
+    if (!seq) {
+      throw new AppError(ErrorCodes.VIDEO_SEQUENCE_NOT_FOUND, `Video sequence not found: ${sequenceId}`)
+    }
+    const children = listVideoTasksBySequence(sequenceId)
+    for (const child of children) {
+      state.active.delete(child.id)
+      this.pollFailures.delete(child.id)
+    }
+    state.queue = state.queue.filter(
+      (entry) => !children.some((child) => child.id === entry.taskId),
+    )
     for (const child of children) {
       await this.removeOutputFile(child)
       deleteVideoTask(child.id)
     }
     deleteVideoSequence(sequenceId)
+  }
+
+  /** 清空回收站：逐项彻底删除已软删的任务与序列（单项失败不阻断，M14） */
+  async emptyTrash(): Promise<VideoTrashPurgeResult> {
+    const result: VideoTrashPurgeResult = { tasks: 0, sequences: 0 }
+    for (const task of listTrashedVideoTasks()) {
+      try {
+        await this.purgeTask(task.id)
+        result.tasks += 1
+      } catch {
+        // 单项失败不阻断清空流程
+      }
+    }
+    for (const seq of listTrashedVideoSequences()) {
+      try {
+        await this.purgeSequence(seq.id)
+        result.sequences += 1
+      } catch {
+        // 单项失败不阻断清空流程
+      }
+    }
+    return result
+  }
+
+  /**
+   * 批量导出成品视频（M14）：任务与序列（展开为其未软删子镜头）去重后，
+   * 逐条复制 workspace 内的落盘 mp4 到目标目录；文件名冲突自动追加 -2/-3 序号。
+   * 无成品（未成功/未落盘）的项计入 skipped，不阻断其余导出。
+   */
+  async exportAssets(params: {
+    taskIds: string[]
+    sequenceIds: string[]
+    targetDir: string
+  }): Promise<VideoExportAssetsResult> {
+    const targetDir = params.targetDir?.trim()
+    if (!targetDir) {
+      throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Export target directory must not be empty')
+    }
+
+    const selected = new Set<string>()
+    for (const id of params.taskIds) selected.add(id)
+    for (const sequenceId of Array.from(new Set(params.sequenceIds))) {
+      for (const child of listVideoTasksBySequence(sequenceId)) {
+        if (child.deletedAt === null) selected.add(child.id)
+      }
+    }
+
+    const result: Extract<VideoExportAssetsResult, { canceled: false }> = {
+      canceled: false,
+      targetDir,
+      exported: 0,
+      skipped: [],
+    }
+    if (selected.size === 0) return result
+
+    await mkdir(targetDir, { recursive: true })
+    const workspaceRoot = getWorkspaceService().getPath()
+    for (const id of selected) {
+      try {
+        const task = getVideoTaskById(id)
+        if (!task) throw new Error('任务不存在')
+        if (task.status !== 'succeeded' || !task.outputPath) {
+          throw new Error('任务无成品视频（未成功或未落盘）')
+        }
+        const srcAbs = join(workspaceRoot, task.outputPath)
+        const fileName = await this.uniqueExportName(targetDir, exportBaseName(task.outputPath))
+        await copyFile(srcAbs, join(targetDir, fileName))
+        result.exported += 1
+      } catch (error) {
+        result.skipped.push({
+          id,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+    return result
+  }
+
+  /** 目标目录内取不冲突的文件名（冲突时追加 -2/-3 序号） */
+  private async uniqueExportName(targetDir: string, fileName: string): Promise<string> {
+    const usable = async (name: string): Promise<boolean> => {
+      try {
+        await access(join(targetDir, name))
+        return false
+      } catch {
+        return true
+      }
+    }
+    if (await usable(fileName)) return fileName
+    const dot = fileName.lastIndexOf('.')
+    const stem = dot > 0 ? fileName.slice(0, dot) : fileName
+    const ext = dot > 0 ? fileName.slice(dot) : ''
+    for (let n = 2; n < 1000; n++) {
+      const name = `${stem}-${n}${ext}`
+      if (await usable(name)) return name
+    }
+    return `${stem}-${Date.now()}${ext}`
   }
 
   /** 删除任务落盘视频文件（不存在视为已清理；删除失败不阻断记录删除） */
@@ -1081,6 +1259,12 @@ async function defaultDownload(url: string, outputAbsolutePath: string): Promise
 
 function isTerminal(status: VideoTaskStatus): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled'
+}
+
+/** 取落盘相对路径的文件名部分（兼容 / 与 \ 分隔，M14 导出用） */
+function exportBaseName(relativePath: string): string {
+  const parts = relativePath.split(/[\\/]/)
+  return parts[parts.length - 1] || relativePath
 }
 
 /** M13：并发上限钳制（1–10） */

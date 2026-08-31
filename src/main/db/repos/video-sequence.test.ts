@@ -11,6 +11,7 @@ import {
   createVideoSequence,
   getVideoSequenceById,
   listVideoSequences,
+  listTrashedVideoSequences,
   updateVideoSequence,
   reconcileVideoSequence,
 } from './video-sequence'
@@ -146,5 +147,20 @@ describe('video-sequence repository', () => {
     expect(children[1].prompt).toBe('second')
     expect(children[0].sequenceId).toBe(seq.id)
     expect(children[0].shotIndex).toBe(0)
+  })
+
+  it('should soft-delete a sequence into the trash and restore it (M14)', () => {
+    const live = createVideoSequence({ title: 'live', totalCount: 2 })
+    const trashed = createVideoSequence({ title: 'trashed', totalCount: 2 })
+
+    updateVideoSequence(trashed.id, { deletedAt: Date.now() })
+
+    expect(listVideoSequences().map((s) => s.id)).toEqual([live.id])
+    expect(listTrashedVideoSequences().map((s) => s.id)).toEqual([trashed.id])
+    expect(getVideoSequenceById(trashed.id)?.deletedAt).not.toBeNull()
+
+    updateVideoSequence(trashed.id, { deletedAt: null })
+    expect(listVideoSequences().map((s) => s.id)).toEqual([trashed.id, live.id])
+    expect(listTrashedVideoSequences()).toHaveLength(0)
   })
 })

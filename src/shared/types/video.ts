@@ -60,6 +60,12 @@ export interface VideoTask {
   shotIndex: number | null
   /** 该镜头是否使用了自动衔接的尾帧作为首帧（M8 连续性） */
   isChained: boolean
+  /** M14：是否收藏 */
+  favorite: boolean
+  /** M14：用户标签（任务级，最多 10 个） */
+  tags: string[]
+  /** M14：软删除时间戳（回收站；null 表示未删除） */
+  deletedAt: number | null
   createdAt: number
   updatedAt: number
 }
@@ -109,6 +115,8 @@ export interface VideoSequence {
   cancelledCount: number
   /** 是否为连续性衔接序列（M8：镜头 i 尾帧自动作为镜头 i+1 首帧） */
   continuity: boolean
+  /** M14：软删除时间戳（回收站；null 表示未删除） */
+  deletedAt: number | null
   createdAt: number
   updatedAt: number
 }
@@ -242,3 +250,24 @@ export interface VideoQueueSnapshot {
   /** 排队任务（按出队顺序） */
   items: VideoQueueItem[]
 }
+
+// ─── M14：视频资产管理 ─────────────────────────────────────────
+
+/** 回收站内容（已软删的序列与任务） */
+export interface VideoTrashSnapshot {
+  tasks: VideoTask[]
+  sequences: VideoSequence[]
+}
+
+/** 清空回收站结果 */
+export interface VideoTrashPurgeResult {
+  /** 彻底删除的任务数 */
+  tasks: number
+  /** 彻底删除的序列数 */
+  sequences: number
+}
+
+/** M14：批量导出资产结果（用户取消目录选择时不落盘） */
+export type VideoExportAssetsResult =
+  | { canceled: true }
+  | { canceled: false; targetDir: string; exported: number; skipped: Array<{ id: string; reason: string }> }

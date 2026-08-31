@@ -8,6 +8,7 @@ import type {
   CreateVideoTaskParams,
   VideoAspect,
   VideoConfigView,
+  VideoExportAssetsResult,
   VideoProvider,
   VideoResolution,
   VideoSequence,
@@ -16,6 +17,8 @@ import type {
   VideoStatsOverview,
   VideoQueueSnapshot,
   VideoTask,
+  VideoTrashPurgeResult,
+  VideoTrashSnapshot,
 } from '@shared/types'
 import {
   getVideoEngine,
@@ -26,15 +29,18 @@ import { parseCsvRows, type CsvParseResult } from '../services/csv-batch'
 import { aggregateVideoStats, buildStatsCsv } from '../services/video-stats'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getVideoSequenceById, listVideoSequences } from '../db/repos/video-sequence'
-import { listVideoTasksBySequence } from '../db/repos/video-task'
+import { listVideoTasksBySequence, updateVideoTask } from '../db/repos/video-task'
 import { DEFAULT_ARK_BASE_URL } from '../services/video-provider/seedance'
 import { DEFAULT_KLING_BASE_URL, DEFAULT_KLING_MODEL } from '../services/video-provider/kling'
 import {
   createValidatedHandler,
+  validateEnum,
   validateNonEmptyString,
+  validateOptionalBoolean,
   validateOptionalEnum,
   validateOptionalNumber,
   validateOptionalString,
+  validateOptionalStringArray,
   validateStringArray,
 } from '../utils/ipc-validator'
 
@@ -83,14 +89,14 @@ export async function handleVideoCancelSequence(id: string): Promise<VideoSequen
 }
 
 /**
- * 删除一条视频任务记录及其落盘文件（M9）。
+ * 移入回收站：软删一条视频任务记录（M14，文件保留至彻底删除）。
  */
 export async function handleVideoDeleteTask(id: string): Promise<void> {
   await getVideoEngine().deleteTask(id)
 }
 
 /**
- * 删除一个多镜头序列及其全部子任务与落盘文件（M9）。
+ * 移入回收站：软删一个多镜头序列及其全部子任务（M14，文件保留至彻底删除）。
  */
 export async function handleVideoDeleteSequence(id: string): Promise<void> {
   await getVideoEngine().deleteSequence(id)
@@ -126,6 +132,88 @@ export async function handleVideoDeleteSequences(
   ids: string[],
 ): Promise<VideoBatchResult<string>> {
   return getVideoEngine().deleteSequences(ids)
+}
+
+// ─── M14：视频资产管理（收藏/标签/回收站/导出） ────────────────
+
+/**
+ * M14：设置任务收藏标记。
+ */
+export async function handleVideoSetFavorite(
+  id: string,
+  favorite: boolean,
+): Promise<VideoTask | null> {
+  return updateVideoTask(id, { favorite })
+}
+
+/**
+ * M14：整体覆盖任务标签。
+ */
+export async function handleVideoSetTags(id: string, tags: string[]): Promise<VideoTask | null> {
+  return updateVideoTask(id, { tags })
+}
+
+/**
+ * M14：获取回收站快照（已软删任务 + 序列）。
+ */
+export async function handleVideoTrash(): Promise<VideoTrashSnapshot> {
+  return getVideoEngine().listTrash()
+}
+
+/**
+ * M14：从回收站恢复任务/序列。
+ */
+export async function handleVideoRestore(
+  type: 'task' | 'sequence',
+  id: string,
+): Promise<VideoTask | VideoSequence> {
+  const engine = getVideoEngine()
+  return type === 'task' ? engine.restoreTask(id) : engine.restoreSequence(id)
+}
+
+/**
+ * M14：彻底删除回收站中的任务/序列（硬删记录并删除落盘文件）。
+ */
+export async function handleVideoPurge(type: 'task' | 'sequence', id: string): Promise<void> {
+  const engine = getVideoEngine()
+  if (type === 'task') await engine.purgeTask(id)
+  else await engine.purgeSequence(id)
+}
+
+/**
+ * M14：清空回收站。
+ */
+export async function handleVideoEmptyTrash(): Promise<VideoTrashPurgeResult> {
+  return getVideoEngine().emptyTrash()
+}
+
+/**
+ * M14：批量导出成品视频。
+ * 弹出系统目录选择对话框，用户取消返回 { canceled: true }；
+ * 否则将任务/序列展开后的成品 mp4 复制到所选目录。
+ */
+export async function handleVideoExportAssets(
+  taskIds: string[],
+  sequenceIds: string[],
+): Promise<VideoExportAssetsResult> {
+  const parentWindow = getMainWindow()
+  const options = {
+    title: '选择导出目录',
+    properties: ['openDirectory', 'createDirectory'] as Array<
+      'openDirectory' | 'createDirectory'
+    >,
+  }
+  const picked = parentWindow
+    ? await dialog.showOpenDialog(parentWindow, options)
+    : await dialog.showOpenDialog(options)
+  if (picked.canceled || picked.filePaths.length === 0) {
+    return { canceled: true }
+  }
+  return getVideoEngine().exportAssets({
+    taskIds,
+    sequenceIds,
+    targetDir: picked.filePaths[0],
+  })
 }
 
 /**
@@ -546,6 +634,73 @@ export function registerVideoHandlers(): void {
     createValidatedHandler(
       (p) => ({ limit: validateOptionalNumber(p['limit'], 'limit', 1, 10) }),
       ({ limit }) => handleVideoQueueConcurrency(limit as number),
+    ),
+  )
+
+  // M14：视频资产管理（收藏 / 标签 / 回收站 / 资产导出）
+  ipcMain.removeHandler('video:set-favorite')
+  ipcMain.handle(
+    'video:set-favorite',
+    createValidatedHandler(
+      (p) => ({
+        id: validateNonEmptyString(p['id'], 'id'),
+        favorite: validateOptionalBoolean(p['favorite'], 'favorite') ?? false,
+      }),
+      ({ id, favorite }) => handleVideoSetFavorite(id, favorite),
+    ),
+  )
+
+  ipcMain.removeHandler('video:set-tags')
+  ipcMain.handle(
+    'video:set-tags',
+    createValidatedHandler(
+      (p) => ({
+        id: validateNonEmptyString(p['id'], 'id'),
+        tags: validateStringArray(p['tags'], 'tags'),
+      }),
+      ({ id, tags }) => handleVideoSetTags(id, tags),
+    ),
+  )
+
+  ipcMain.removeHandler('video:trash')
+  ipcMain.handle('video:trash', () => handleVideoTrash())
+
+  ipcMain.removeHandler('video:restore')
+  ipcMain.handle(
+    'video:restore',
+    createValidatedHandler(
+      (p) => ({
+        type: validateEnum<'task' | 'sequence'>(p['type'], 'type', ['task', 'sequence']),
+        id: validateNonEmptyString(p['id'], 'id'),
+      }),
+      ({ type, id }) => handleVideoRestore(type, id),
+    ),
+  )
+
+  ipcMain.removeHandler('video:purge')
+  ipcMain.handle(
+    'video:purge',
+    createValidatedHandler(
+      (p) => ({
+        type: validateEnum<'task' | 'sequence'>(p['type'], 'type', ['task', 'sequence']),
+        id: validateNonEmptyString(p['id'], 'id'),
+      }),
+      ({ type, id }) => handleVideoPurge(type, id),
+    ),
+  )
+
+  ipcMain.removeHandler('video:empty-trash')
+  ipcMain.handle('video:empty-trash', () => handleVideoEmptyTrash())
+
+  ipcMain.removeHandler('video:export-assets')
+  ipcMain.handle(
+    'video:export-assets',
+    createValidatedHandler(
+      (p) => ({
+        taskIds: validateOptionalStringArray(p['taskIds'], 'taskIds') ?? [],
+        sequenceIds: validateOptionalStringArray(p['sequenceIds'], 'sequenceIds') ?? [],
+      }),
+      ({ taskIds, sequenceIds }) => handleVideoExportAssets(taskIds, sequenceIds),
     ),
   )
 

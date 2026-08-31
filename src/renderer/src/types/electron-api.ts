@@ -651,6 +651,23 @@ interface VideoQueueSnapshot {
   items: VideoQueueItem[]
 }
 
+/** M14：回收站内容（已软删的序列与任务） */
+interface VideoTrashSnapshot {
+  tasks: VideoTask[]
+  sequences: VideoSequence[]
+}
+
+/** M14：清空回收站结果 */
+interface VideoTrashPurgeResult {
+  tasks: number
+  sequences: number
+}
+
+/** M14：批量导出资产结果（用户取消目录选择时不落盘） */
+type VideoExportAssetsResult =
+  | { canceled: true }
+  | { canceled: false; targetDir: string; exported: number; skipped: Array<{ id: string; reason: string }> }
+
 interface VideoAPI {
   /** 提交一个视频生成任务 */
   generate(params: CreateVideoTaskParams): Promise<VideoTask>
@@ -695,6 +712,20 @@ interface VideoAPI {
   queueResume(): Promise<VideoQueueSnapshot>
   /** 设置队列并发上限 1–10（M13） */
   queueConcurrency(limit: number): Promise<VideoQueueSnapshot>
+  /** 设置任务收藏标记（M14），返回更新后的任务 */
+  setFavorite(id: string, favorite: boolean): Promise<VideoTask | null>
+  /** 整体覆盖任务标签（M14），返回更新后的任务 */
+  setTags(id: string, tags: string[]): Promise<VideoTask | null>
+  /** 获取回收站快照（M14） */
+  trash(): Promise<VideoTrashSnapshot>
+  /** 从回收站恢复任务/序列（M14） */
+  restore(type: 'task' | 'sequence', id: string): Promise<VideoTask | VideoSequence>
+  /** 彻底删除回收站中的任务/序列，含落盘文件（M14） */
+  purge(type: 'task' | 'sequence', id: string): Promise<void>
+  /** 清空回收站（M14） */
+  emptyTrash(): Promise<VideoTrashPurgeResult>
+  /** 批量导出成品视频到所选目录（M14，弹出目录选择对话框） */
+  exportAssets(taskIds: string[], sequenceIds: string[]): Promise<VideoExportAssetsResult>
   /** 读取视频生成配置（不含 API Key，含多厂商回显） */
   getConfig(): Promise<VideoConfigView>
   /** 测试指定厂商连接（校验配置完整性） */

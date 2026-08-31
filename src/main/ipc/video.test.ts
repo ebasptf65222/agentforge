@@ -1,9 +1,10 @@
-// M10/M11/M12: 批量操作、CSV 批量造片与统计导出 IPC 通道注册与参数校验测试
+// M10/M11/M12/M14: 批量操作、CSV 批量造片、统计导出与资产管理 IPC 通道注册与参数校验测试
 // 通过 mock 引擎与 electron.ipcMain 捕获注册的 handler，验证：
 //  - 批量通道正确注册并委托到引擎
 //  - ids / rows 数组通过获取、空数组/非法输入被校验拦截
 //  - M11 parse-csv 读取文件后委托解析器；batch-generate 校验行后委托引擎
 //  - M12 stats / export-stats 委托统计服务，导出经保存对话框写文件
+//  - M14 收藏/标签/回收站/资产导出通道注册、校验与委托
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -15,8 +16,10 @@ const {
   mockReadFile,
   mockWriteFile,
   mockShowSaveDialog,
+  mockShowOpenDialog,
   mockAggregateVideoStats,
   mockBuildStatsCsv,
+  mockUpdateVideoTask,
 } = vi.hoisted(() => {
   const capturedHandlers: Record<string, (...args: unknown[]) => unknown> = {}
   const mockEngine = {
@@ -29,13 +32,22 @@ const {
     pauseQueue: vi.fn(),
     resumeQueue: vi.fn(),
     setQueueConcurrency: vi.fn(),
+    listTrash: vi.fn(),
+    restoreTask: vi.fn(),
+    restoreSequence: vi.fn(),
+    purgeTask: vi.fn(),
+    purgeSequence: vi.fn(),
+    emptyTrash: vi.fn(),
+    exportAssets: vi.fn(),
   }
   const mockParseCsvRows = vi.fn()
   const mockReadFile = vi.fn()
   const mockWriteFile = vi.fn()
   const mockShowSaveDialog = vi.fn()
+  const mockShowOpenDialog = vi.fn()
   const mockAggregateVideoStats = vi.fn()
   const mockBuildStatsCsv = vi.fn()
+  const mockUpdateVideoTask = vi.fn()
   return {
     capturedHandlers,
     mockEngine,
@@ -43,8 +55,10 @@ const {
     mockReadFile,
     mockWriteFile,
     mockShowSaveDialog,
+    mockShowOpenDialog,
     mockAggregateVideoStats,
     mockBuildStatsCsv,
+    mockUpdateVideoTask,
   }
 })
 
@@ -55,7 +69,10 @@ vi.mock('electron', () => ({
     },
     removeHandler: () => undefined,
   },
-  dialog: { showSaveDialog: (...args: unknown[]) => mockShowSaveDialog(...args) },
+  dialog: {
+    showSaveDialog: (...args: unknown[]) => mockShowSaveDialog(...args),
+    showOpenDialog: (...args: unknown[]) => mockShowOpenDialog(...args),
+  },
   BrowserWindow: { getAllWindows: () => [] },
 }))
 vi.mock('node:fs/promises', () => ({
@@ -79,6 +96,7 @@ vi.mock('../db/repos/video-sequence', () => ({
 }))
 vi.mock('../db/repos/video-task', () => ({
   listVideoTasksBySequence: () => [],
+  updateVideoTask: (...args: unknown[]) => mockUpdateVideoTask(...args),
 }))
 vi.mock('../services/video-provider/seedance', () => ({ DEFAULT_ARK_BASE_URL: 'https://x' }))
 vi.mock('../services/video-provider/kling', () => ({
@@ -319,5 +337,135 @@ describe('video batch IPC', () => {
     expectValidationError(() => raw(null, { limit: 0 }))
     expectValidationError(() => raw(null, { limit: 11 }))
     expectValidationError(() => raw(null, { limit: 'x' }))
+  })
+
+  // ─── M14: 资产管理（收藏/标签/回收站/导出） ─────────────────
+
+  it('registers the seven M14 asset management channels', () => {
+    registerVideoHandlers()
+    for (const ch of [
+      'video:set-favorite',
+      'video:set-tags',
+      'video:trash',
+      'video:restore',
+      'video:purge',
+      'video:empty-trash',
+      'video:export-assets',
+    ]) {
+      expect(capturedHandlers[ch]).toBeDefined()
+    }
+  })
+
+  it('dispatches set-favorite and set-tags to the repo (M14)', async () => {
+    mockUpdateVideoTask.mockResolvedValue({ id: 't1' })
+    registerVideoHandlers()
+
+    await handler('video:set-favorite')(null, { id: 't1', favorite: true })
+    expect(mockUpdateVideoTask).toHaveBeenLastCalledWith('t1', { favorite: true })
+
+    // favorite 缺省按 false 处理
+    await handler('video:set-favorite')(null, { id: 't1' })
+    expect(mockUpdateVideoTask).toHaveBeenLastCalledWith('t1', { favorite: false })
+
+    await handler('video:set-tags')(null, { id: 't1', tags: ['a', 'b'] })
+    expect(mockUpdateVideoTask).toHaveBeenLastCalledWith('t1', { tags: ['a', 'b'] })
+  })
+
+  it('rejects invalid set-favorite / set-tags payloads (M14)', () => {
+    registerVideoHandlers()
+    const favoriteHandler = handler('video:set-favorite')
+    const tagsHandler = handler('video:set-tags')
+    const expectValidationError = (fn: () => unknown): void => {
+      try {
+        fn()
+        throw new Error('expected a validation error to be thrown')
+      } catch (error) {
+        expect((error as { code?: string }).code).toBe(ErrorCodes.VALIDATION_ERROR)
+      }
+    }
+
+    expectValidationError(() => favoriteHandler(null, { id: 't1', favorite: 'yes' }))
+    expectValidationError(() => favoriteHandler(null, {}))
+    expectValidationError(() => tagsHandler(null, { id: 't1', tags: [] }))
+    expectValidationError(() => tagsHandler(null, { id: 't1', tags: ['ok', 1] }))
+  })
+
+  it('dispatches trash / restore / purge / empty-trash by type (M14)', async () => {
+    const snapshot = { tasks: [], sequences: [] }
+    mockEngine.listTrash.mockReturnValue(snapshot)
+    mockEngine.restoreTask.mockResolvedValue({ id: 't1' })
+    mockEngine.restoreSequence.mockResolvedValue({ id: 's1' })
+    mockEngine.purgeTask.mockResolvedValue(undefined)
+    mockEngine.purgeSequence.mockResolvedValue(undefined)
+    mockEngine.emptyTrash.mockResolvedValue({ tasks: 1, sequences: 2 })
+    registerVideoHandlers()
+
+    expect(await handler('video:trash')(null, undefined)).toBe(snapshot)
+
+    await handler('video:restore')(null, { type: 'task', id: 't1' })
+    expect(mockEngine.restoreTask).toHaveBeenCalledWith('t1')
+    await handler('video:restore')(null, { type: 'sequence', id: 's1' })
+    expect(mockEngine.restoreSequence).toHaveBeenCalledWith('s1')
+
+    await handler('video:purge')(null, { type: 'task', id: 't2' })
+    expect(mockEngine.purgeTask).toHaveBeenCalledWith('t2')
+    await handler('video:purge')(null, { type: 'sequence', id: 's2' })
+    expect(mockEngine.purgeSequence).toHaveBeenCalledWith('s2')
+
+    expect(await handler('video:empty-trash')(null, undefined)).toMatchObject({
+      tasks: 1,
+      sequences: 2,
+    })
+  })
+
+  it('rejects invalid restore / purge type values (M14)', () => {
+    registerVideoHandlers()
+    const restoreHandler = handler('video:restore')
+    const purgeHandler = handler('video:purge')
+    const expectValidationError = (fn: () => unknown): void => {
+      try {
+        fn()
+        throw new Error('expected a validation error to be thrown')
+      } catch (error) {
+        expect((error as { code?: string }).code).toBe(ErrorCodes.VALIDATION_ERROR)
+      }
+    }
+
+    expectValidationError(() => restoreHandler(null, { type: 'shot', id: 'x' }))
+    expectValidationError(() => restoreHandler(null, { type: 'task' }))
+    expectValidationError(() => purgeHandler(null, { type: '', id: 'x' }))
+  })
+
+  it('export-assets delegates to the engine with the picked directory (M14)', async () => {
+    const exportResult = { canceled: false, targetDir: 'D:/out', exported: 2, skipped: [] }
+    mockShowOpenDialog.mockResolvedValue({ canceled: false, filePaths: ['D:/out'] })
+    mockEngine.exportAssets.mockResolvedValue(exportResult)
+    registerVideoHandlers()
+
+    const result = (await handler('video:export-assets')(null, {
+      taskIds: ['t1'],
+      sequenceIds: ['s1'],
+    })) as { canceled: boolean; exported?: number }
+
+    expect(result.canceled).toBe(false)
+    expect(result.exported).toBe(2)
+    expect(mockEngine.exportAssets).toHaveBeenCalledWith({
+      taskIds: ['t1'],
+      sequenceIds: ['s1'],
+      targetDir: 'D:/out',
+    })
+  })
+
+  it('export-assets returns canceled without engine call when dialog canceled (M14)', async () => {
+    mockShowOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] })
+    registerVideoHandlers()
+
+    const result = (await handler('video:export-assets')(null, {
+      taskIds: ['t1'],
+      sequenceIds: [],
+    })) as { canceled: boolean }
+
+    expect(result.canceled).toBe(true)
+    expect(mockEngine.exportAssets).not.toHaveBeenCalled()
   })
 })

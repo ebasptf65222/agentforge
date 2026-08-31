@@ -23,6 +23,8 @@ export interface UpdateVideoSequenceParams {
   succeededCount?: number
   failedCount?: number
   cancelledCount?: number
+  /** M14：软删除时间戳（回收站；null 表示恢复） */
+  deletedAt?: number | null
 }
 
 /** SQLite 行结构（snake_case，与 video_sequences 表一致） */
@@ -36,6 +38,7 @@ interface VideoSequenceRow {
   failed_count: number
   cancelled_count: number
   continuity: number
+  deleted_at: number | null
   created_at: number
   updated_at: number
 }
@@ -51,6 +54,7 @@ function rowToSequence(row: VideoSequenceRow): VideoSequence {
     failedCount: row.failed_count,
     cancelledCount: row.cancelled_count,
     continuity: Boolean(row.continuity),
+    deletedAt: row.deleted_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -96,12 +100,23 @@ export function getVideoSequenceById(id: string): VideoSequence | null {
 }
 
 /**
- * 分页获取多镜头序列列表（按创建时间倒序）。
+ * 分页获取多镜头序列列表（按创建时间倒序，排除回收站记录）。
  */
 export function listVideoSequences(limit = 50): VideoSequence[] {
   const db: Database.Database = getDatabase()
   const rows = db
-    .prepare('SELECT * FROM video_sequences ORDER BY created_at DESC, rowid DESC LIMIT ?')
+    .prepare('SELECT * FROM video_sequences WHERE deleted_at IS NULL ORDER BY created_at DESC, rowid DESC LIMIT ?')
+    .all(Math.max(1, Math.min(limit, 200))) as VideoSequenceRow[]
+  return rows.map(rowToSequence)
+}
+
+/**
+ * 获取回收站中的多镜头序列（deleted_at 非空，按删除时间倒序）。
+ */
+export function listTrashedVideoSequences(limit = 200): VideoSequence[] {
+  const db: Database.Database = getDatabase()
+  const rows = db
+    .prepare('SELECT * FROM video_sequences WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, rowid DESC LIMIT ?')
     .all(Math.max(1, Math.min(limit, 200))) as VideoSequenceRow[]
   return rows.map(rowToSequence)
 }
@@ -136,6 +151,10 @@ export function updateVideoSequence(
   if (params.cancelledCount !== undefined) {
     setClauses.push('cancelled_count = ?')
     values.push(params.cancelledCount)
+  }
+  if (params.deletedAt !== undefined) {
+    setClauses.push('deleted_at = ?')
+    values.push(params.deletedAt)
   }
 
   db.prepare(`UPDATE video_sequences SET ${setClauses.join(', ')} WHERE id = ?`).run(

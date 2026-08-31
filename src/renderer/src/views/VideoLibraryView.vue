@@ -5,7 +5,7 @@
 //  - 每行 CSV 即一个单视频任务，成功后经事件推送进入视频库列表。
 // 所有批量动作经由 store 调用批量 IPC，成功后本地状态即时同步并汇报成功/失败数。
 
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   NButton,
   NCheckbox,
@@ -20,7 +20,7 @@ import {
   NTag,
   NTooltip,
 } from 'naive-ui'
-import { RefreshOutlined, DeleteOutlined, CheckBoxOutlined, UploadFileOutlined, VideoLibraryOutlined, BarChartOutlined, FileDownloadOutlined, PauseCircleOutlined, PlayCircleOutlined } from '@vicons/material'
+import { RefreshOutlined, DeleteOutlined, CheckBoxOutlined, UploadFileOutlined, VideoLibraryOutlined, BarChartOutlined, FileDownloadOutlined, PauseCircleOutlined, PlayCircleOutlined, StarOutlined, LabelOutlined, RestoreFromTrashOutlined, DeleteForeverOutlined, Inventory2Outlined } from '@vicons/material'
 import type { CreateVideoTaskParams, VideoTask, VideoTaskStatus, VideoSequence, VideoStatsBucket } from '@shared/types'
 import type { VideoCsvParseResult } from '@/types/electron-api'
 import { useVideoStore } from '@/stores/video'
@@ -32,6 +32,7 @@ import VideoTaskCard from '@/components/video/VideoTaskCard.vue'
 
 type FilterType = 'all' | 'task' | 'sequence'
 type StatusFilter = '' | 'active' | VideoTaskStatus
+type ViewMode = 'library' | 'trash'
 
 const videoStore = useVideoStore()
 const workspaceStore = useWorkspaceStore()
@@ -41,6 +42,10 @@ const filterType = ref<FilterType>('all')
 const statusFilter = ref<StatusFilter>('')
 const keyword = ref('')
 const selectionMode = ref(false)
+// M14：资产库 / 回收站视图与增强筛选
+const viewMode = ref<ViewMode>('library')
+const favoriteOnly = ref(false)
+const activeTag = ref<string | null>(null)
 
 // ─── 筛选选项 ─────────────────────────────────────────────────
 const STATUS_OPTIONS: { label: string; value: StatusFilter }[] = [
@@ -79,6 +84,34 @@ function matchKeyword(text: string): boolean {
   return text.toLowerCase().includes(k)
 }
 
+/** M14：任务关键词匹配扩展到标签与模型 */
+function matchTaskKeyword(task: VideoTask): boolean {
+  if (!keyword.value.trim()) return true
+  return (
+    matchKeyword(task.prompt || '') ||
+    matchKeyword(task.model || '') ||
+    task.tags.some((tag) => matchKeyword(tag))
+  )
+}
+
+/** M14：收藏/标签筛选（仅作用于任务） */
+function matchTaskMeta(task: VideoTask): boolean {
+  if (favoriteOnly.value && !task.favorite) return false
+  if (activeTag.value && !task.tags.includes(activeTag.value)) return false
+  return true
+}
+
+/** M14：库内全部标签（去重，按名称排序） */
+const allTags = computed<string[]>(() => {
+  const set = new Set<string>()
+  for (const task of videoStore.list) {
+    for (const tag of task.tags) set.add(tag)
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b))
+})
+
+const TAG_OPTIONS = computed(() => allTags.value.map((tag) => ({ label: tag, value: tag })))
+
 /** 独立任务：不属于任何现存序列的子任务，视为单独视频 */
 const standaloneTasks = computed<VideoTask[]>(() =>
   videoStore.list.filter(
@@ -86,7 +119,8 @@ const standaloneTasks = computed<VideoTask[]>(() =>
       filterType.value !== 'sequence' &&
       (!t.sequenceId || !videoStore.getSequence(t.sequenceId)) &&
       matchStatus(t.status) &&
-      matchKeyword(t.prompt || ''),
+      matchTaskMeta(t) &&
+      matchTaskKeyword(t),
   ),
 )
 
@@ -110,13 +144,20 @@ const hasAnyData = computed(
 
 /** 是否处于筛选/搜索状态 */
 const hasActiveFilters = computed(
-  () => filterType.value !== 'all' || statusFilter.value !== '' || keyword.value.trim() !== '',
+  () =>
+    filterType.value !== 'all' ||
+    statusFilter.value !== '' ||
+    keyword.value.trim() !== '' ||
+    favoriteOnly.value ||
+    activeTag.value !== null,
 )
 
 function clearFilters(): void {
   filterType.value = 'all'
   statusFilter.value = ''
   keyword.value = ''
+  favoriteOnly.value = false
+  activeTag.value = null
 }
 
 /** 去对话页生成视频 */
@@ -196,11 +237,6 @@ function handleCancelSequence(sequenceId: string): void {
   void videoStore.cancelSequence(sequenceId)
 }
 
-function handleRefresh(): void {
-  void videoStore.refresh()
-  void videoStore.refreshSequences()
-}
-
 function handleOpenVideo(relativePath: string): void {
   workspaceStore.openFilePreview(relativePath)
   uiStore.openPreviewPanel()
@@ -218,6 +254,102 @@ function handleBatchCancelSequences(): void {
 function handleBatchDelete(): void {
   void videoStore.batchDeleteTasks(videoStore.selectedTaskIds)
   void videoStore.batchDeleteSequences(videoStore.selectedSequenceIds)
+}
+
+/** M14：批量导出选中的成品视频 */
+function handleBatchExport(): void {
+  void videoStore.exportAssets(videoStore.selectedTaskIds, videoStore.selectedSequenceIds)
+}
+
+// ─── M14: 标签编辑模态 ───────────────────────────────────────
+
+const showTagModal = ref(false)
+const tagEditTask = ref<VideoTask | null>(null)
+const tagEditValue = ref('')
+/** 单个标签最大长度与数量上限 */
+const TAG_MAX_LENGTH = 24
+const TAG_MAX_COUNT = 10
+
+function openTagModal(task: VideoTask): void {
+  tagEditTask.value = task
+  tagEditValue.value = task.tags.join(', ')
+  showTagModal.value = true
+}
+
+function closeTagModal(): void {
+  showTagModal.value = false
+  tagEditTask.value = null
+  tagEditValue.value = ''
+}
+
+/** 解析输入框中的标签：逗号/顿号/空格分隔，去空去重，超限截断 */
+function parseTagInput(raw: string): string[] {
+  const parsed = raw
+    .split(/[,，、\s]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+  const deduped: string[] = []
+  for (const tag of parsed) {
+    const clipped = tag.slice(0, TAG_MAX_LENGTH)
+    if (!deduped.includes(clipped)) deduped.push(clipped)
+  }
+  return deduped.slice(0, TAG_MAX_COUNT)
+}
+
+async function confirmTagEdit(): Promise<void> {
+  const task = tagEditTask.value
+  if (!task) return
+  try {
+    await videoStore.setTags(task.id, parseTagInput(tagEditValue.value))
+    closeTagModal()
+  } catch {
+    // store 已 toast 错误，保持模态开启便于修改
+  }
+}
+
+// ─── M14: 回收站 ─────────────────────────────────────────────
+
+const trashHasItems = computed(
+  () => videoStore.trashTasks.length > 0 || videoStore.trashSequences.length > 0,
+)
+
+/** 切到回收站时按需拉取快照 */
+watch(viewMode, (mode) => {
+  if (mode === 'trash' && !videoStore.trashLoading && !trashHasItems.value) {
+    void videoStore.fetchTrash()
+  }
+  if (mode === 'trash' && selectionMode.value) {
+    exitSelection()
+  }
+})
+
+function handleRefresh(): void {
+  if (viewMode.value === 'trash') {
+    void videoStore.fetchTrash()
+    return
+  }
+  void videoStore.refresh()
+  void videoStore.refreshSequences()
+}
+
+function handleRestore(type: 'task' | 'sequence', id: string): void {
+  void videoStore.restore(type, id)
+}
+
+function handlePurge(type: 'task' | 'sequence', id: string): void {
+  void videoStore.purge(type, id)
+}
+
+function handleEmptyTrash(): void {
+  void videoStore.emptyTrash()
+}
+
+/** 删除时间格式化（MM-DD HH:mm） */
+function formatDeletedAt(timestamp: number | null): string {
+  if (!timestamp) return ''
+  const d = new Date(timestamp)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getMonth() + 1}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 // ─── M11: CSV 批量造片 ───────────────────────────────────────
@@ -427,6 +559,31 @@ onMounted(() => {
         </span>
       </div>
       <div class="video-library__header-actions">
+        <!-- M14：资产库 / 回收站视图切换 -->
+        <div class="video-library__views">
+          <NButton
+            size="small"
+            :secondary="viewMode === 'library'"
+            :quaternary="viewMode !== 'library'"
+            :type="viewMode === 'library' ? 'primary' : 'default'"
+            round
+            @click="viewMode = 'library'"
+          >
+            <template #icon><VideoLibraryOutlined :size="15" /></template>
+            资产库
+          </NButton>
+          <NButton
+            size="small"
+            :secondary="viewMode === 'trash'"
+            :quaternary="viewMode !== 'trash'"
+            :type="viewMode === 'trash' ? 'primary' : 'default'"
+            round
+            @click="viewMode = 'trash'"
+          >
+            <template #icon><Inventory2Outlined :size="15" /></template>
+            回收站
+          </NButton>
+        </div>
         <NTooltip placement="left" :delay="400">
           <template #trigger>
             <NButton size="small" quaternary round type="primary" @click="openStatsModal">
@@ -470,15 +627,62 @@ onMounted(() => {
       </div>
     </header>
 
-    <!-- 工具栏 -->
-    <div class="video-library__toolbar">
+    <!-- 工具栏（资产库） -->
+    <div v-if="viewMode === 'library'" class="video-library__toolbar">
       <NSelect v-model:value="filterType" :options="TYPE_OPTIONS" size="small" class="video-library__type" />
       <NSelect v-model:value="statusFilter" :options="STATUS_OPTIONS" size="small" class="video-library__status" />
-      <NInput v-model:value="keyword" size="small" clearable placeholder="搜索提示词 / 标题…" class="video-library__search" />
+      <NSelect
+        v-model:value="activeTag"
+        :options="TAG_OPTIONS"
+        size="small"
+        clearable
+        placeholder="按标签筛选"
+        class="video-library__tag"
+      />
+      <NInput v-model:value="keyword" size="small" clearable placeholder="搜索提示词 / 标题 / 标签 / 模型…" class="video-library__search" />
+      <NTooltip placement="top" :delay="400">
+        <template #trigger>
+          <NButton
+            size="small"
+            :quaternary="!favoriteOnly"
+            :secondary="favoriteOnly"
+            :type="favoriteOnly ? 'warning' : 'default'"
+            circle
+            @click="favoriteOnly = !favoriteOnly"
+          >
+            <template #icon><StarOutlined :size="15" /></template>
+          </NButton>
+        </template>
+        <span>只看收藏</span>
+      </NTooltip>
     </div>
 
-    <!-- M13: 生成队列面板 -->
-    <div v-if="queueVisible && videoStore.queue" class="video-library__queue" :class="{ 'video-library__queue--paused': videoStore.queue.paused }">
+    <!-- M14：回收站工具条 -->
+    <div v-else class="video-library__toolbar">
+      <span class="video-library__trash-hint">
+        回收站中的内容保留文件，可恢复或彻底删除
+      </span>
+      <NSpace justify="end">
+        <NPopconfirm
+          positive-text="清空"
+          negative-text="取消"
+          :positive-button-props="{ type: 'error' }"
+          :negative-button-props="{ type: 'default' }"
+          @positive-click="handleEmptyTrash"
+        >
+          <template #trigger>
+            <NButton size="small" type="error" tertiary :disabled="!trashHasItems">
+              <template #icon><DeleteForeverOutlined :size="15" /></template>
+              清空回收站
+            </NButton>
+          </template>
+          将彻底删除回收站中的全部内容及其落盘文件，不可恢复，确认清空？
+        </NPopconfirm>
+      </NSpace>
+    </div>
+
+    <!-- M13: 生成队列面板（仅资产库视图） -->
+    <div v-if="viewMode === 'library' && queueVisible && videoStore.queue" class="video-library__queue" :class="{ 'video-library__queue--paused': videoStore.queue.paused }">
       <div class="video-library__queue-head">
         <button
           class="video-library__queue-toggle"
@@ -531,8 +735,8 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 批量操作条（吸附） -->
-    <div v-if="selectionMode" class="video-library__batchbar">
+    <!-- 批量操作条（吸附，仅资产库视图） -->
+    <div v-if="selectionMode && viewMode === 'library'" class="video-library__batchbar">
       <div class="video-library__batchbar-left">
         <NCheckbox
           :checked="allVisibleSelected"
@@ -562,6 +766,15 @@ onMounted(() => {
         >
           取消序列 {{ runningSelectedSequences.length > 0 ? `(${runningSelectedSequences.length})` : '' }}
         </NButton>
+        <NButton
+          size="small"
+          :disabled="videoStore.selectedCount === 0"
+          tertiary
+          @click="handleBatchExport"
+        >
+          <template #icon><FileDownloadOutlined :size="16" /></template>
+          导出资产
+        </NButton>
         <NPopconfirm
           :positive-button-props="{ type: 'error' }"
           :negative-button-props="{ type: 'default' }"
@@ -575,10 +788,10 @@ onMounted(() => {
               tertiary
             >
               <template #icon><DeleteOutlined :size="16" /></template>
-              删除 {{ videoStore.selectedCount > 0 ? `(${videoStore.selectedCount})` : '' }}
+              移入回收站 {{ videoStore.selectedCount > 0 ? `(${videoStore.selectedCount})` : '' }}
             </NButton>
           </template>
-          将删除选中的 {{ videoStore.selectedCount }} 项及其落盘文件，此操作不可恢复，确认删除？
+          将把选中的 {{ videoStore.selectedCount }} 项移入回收站（保留文件，可恢复），确认？
         </NPopconfirm>
         <NButton size="small" quaternary @click="exitSelection">取消</NButton>
       </NSpace>
@@ -586,7 +799,8 @@ onMounted(() => {
 
     <!-- 列表区域 -->
     <div class="video-library__body">
-      <NSpin :show="videoStore.loading" size="small">
+      <!-- 资产库视图 -->
+      <NSpin v-if="viewMode === 'library'" :show="videoStore.loading" size="small">
         <div v-if="!hasResults && !videoStore.loading" class="video-library__empty">
           <!-- 库为空：引导生成 -->
           <template v-if="!hasAnyData">
@@ -647,7 +861,7 @@ onMounted(() => {
                       </template>
                     </NPopconfirm>
                     <NPopconfirm
-                      positive-text="删除"
+                      positive-text="移入回收站"
                       negative-text="取消"
                       :positive-button-props="{ type: 'error' }"
                       :negative-button-props="{ type: 'default' }"
@@ -659,7 +873,7 @@ onMounted(() => {
                           删除
                         </NButton>
                       </template>
-                      将删除该序列及其全部视频文件，此操作不可恢复，确认删除？
+                      将把该序列及其全部镜头移入回收站（保留文件，可恢复），确认？
                     </NPopconfirm>
                   </div>
                 </div>
@@ -696,8 +910,12 @@ onMounted(() => {
                     >
                       重试
                     </NButton>
+                    <NButton size="tiny" quaternary @click="openTagModal(task)">
+                      <template #icon><LabelOutlined :size="14" /></template>
+                      标签
+                    </NButton>
                     <NPopconfirm
-                      positive-text="删除"
+                      positive-text="移入回收站"
                       negative-text="取消"
                       :positive-button-props="{ type: 'error' }"
                       :negative-button-props="{ type: 'default' }"
@@ -709,7 +927,129 @@ onMounted(() => {
                           删除
                         </NButton>
                       </template>
-                      将删除该视频及其落盘文件，此操作不可恢复，确认删除？
+                      将把该视频移入回收站（保留文件，可恢复），确认？
+                    </NPopconfirm>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </template>
+      </NSpin>
+
+      <!-- M14：回收站视图 -->
+      <NSpin v-else :show="videoStore.trashLoading" size="small">
+        <div v-if="!trashHasItems && !videoStore.trashLoading" class="video-library__empty">
+          <div class="video-library__empty-icon">
+            <NIcon :size="44"><Inventory2Outlined /></NIcon>
+          </div>
+          <p class="video-library__empty-title">回收站是空的</p>
+          <p class="video-library__empty-desc">
+            移入回收站的内容会保留落盘文件，可随时恢复或彻底删除
+          </p>
+        </div>
+        <template v-else>
+          <!-- 回收站：多镜头序列 -->
+          <section v-if="videoStore.trashSequences.length > 0" class="video-library__section">
+            <h3 class="video-library__section-title">
+              多镜头序列
+              <span class="video-library__section-count">{{ videoStore.trashSequences.length }}</span>
+            </h3>
+            <div class="video-library__list">
+              <div
+                v-for="sequence in videoStore.trashSequences"
+                :key="sequence.id"
+                class="video-library__row"
+              >
+                <div class="video-library__trash-item">
+                  <div class="video-library__trash-main">
+                    <span class="video-library__trash-title" :title="sequence.title">
+                      {{ sequence.title }}
+                    </span>
+                    <span class="video-library__trash-meta">
+                      {{ sequence.totalCount }} 个镜头 · {{ formatDeletedAt(sequence.deletedAt) }} 删除
+                    </span>
+                  </div>
+                  <div class="video-library__trash-actions">
+                    <NButton
+                      size="tiny"
+                      quaternary
+                      type="primary"
+                      @click="handleRestore('sequence', sequence.id)"
+                    >
+                      <template #icon><RestoreFromTrashOutlined :size="14" /></template>
+                      恢复
+                    </NButton>
+                    <NPopconfirm
+                      positive-text="彻底删除"
+                      negative-text="取消"
+                      :positive-button-props="{ type: 'error' }"
+                      :negative-button-props="{ type: 'default' }"
+                      @positive-click="handlePurge('sequence', sequence.id)"
+                    >
+                      <template #trigger>
+                        <NButton size="tiny" quaternary type="error">
+                          <template #icon><DeleteForeverOutlined :size="14" /></template>
+                          彻底删除
+                        </NButton>
+                      </template>
+                      将彻底删除该序列及其全部镜头与落盘文件，不可恢复，确认？
+                    </NPopconfirm>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 回收站：单视频 -->
+          <section
+            v-if="videoStore.trashTasks.length > 0"
+            class="video-library__section"
+            :class="{ 'video-library__section--gap': videoStore.trashSequences.length > 0 }"
+          >
+            <h3 class="video-library__section-title">
+              单视频
+              <span class="video-library__section-count">{{ videoStore.trashTasks.length }}</span>
+            </h3>
+            <div class="video-library__list">
+              <div
+                v-for="task in videoStore.trashTasks"
+                :key="task.id"
+                class="video-library__row"
+              >
+                <div class="video-library__trash-item">
+                  <div class="video-library__trash-main">
+                    <span class="video-library__trash-title" :title="task.prompt">
+                      {{ task.prompt || '视频任务' }}
+                    </span>
+                    <span class="video-library__trash-meta">
+                      {{ task.model }} · {{ task.duration }} 秒 · {{ formatDeletedAt(task.deletedAt) }} 删除
+                    </span>
+                  </div>
+                  <div class="video-library__trash-actions">
+                    <NButton
+                      size="tiny"
+                      quaternary
+                      type="primary"
+                      @click="handleRestore('task', task.id)"
+                    >
+                      <template #icon><RestoreFromTrashOutlined :size="14" /></template>
+                      恢复
+                    </NButton>
+                    <NPopconfirm
+                      positive-text="彻底删除"
+                      negative-text="取消"
+                      :positive-button-props="{ type: 'error' }"
+                      :negative-button-props="{ type: 'default' }"
+                      @positive-click="handlePurge('task', task.id)"
+                    >
+                      <template #trigger>
+                        <NButton size="tiny" quaternary type="error">
+                          <template #icon><DeleteForeverOutlined :size="14" /></template>
+                          彻底删除
+                        </NButton>
+                      </template>
+                      将彻底删除该视频及其落盘文件，不可恢复，确认？
                     </NPopconfirm>
                   </div>
                 </div>
@@ -719,6 +1059,32 @@ onMounted(() => {
         </template>
       </NSpin>
     </div>
+
+    <!-- M14：标签编辑模态 -->
+    <NModal
+      :show="showTagModal"
+      preset="card"
+      title="编辑标签"
+      :bordered="false"
+      :style="{ width: '440px', maxWidth: '92vw' }"
+      @update:show="(v: boolean) => { if (!v) closeTagModal() }"
+    >
+      <NSpace vertical :size="12">
+        <NInput
+          v-model:value="tagEditValue"
+          type="textarea"
+          :rows="2"
+          placeholder="输入标签，用逗号或空格分隔，最多 10 个"
+        />
+        <span class="video-library__tag-hint">
+          {{ parseTagInput(tagEditValue).length }} / {{ TAG_MAX_COUNT }} 个标签（逗号 / 空格分隔）
+        </span>
+        <div class="video-library__csv-actions">
+          <NButton size="small" quaternary @click="closeTagModal">取消</NButton>
+          <NButton size="small" type="primary" @click="confirmTagEdit">保存</NButton>
+        </div>
+      </NSpace>
+    </NModal>
 
     <!-- M11: CSV 批量造片模态 -->
     <NModal
@@ -979,6 +1345,71 @@ onMounted(() => {
 .video-library__search {
   flex: 1;
   min-width: 140px;
+}
+
+/* ─── M14: 视图切换 / 收藏筛选 / 标签筛选 / 回收站 ──────── */
+
+.video-library__views {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+}
+
+.video-library__tag {
+  width: 130px;
+  flex-shrink: 0;
+}
+
+.video-library__tag-hint {
+  font-size: 12px;
+  color: var(--af-text-muted, #94a3b8);
+}
+
+.video-library__trash-hint {
+  font-size: 12px;
+  color: var(--af-text-muted, #94a3b8);
+}
+
+.video-library__trash-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--af-border, #334155);
+  border-radius: 10px;
+  background-color: var(--af-bg-surface, #1e293b);
+  padding: 12px 14px;
+}
+
+.video-library__trash-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.video-library__trash-title {
+  font-size: 13px;
+  color: var(--af-text-primary, #e5e7eb);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-library__trash-meta {
+  font-size: var(--af-font-xs, 11px);
+  color: var(--af-text-muted, #9ca3af);
+  font-variant-numeric: tabular-nums;
+}
+
+.video-library__trash-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 /* ─── M13: 生成队列面板 ─────────────────────────────────── */

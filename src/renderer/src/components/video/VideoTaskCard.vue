@@ -5,7 +5,7 @@
 
 import { computed } from 'vue'
 import { NButton, NProgress, NTag, NSpace, NIcon, NTooltip } from 'naive-ui'
-import { PlayArrowOutlined, StopOutlined, RefreshOutlined } from '@vicons/material'
+import { PlayArrowOutlined, StopOutlined, RefreshOutlined, StarBorderOutlined, StarFilled } from '@vicons/material'
 import type { VideoTask } from '@shared/types'
 import { useVideoStore } from '@/stores/video'
 
@@ -83,6 +83,11 @@ async function handleStop(): Promise<void> {
   await videoStore.cancel(props.task.id)
 }
 
+/** M14：切换收藏标记 */
+function handleToggleFavorite(): void {
+  void videoStore.setFavorite(props.task.id, !props.task.favorite)
+}
+
 function handleRetry(): void {
   if (!props.task.prompt) return
   void videoStore.generate({
@@ -118,6 +123,24 @@ function fileName(filePath: string | null): string {
       <NSpace :size="4">
         <NTooltip placement="top" :delay="500">
           <template #trigger>
+            <NButton
+              size="tiny"
+              quaternary
+              :type="task.favorite ? 'warning' : 'default'"
+              @click="handleToggleFavorite"
+            >
+              <template #icon>
+                <NIcon :size="14">
+                  <StarFilled v-if="task.favorite" />
+                  <StarBorderOutlined v-else />
+                </NIcon>
+              </template>
+            </NButton>
+          </template>
+          <span>{{ task.favorite ? '取消收藏' : '收藏' }}</span>
+        </NTooltip>
+        <NTooltip placement="top" :delay="500">
+          <template #trigger>
             <NButton v-if="!terminal" size="tiny" quaternary @click="handleStop">
               <template #icon><NIcon :size="14"><StopOutlined /></NIcon></template>
             </NButton>
@@ -137,6 +160,13 @@ function fileName(filePath: string | null): string {
 
     <!-- 提示词 -->
     <p class="video-task-card__prompt" :title="task.prompt">{{ task.prompt || '视频任务' }}</p>
+
+    <!-- M14：用户标签 -->
+    <div v-if="task.tags.length > 0" class="video-task-card__labels">
+      <NTag v-for="tag in task.tags" :key="tag" size="tiny" :bordered="false">
+        {{ tag }}
+      </NTag>
+    </div>
 
     <!-- 生成参数 -->
     <span class="video-task-card__meta">{{ metaText }}</span>
@@ -231,6 +261,13 @@ function fileName(filePath: string | null): string {
   font-size: var(--af-font-xs, 11px);
   color: var(--af-text-muted, #9ca3af);
   font-variant-numeric: tabular-nums;
+}
+
+/* M14：用户标签行 */
+.video-task-card__labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .video-task-card__progress {

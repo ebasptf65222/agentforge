@@ -477,6 +477,26 @@ const video = {
   queueConcurrency: (limit: number): Promise<unknown> =>
     ipcRenderer.invoke('video:queue-concurrency', { limit }),
 
+  // M14：视频资产管理（收藏 / 标签 / 回收站 / 资产导出）
+  setFavorite: (id: string, favorite: boolean): Promise<unknown> =>
+    ipcRenderer.invoke('video:set-favorite', { id, favorite }),
+
+  setTags: (id: string, tags: string[]): Promise<unknown> =>
+    ipcRenderer.invoke('video:set-tags', { id, tags }),
+
+  trash: (): Promise<unknown> => ipcRenderer.invoke('video:trash'),
+
+  restore: (type: 'task' | 'sequence', id: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:restore', { type, id }),
+
+  purge: (type: 'task' | 'sequence', id: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:purge', { type, id }),
+
+  emptyTrash: (): Promise<unknown> => ipcRenderer.invoke('video:empty-trash'),
+
+  exportAssets: (taskIds: string[], sequenceIds: string[]): Promise<unknown> =>
+    ipcRenderer.invoke('video:export-assets', { taskIds, sequenceIds }),
+
   listSequences: (limit?: number): Promise<unknown[]> =>
     ipcRenderer.invoke('video:list-sequences', limit !== undefined ? { limit } : undefined),
 

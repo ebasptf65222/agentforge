@@ -23,6 +23,9 @@ const BASE_TASK: VideoTask = {
   outputPath: null,
   sequenceId: null,
   shotIndex: null,
+  favorite: false,
+  tags: [],
+  deletedAt: null,
   createdAt: 1000,
   updatedAt: 1000,
 }
@@ -41,6 +44,7 @@ function sequence(overrides: Partial<VideoSequence>): VideoSequence {
     succeededCount: 1,
     failedCount: 0,
     cancelledCount: 0,
+    deletedAt: null,
     createdAt: 2000,
     updatedAt: 2000,
     ...overrides,
@@ -74,6 +78,13 @@ function mockElectronVideo(overrides?: Record<string, unknown>): Record<string, 
     testConfig: vi.fn(),
     listSequences: vi.fn().mockResolvedValue([]),
     getSequenceDetail: vi.fn().mockResolvedValue(null),
+    setFavorite: vi.fn().mockResolvedValue(null),
+    setTags: vi.fn().mockResolvedValue(null),
+    trash: vi.fn().mockResolvedValue({ tasks: [], sequences: [] }),
+    restore: vi.fn().mockResolvedValue(null),
+    purge: vi.fn().mockResolvedValue(undefined),
+    emptyTrash: vi.fn().mockResolvedValue({ tasks: 0, sequences: 0 }),
+    exportAssets: vi.fn(),
     onEvent: vi.fn().mockReturnValue(() => {}),
   }
   const api = { ...base, ...(overrides ?? {}) }
@@ -605,5 +616,128 @@ describe('video store', () => {
 
     expect(api.queueConcurrency).toHaveBeenCalledWith(5)
     expect(store.queue?.maxConcurrent).toBe(5)
+  })
+
+  // ─── M14: 资产管理 ─────────────────────────────────────────
+
+  it('setFavorite 调用 IPC 并 upsert 任务（M14）', async () => {
+    const api = mockElectronVideo({
+      list: vi.fn().mockResolvedValue([BASE_TASK]),
+      setFavorite: vi.fn().mockResolvedValue(task({ id: 't1', favorite: true })),
+    })
+    const store = useVideoStore()
+    await store.refresh()
+
+    await store.setFavorite('t1', true)
+
+    expect(api.setFavorite).toHaveBeenCalledWith('t1', true)
+    expect(store.getTask('t1')?.favorite).toBe(true)
+  })
+
+  it('setTags 调用 IPC 并 upsert 任务（M14）', async () => {
+    const api = mockElectronVideo({
+      list: vi.fn().mockResolvedValue([BASE_TASK]),
+      setTags: vi.fn().mockResolvedValue(task({ id: 't1', tags: ['风景', '猫'] })),
+    })
+    const store = useVideoStore()
+    await store.refresh()
+
+    await store.setTags('t1', ['风景', '猫'])
+
+    expect(api.setTags).toHaveBeenCalledWith('t1', ['风景', '猫'])
+    expect(store.getTask('t1')?.tags).toEqual(['风景', '猫'])
+  })
+
+  it('fetchTrash 填充回收站列表（M14）', async () => {
+    mockElectronVideo({
+      trash: vi.fn().mockResolvedValue({
+        tasks: [task({ id: 't9', deletedAt: 12345 })],
+        sequences: [sequence({ id: 'seq-9', deletedAt: 12345 })],
+      }),
+    })
+    const store = useVideoStore()
+
+    await store.fetchTrash()
+
+    expect(store.trashTasks.map((t) => t.id)).toEqual(['t9'])
+    expect(store.trashSequences.map((s) => s.id)).toEqual(['seq-9'])
+    expect(store.trashLoading).toBe(false)
+  })
+
+  it('restore 从回收站移除并刷新主列表（M14）', async () => {
+    mockElectronVideo({
+      list: vi.fn().mockResolvedValue([task({ id: 't9', status: 'cancelled' })]),
+      trash: vi.fn().mockResolvedValue({
+        tasks: [task({ id: 't9', deletedAt: 12345 })],
+        sequences: [],
+      }),
+      restore: vi.fn().mockResolvedValue(null),
+    })
+    const store = useVideoStore()
+    await store.fetchTrash()
+    expect(store.trashTasks).toHaveLength(1)
+
+    await store.restore('task', 't9')
+
+    expect(store.trashTasks).toHaveLength(0)
+    expect(store.getTask('t9')).toBeTruthy()
+  })
+
+  it('purge 从回收站移除（M14）', async () => {
+    mockElectronVideo({
+      trash: vi.fn().mockResolvedValue({
+        tasks: [task({ id: 't9', deletedAt: 12345 })],
+        sequences: [],
+      }),
+      purge: vi.fn().mockResolvedValue(undefined),
+    })
+    const store = useVideoStore()
+    await store.fetchTrash()
+
+    await store.purge('task', 't9')
+
+    expect(store.trashTasks).toHaveLength(0)
+  })
+
+  it('emptyTrash 清空回收站列表并返回统计（M14）', async () => {
+    mockElectronVideo({
+      trash: vi.fn().mockResolvedValue({
+        tasks: [task({ id: 't9', deletedAt: 12345 })],
+        sequences: [sequence({ id: 'seq-9', deletedAt: 12345 })],
+      }),
+      emptyTrash: vi.fn().mockResolvedValue({ tasks: 1, sequences: 1 }),
+    })
+    const store = useVideoStore()
+    await store.fetchTrash()
+
+    const result = await store.emptyTrash()
+
+    expect(result).toMatchObject({ tasks: 1, sequences: 1 })
+    expect(store.trashTasks).toHaveLength(0)
+    expect(store.trashSequences).toHaveLength(0)
+  })
+
+  it('exportAssets 成功返回 true 并清除选择，取消返回 false（M14）', async () => {
+    const api = mockElectronVideo({
+      exportAssets: vi.fn().mockResolvedValue({
+        canceled: false,
+        targetDir: 'D:/out',
+        exported: 2,
+        skipped: [],
+      }),
+    })
+    const store = useVideoStore()
+    store.toggleSelectTask('t1')
+    store.toggleSelectSequence('seq-1')
+
+    const ok = await store.exportAssets(['t1'], ['seq-1'])
+
+    expect(api.exportAssets).toHaveBeenCalledWith(['t1'], ['seq-1'])
+    expect(ok).toBe(true)
+    expect(store.isTaskSelected('t1')).toBe(false)
+    expect(store.isSequenceSelected('seq-1')).toBe(false)
+
+    ;(api.exportAssets as ReturnType<typeof vi.fn>).mockResolvedValue({ canceled: true })
+    expect(await store.exportAssets(['t1'], [])).toBe(false)
   })
 })

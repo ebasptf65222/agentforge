@@ -434,6 +434,30 @@ const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
     comment: 'VIDEO-M8: 是否为连续性衔接序列',
     sql: `ALTER TABLE video_sequences ADD COLUMN continuity INTEGER NOT NULL DEFAULT 0`,
   },
+  {
+    table: 'video_tasks',
+    column: 'favorite',
+    comment: 'VIDEO-M14: 是否收藏',
+    sql: `ALTER TABLE video_tasks ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    table: 'video_tasks',
+    column: 'tags',
+    comment: 'VIDEO-M14: 用户标签（JSON 字符串数组）',
+    sql: `ALTER TABLE video_tasks ADD COLUMN tags TEXT`,
+  },
+  {
+    table: 'video_tasks',
+    column: 'deleted_at',
+    comment: 'VIDEO-M14: 软删除时间戳（回收站，NULL 表示未删除）',
+    sql: `ALTER TABLE video_tasks ADD COLUMN deleted_at INTEGER`,
+  },
+  {
+    table: 'video_sequences',
+    column: 'deleted_at',
+    comment: 'VIDEO-M14: 软删除时间戳（回收站，NULL 表示未删除）',
+    sql: `ALTER TABLE video_sequences ADD COLUMN deleted_at INTEGER`,
+  },
 ] as const
 
 /**

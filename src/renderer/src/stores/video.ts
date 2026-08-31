@@ -4,7 +4,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed, onUnmounted } from 'vue'
-import type { VideoTask, VideoAsyncEvent, VideoConfigView, VideoProvider, CreateVideoTaskParams, VideoSequence, VideoSequenceDetail, VideoStatsOverview, VideoQueueSnapshot } from '@shared/types'
+import type { VideoTask, VideoAsyncEvent, VideoConfigView, VideoProvider, CreateVideoTaskParams, VideoSequence, VideoSequenceDetail, VideoStatsOverview, VideoQueueSnapshot, VideoExportAssetsResult, VideoTrashPurgeResult } from '@shared/types'
 import type { VideoCsvParseResult } from '@/types/electron-api'
 import { showToast } from '@/utils/toast'
 
@@ -44,6 +44,15 @@ export const useVideoStore = defineStore('video', () => {
 
   /** 队列快照缓存 */
   const queue = ref<VideoQueueSnapshot | null>(null)
+
+  // ─── M14: 回收站 ────────────────────────────────────────────
+
+  /** 回收站中的任务列表 */
+  const trashTasks = ref<VideoTask[]>([])
+  /** 回收站中的序列列表 */
+  const trashSequences = ref<VideoSequence[]>([])
+  /** 是否在加载回收站 */
+  const trashLoading = ref(false)
 
   /** 事件订阅清理函数 */
   let stopEvent: (() => void) | null = null
@@ -214,7 +223,7 @@ export const useVideoStore = defineStore('video', () => {
     await window.electron.video.deleteTask(id)
     const { [id]: _removed, ...next } = tasks.value
     tasks.value = next as Record<string, VideoTask>
-    showToast('已删除视频', 'success')
+    showToast('已移入回收站', 'success')
   }
 
   /** 删除一个多镜头序列及全部子任务与落盘文件（M9） */
@@ -227,7 +236,7 @@ export const useVideoStore = defineStore('video', () => {
       if (value?.sequenceId !== id) taskNext[key] = value
     }
     tasks.value = taskNext
-    showToast('已删除序列', 'success')
+    showToast('序列已移入回收站', 'success')
   }
 
   // ─── M10: 批量 Actions ─────────────────────────────────────
@@ -294,7 +303,7 @@ export const useVideoStore = defineStore('video', () => {
       showToast(String((error as { message?: unknown })?.message ?? error), 'error')
       throw error
     }
-    reportBatch('已批量删除', result, () => {
+    reportBatch('已批量移入回收站', result, () => {
       const removed = new Set(result.succeeded)
       const next: Record<string, VideoTask> = {}
       for (const [key, value] of Object.entries(tasks.value)) {
@@ -315,7 +324,7 @@ export const useVideoStore = defineStore('video', () => {
       showToast(String((error as { message?: unknown })?.message ?? error), 'error')
       throw error
     }
-    reportBatch('已批量删除序列', result, () => {
+    reportBatch('已批量移入回收站序列', result, () => {
       const removed = new Set(result.succeeded)
       const seqNext: Record<string, VideoSequence> = {}
       for (const [key, value] of Object.entries(sequences.value)) {
@@ -423,6 +432,108 @@ export const useVideoStore = defineStore('video', () => {
   /** 设置队列并发上限（1–10） */
   async function setQueueConcurrency(limit: number): Promise<void> {
     queue.value = (await window.electron.video.queueConcurrency(limit)) as VideoQueueSnapshot
+  }
+
+  // ─── M14: 资产管理 Actions ─────────────────────────────────
+
+  /** 设置任务收藏标记，成功后本地同步 */
+  async function setFavorite(id: string, favorite: boolean): Promise<void> {
+    try {
+      const task = (await window.electron.video.setFavorite(id, favorite)) as VideoTask | null
+      if (task) upsert(task)
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      throw error
+    }
+  }
+
+  /** 整体覆盖任务标签，成功后本地同步 */
+  async function setTags(id: string, tags: string[]): Promise<void> {
+    try {
+      const task = (await window.electron.video.setTags(id, tags)) as VideoTask | null
+      if (task) upsert(task)
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      throw error
+    }
+  }
+
+  /** 拉取回收站快照 */
+  async function fetchTrash(): Promise<void> {
+    trashLoading.value = true
+    try {
+      const snapshot = await window.electron.video.trash()
+      trashTasks.value = (snapshot as { tasks: VideoTask[] }).tasks ?? []
+      trashSequences.value = (snapshot as { sequences: VideoSequence[] }).sequences ?? []
+    } finally {
+      trashLoading.value = false
+    }
+  }
+
+  /** 从回收站恢复任务/序列，并刷新主列表 */
+  async function restore(type: 'task' | 'sequence', id: string): Promise<void> {
+    try {
+      await window.electron.video.restore(type, id)
+      trashTasks.value = trashTasks.value.filter((t) => t.id !== id)
+      trashSequences.value = trashSequences.value.filter((s) => s.id !== id)
+      await Promise.all([refresh(), refreshSequences()])
+      showToast('已恢复', 'success')
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      throw error
+    }
+  }
+
+  /** 彻底删除回收站中的任务/序列（含落盘文件） */
+  async function purge(type: 'task' | 'sequence', id: string): Promise<void> {
+    try {
+      await window.electron.video.purge(type, id)
+      trashTasks.value = trashTasks.value.filter((t) => t.id !== id)
+      trashSequences.value = trashSequences.value.filter((s) => s.id !== id)
+      showToast('已彻底删除', 'success')
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      throw error
+    }
+  }
+
+  /** 清空回收站 */
+  async function emptyTrash(): Promise<VideoTrashPurgeResult> {
+    try {
+      const result = (await window.electron.video.emptyTrash()) as VideoTrashPurgeResult
+      trashTasks.value = []
+      trashSequences.value = []
+      showToast(`回收站已清空（任务 ${result.tasks}，序列 ${result.sequences}）`, 'success')
+      return result
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      throw error
+    }
+  }
+
+  /** 批量导出成品视频到所选目录；用户取消返回 false */
+  async function exportAssets(taskIds: string[], sequenceIds: string[]): Promise<boolean> {
+    try {
+      const result = (await window.electron.video.exportAssets(
+        taskIds,
+        sequenceIds,
+      )) as VideoExportAssetsResult
+      if (result && typeof result === 'object' && 'canceled' in result && result.canceled) {
+        return false
+      }
+      const ok =
+        result && typeof result === 'object' && 'exported' in result ? result : null
+      if (ok) {
+        const skipNote = ok.skipped.length > 0 ? `，跳过 ${ok.skipped.length} 项` : ''
+        showToast(`已导出 ${ok.exported} 个视频到 ${ok.targetDir}${skipNote}`, 'success')
+        deselectTasks(taskIds)
+        deselectSequences(sequenceIds)
+      }
+      return true
+    } catch (error) {
+      showToast(String((error as { message?: unknown })?.message ?? error), 'error')
+      throw error
+    }
   }
 
   /** 刷新任务列表 */
@@ -540,6 +651,17 @@ export const useVideoStore = defineStore('video', () => {
     pauseQueue,
     resumeQueue,
     setQueueConcurrency,
+    // M14 资产管理
+    trashTasks,
+    trashSequences,
+    trashLoading,
+    setFavorite,
+    setTags,
+    fetchTrash,
+    restore,
+    purge,
+    emptyTrash,
+    exportAssets,
     refresh,
     refreshSequences,
     getSequenceDetail,

@@ -22,6 +22,12 @@ export interface UpdateVideoTaskParams {
   errorMessage?: string | null
   downloadUrl?: string | null
   outputPath?: string | null
+  /** M14：是否收藏 */
+  favorite?: boolean
+  /** M14：用户标签（整体覆盖） */
+  tags?: string[]
+  /** M14：软删除时间戳（回收站；null 表示恢复） */
+  deletedAt?: number | null
 }
 
 /** SQLite 行结构（snake_case，与 video_tasks 表一致） */
@@ -43,8 +49,23 @@ interface VideoTaskRow {
   sequence_id: string | null
   shot_index: number | null
   is_chained: number
+  favorite: number
+  tags: string | null
+  deleted_at: number | null
   created_at: number
   updated_at: number
+}
+
+/** 解析 tags JSON 文本列；非法/空内容回退为空数组 */
+function parseTags(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((t): t is string => typeof t === 'string')
+  } catch {
+    return []
+  }
 }
 
 function rowToTask(row: VideoTaskRow): VideoTask {
@@ -66,6 +87,9 @@ function rowToTask(row: VideoTaskRow): VideoTask {
     sequenceId: row.sequence_id,
     shotIndex: row.shot_index,
     isChained: Boolean(row.is_chained),
+    favorite: Boolean(row.favorite),
+    tags: parseTags(row.tags),
+    deletedAt: row.deleted_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -164,12 +188,23 @@ export function getVideoTaskById(id: string): VideoTask | null {
 }
 
 /**
- * 分页获取视频任务列表（按创建时间倒序）。
+ * 分页获取视频任务列表（按创建时间倒序，排除回收站记录）。
  */
 export function listVideoTasks(limit = 50): VideoTask[] {
   const db: Database.Database = getDatabase()
   const rows = db
-    .prepare('SELECT * FROM video_tasks ORDER BY created_at DESC LIMIT ?')
+    .prepare('SELECT * FROM video_tasks WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?')
+    .all(Math.max(1, Math.min(limit, 200))) as VideoTaskRow[]
+  return rows.map(rowToTask)
+}
+
+/**
+ * 获取回收站中的任务（deleted_at 非空，按删除时间倒序）。
+ */
+export function listTrashedVideoTasks(limit = 200): VideoTask[] {
+  const db: Database.Database = getDatabase()
+  const rows = db
+    .prepare('SELECT * FROM video_tasks WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT ?')
     .all(Math.max(1, Math.min(limit, 200))) as VideoTaskRow[]
   return rows.map(rowToTask)
 }
@@ -183,7 +218,7 @@ export function listQueuedVideoTasks(): VideoTask[] {
   const db: Database.Database = getDatabase()
   const rows = db
     .prepare(
-      "SELECT * FROM video_tasks WHERE status = 'queued' AND is_chained = 0 ORDER BY created_at ASC, id ASC",
+      "SELECT * FROM video_tasks WHERE status = 'queued' AND is_chained = 0 AND deleted_at IS NULL ORDER BY created_at ASC, id ASC",
     )
     .all() as VideoTaskRow[]
   return rows.map(rowToTask)
@@ -198,7 +233,7 @@ export function listInFlightVideoTasks(): VideoTask[] {
   const db: Database.Database = getDatabase()
   const rows = db
     .prepare(
-      "SELECT * FROM video_tasks WHERE status IN ('submitted', 'running') AND provider_task_id IS NOT NULL ORDER BY created_at ASC, id ASC",
+      "SELECT * FROM video_tasks WHERE status IN ('submitted', 'running') AND provider_task_id IS NOT NULL AND deleted_at IS NULL ORDER BY created_at ASC, id ASC",
     )
     .all() as VideoTaskRow[]
   return rows.map(rowToTask)
@@ -266,6 +301,18 @@ export function updateVideoTask(id: string, params: UpdateVideoTaskParams): Vide
     setClauses.push('output_path = ?')
     values.push(params.outputPath)
   }
+  if (params.favorite !== undefined) {
+    setClauses.push('favorite = ?')
+    values.push(params.favorite ? 1 : 0)
+  }
+  if (params.tags !== undefined) {
+    setClauses.push('tags = ?')
+    values.push(JSON.stringify(params.tags))
+  }
+  if (params.deletedAt !== undefined) {
+    setClauses.push('deleted_at = ?')
+    values.push(params.deletedAt)
+  }
 
   db.prepare(`UPDATE video_tasks SET ${setClauses.join(', ')} WHERE id = ?`).run(
     ...([...values, id] as Array<number | string | null>),
@@ -274,9 +321,29 @@ export function updateVideoTask(id: string, params: UpdateVideoTaskParams): Vide
 }
 
 /**
- * 删除视频任务记录。
+ * 彻底删除视频任务记录（M14 回收站的 purge 路径；软删请用 updateVideoTask 的 deletedAt）。
  */
 export function deleteVideoTask(id: string): void {
   const db: Database.Database = getDatabase()
   db.prepare('DELETE FROM video_tasks WHERE id = ?').run(id)
+}
+
+/**
+ * 将序列下全部未软删的子任务标记为软删（M14 回收站，随序列一起入回收站）。
+ */
+export function softDeleteVideoTasksBySequence(sequenceId: string, deletedAt: number): void {
+  const db: Database.Database = getDatabase()
+  db.prepare(
+    'UPDATE video_tasks SET deleted_at = ?, updated_at = ? WHERE sequence_id = ? AND deleted_at IS NULL',
+  ).run(deletedAt, deletedAt, sequenceId)
+}
+
+/**
+ * 恢复序列下全部已软删的子任务（M14 回收站，随序列一起恢复）。
+ */
+export function restoreVideoTasksBySequence(sequenceId: string): void {
+  const db: Database.Database = getDatabase()
+  db.prepare(
+    'UPDATE video_tasks SET deleted_at = NULL, updated_at = ? WHERE sequence_id = ? AND deleted_at IS NOT NULL',
+  ).run(Date.now(), sequenceId)
 }
