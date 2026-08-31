@@ -190,7 +190,7 @@ export class VideoEngine {
 
     // 2. 提交到厂商
     const { providerTaskId } = await adapter.submit(
-      { prompt, duration, resolution, aspect },
+      { prompt, duration, resolution, aspect, imageRefs: params.imageRefs },
       config,
     )
     task = updateVideoTask(task.id, {

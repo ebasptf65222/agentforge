@@ -2,6 +2,9 @@
 // 通过注入 mock transport 验证提交/状态映射/错误处理，不发起真实网络请求。
 
 import { describe, it, expect, vi } from 'vitest'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { writeFileSync } from 'node:fs'
 import { SeedanceAdapter, DEFAULT_ARK_BASE_URL } from './seedance'
 import type { HttpRequestFn, HttpResponse } from './transport'
 import { AppError } from '../../utils/error'
@@ -36,24 +39,114 @@ describe('SeedanceAdapter', () => {
     )
     expect(result.providerTaskId).toBe('task_123')
 
-    // 校验请求体含 prompt / duration / model / 鉴权头
+    // 校验请求体含 prompt / duration / model / 鉴权头（ARK 标准 content 格式）
     const call = requests[0]
     expect(call.url).toBe(`${DEFAULT_ARK_BASE_URL}/contents/generations/tasks`)
     expect(call.headers.Authorization).toBe('Bearer test-key')
     expect(call.body).toMatchObject({
       model: 'doubao-seedance',
-      content: [
-        {
-          type: 'video',
-          video: {
-            prompt: 'A cat walking',
-            duration: 5,
-            resolution: '720P',
-            aspect_ratio: '16:9',
-          },
-        },
-      ],
+      content: [{ type: 'text', text: 'A cat walking' }],
+      resolution: '720p',
+      ratio: '16:9',
+      duration: 5,
     })
+    // 无参考图时不应出现 image_url 内容项
+    expect((call.body as { content: unknown[] }).content).not.toContainEqual(
+      expect.objectContaining({ type: 'image_url' }),
+    )
+  })
+
+  it('should submit image-to-video (single first frame) with base64 data uri', async () => {
+    const requests: Array<Parameters<HttpRequestFn>[0]> = []
+    const request = makeRequestMock((input) => {
+      requests.push(input)
+      return { status: 200, data: { id: 'task_img', status: 'queued' } }
+    })
+
+    // 写入一张极小的临时 PNG，验证 base64 内联
+    const tmp = join(tmpdir(), `seedance-test-${Date.now()}.png`)
+    writeFileSync(tmp, Buffer.from('89504e470d0a1a0a', 'hex'))
+
+    const adapter = new SeedanceAdapter(request)
+    await adapter.submit(
+      {
+        prompt: 'Animate this image',
+        duration: 5,
+        resolution: '1080P',
+        aspect: '16:9',
+        imageRefs: [{ path: tmp, role: 'first_frame' }],
+      },
+      TEST_CONFIG,
+    )
+
+    const body = requests[0].body as { content: Array<Record<string, unknown>> }
+    expect(body.content[0]).toMatchObject({
+      type: 'image_url',
+      role: 'first_frame',
+      image_url: { url: `data:image/png;base64,${Buffer.from('89504e470d0a1a0a', 'hex').toString('base64')}` },
+    })
+    expect(body.content[1]).toMatchObject({ type: 'text', text: 'Animate this image' })
+    // 1080P → 1080p
+    expect(body).toMatchObject({ resolution: '1080p', ratio: '16:9', duration: 5 })
+  })
+
+  it('should submit first+last frame video with two roles', async () => {
+    const requests: Array<Parameters<HttpRequestFn>[0]> = []
+    const request = makeRequestMock((input) => {
+      requests.push(input)
+      return { status: 200, data: { id: 'task_frames', status: 'queued' } }
+    })
+
+    const first = join(tmpdir(), `seedance-f-${Date.now()}.png`)
+    const last = join(tmpdir(), `seedance-l-${Date.now()}.jpg`)
+    writeFileSync(first, Buffer.from('aaa'))
+    writeFileSync(last, Buffer.from('bbb'))
+
+    const adapter = new SeedanceAdapter(request)
+    await adapter.submit(
+      {
+        prompt: 'Transition between frames',
+        duration: 5,
+        resolution: '720P',
+        aspect: '9:16',
+        imageRefs: [
+          { path: first, role: 'first_frame' },
+          { path: last, role: 'last_frame' },
+        ],
+      },
+      TEST_CONFIG,
+    )
+
+    const body = requests[0].body as { content: Array<Record<string, unknown>> }
+    expect(body.content[0]).toMatchObject({ type: 'image_url', role: 'first_frame' })
+    expect((body.content[0] as { image_url: { url: string } }).image_url.url).toMatch(/^data:image\/png;base64,/)
+    expect(body.content[1]).toMatchObject({ type: 'image_url', role: 'last_frame' })
+    expect((body.content[1] as { image_url: { url: string } }).image_url.url).toMatch(/^data:image\/jpeg;base64,/)
+    expect(body.content[2]).toMatchObject({ type: 'text', text: 'Transition between frames' })
+  })
+
+  it('should throw VIDEO_INVALID_CONFIG when image file is missing', async () => {
+    const request = makeRequestMock(() => ({ status: 200, data: { id: 'x' } }))
+    const adapter = new SeedanceAdapter(request)
+    await expect(
+      adapter.submit(
+        { prompt: 'x', duration: 5, resolution: '720P', aspect: '16:9', imageRefs: [{ path: '/no/such.png', role: 'first_frame' }] },
+        TEST_CONFIG,
+      ),
+    ).rejects.toMatchObject({ code: 'VIDEO_INVALID_CONFIG' })
+  })
+
+  it('should throw VIDEO_INVALID_CONFIG for unsupported image extension', async () => {
+    const request = makeRequestMock(() => ({ status: 200, data: { id: 'x' } }))
+    const tmp = join(tmpdir(), `seedance-unsupported-${Date.now()}.xyz`)
+    writeFileSync(tmp, 'not-image')
+    const adapter = new SeedanceAdapter(request)
+    await expect(
+      adapter.submit(
+        { prompt: 'x', duration: 5, resolution: '720P', aspect: '16:9', imageRefs: [{ path: tmp, role: 'first_frame' }] },
+        TEST_CONFIG,
+      ),
+    ).rejects.toMatchObject({ code: 'VIDEO_INVALID_CONFIG' })
   })
 
   it('should map queued/running state with estimated progress', async () => {

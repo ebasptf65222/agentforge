@@ -20,6 +20,17 @@ export type VideoResolution = '480P' | '720P' | '1080P'
 /** 视频画面比例 */
 export type VideoAspect = '16:9' | '9:16' | '4:3' | '3:4' | '1:1'
 
+/** 图生视频图片角色：首帧 / 尾帧 */
+export type VideoImageRole = 'first_frame' | 'last_frame'
+
+/** 图生视频的参考图片（本地文件，由适配器 base64 内联上传） */
+export interface VideoImageRef {
+  /** 本地图片绝对路径 */
+  path: string
+  /** 首帧 first_frame / 尾帧 last_frame */
+  role: VideoImageRole
+}
+
 /** 视频任务实体（持久化到 video_tasks 表） */
 export interface VideoTask {
   id: string
@@ -51,6 +62,8 @@ export interface CreateVideoTaskParams {
   duration?: number
   resolution?: VideoResolution
   aspect?: VideoAspect
+  /** 图生视频/首尾帧参考图（1 张=首帧；2 张=首尾帧） */
+  imageRefs?: VideoImageRef[]
 }
 
 /** 运行时厂商配置（明文 API Key，由引擎解密后注入） */

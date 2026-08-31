@@ -2,7 +2,7 @@
 // 任务引擎通过统一接口驱动不同厂商（当前 M1 仅 Seedance）。
 // 各厂商 API 差异（鉴权、提交、轮询、状态映射）全部收口在适配器内。
 
-import type { VideoProvider, VideoResolution, VideoAspect } from '@shared/types'
+import type { VideoProvider, VideoResolution, VideoAspect, VideoImageRef } from '@shared/types'
 
 /** 提交视频生成任务的规格 */
 export interface SubmitSpec {
@@ -10,6 +10,8 @@ export interface SubmitSpec {
   duration: number
   resolution: VideoResolution
   aspect: VideoAspect
+  /** 图生视频/首尾帧参考图（可选） */
+  imageRefs?: VideoImageRef[]
 }
 
 /** 提交结果 */

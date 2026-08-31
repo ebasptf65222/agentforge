@@ -40,9 +40,15 @@ export class KlingAdapter implements VideoProviderAdapter {
   }
 
   /**
-   * 提交一次文生视频任务。
+   * 提交一次文生视频任务（图生视频暂未接入，见说明）。
    */
   async submit(spec: SubmitSpec, config: VideoProviderConfig): Promise<SubmitResult> {
+    if (spec.imageRefs && spec.imageRefs.length > 0) {
+      throw new AppError(
+        ErrorCodes.VIDEO_INVALID_CONFIG,
+        'Kling (TokenHub) 图生视频/首尾帧暂未支持，请切换到 Seedance 厂商或改喂纯文本提示词。',
+      )
+    }
     const url = `${trimSlash(config.baseUrl)}${KLING_SUBMIT_PATH}`
     const body = {
       model: config.model,

@@ -154,6 +154,22 @@ describe('KlingAdapter', () => {
     expect((caught as AppError).code).toBe('VIDEO_API_ERROR')
   })
 
+  it('should throw VIDEO_INVALID_CONFIG when imageRefs are provided (not yet supported)', async () => {
+    let called = false
+    const request = makeRequestMock(() => {
+      called = true
+      return { status: 200, data: { id: 't1' } }
+    })
+    const adapter = new KlingAdapter(request)
+    await expect(
+      adapter.submit(
+        { prompt: 'x', duration: 5, resolution: '720P', aspect: '16:9', imageRefs: [{ path: '/tmp/a.png', role: 'first_frame' }] },
+        TEST_CONFIG,
+      ),
+    ).rejects.toMatchObject({ code: 'VIDEO_INVALID_CONFIG' })
+    expect(called).toBe(false)
+  })
+
   it('should reject unknown submit response without id', async () => {
     const request = makeRequestMock(() => ({ status: 200, data: { status: 'submitted' } }))
     const adapter = new KlingAdapter(request)

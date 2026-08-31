@@ -135,5 +135,76 @@ describe('videoGenerateTool', () => {
         status: 'submitted',
       })
     })
+
+    it('should map a single image to first_frame and forward imageRefs', async () => {
+      configSpy.mockReturnValue({ provider: 'seedance', apiKey: 'k', baseUrl: 'u', model: 'm' })
+      const result = await videoGenerateTool.execute({
+        prompt: 'animate',
+        images: ['/tmp/a.png'],
+      })
+
+      expect(generateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          imageRefs: [{ path: '/tmp/a.png', role: 'first_frame' }],
+        }),
+      )
+      expect(result.metadata).toMatchObject({ imageCount: 1 })
+    })
+
+    it('should map two images to first+last frame', async () => {
+      configSpy.mockReturnValue({ provider: 'seedance', apiKey: 'k', baseUrl: 'u', model: 'm' })
+      await videoGenerateTool.execute({ prompt: 'animate', images: ['/tmp/a.png', '/tmp/b.png'] })
+
+      expect(generateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          imageRefs: [
+            { path: '/tmp/a.png', role: 'first_frame' },
+            { path: '/tmp/b.png', role: 'last_frame' },
+          ],
+        }),
+      )
+    })
+
+    it('should throw VALIDATION_ERROR for more than two images', async () => {
+      configSpy.mockReturnValue({ provider: 'seedance', apiKey: 'k', baseUrl: 'u', model: 'm' })
+      await expect(
+        videoGenerateTool.execute({ prompt: 'animate', images: ['/tmp/a.png', '/tmp/b.png', '/tmp/c.png'] }),
+      ).rejects.toSatisfy(
+        (e: AppError) =>
+          e instanceof AppError && e.code === ErrorCodes.VALIDATION_ERROR,
+      )
+    })
+
+    it('should throw VALIDATION_ERROR when images is not an array of strings', async () => {
+      configSpy.mockReturnValue({ provider: 'seedance', apiKey: 'k', baseUrl: 'u', model: 'm' })
+      await expect(
+        videoGenerateTool.execute({ prompt: 'animate', images: 'not-an-array' }),
+      ).rejects.toSatisfy(
+        (e: AppError) =>
+          e instanceof AppError && e.code === ErrorCodes.VALIDATION_ERROR,
+      )
+    })
+
+    it('should treat empty images array as text-to-video', async () => {
+      configSpy.mockReturnValue({ provider: 'seedance', apiKey: 'k', baseUrl: 'u', model: 'm' })
+      await videoGenerateTool.execute({ prompt: 'animate', images: [] })
+
+      expect(generateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ imageRefs: undefined }),
+      )
+    })
+
+    it('should reject images when provider is Kling (via engine)', async () => {
+      configSpy.mockReturnValue({ provider: 'kling', apiKey: 'k', baseUrl: 'u', model: 'm' })
+      generateSpy.mockRejectedValueOnce(
+        new AppError(ErrorCodes.VIDEO_INVALID_CONFIG, 'Kling 图生视频暂未支持'),
+      )
+      await expect(
+        videoGenerateTool.execute({ prompt: 'animate', images: ['/tmp/a.png'] }),
+      ).rejects.toSatisfy(
+        (e: AppError) =>
+          e instanceof AppError && e.code === ErrorCodes.VIDEO_INVALID_CONFIG,
+      )
+    })
   })
 })

@@ -1,8 +1,7 @@
 // AgentForge: video_generate 内置工具
 // 允许 AI 在对话中提交一个 AI 视频生成任务（当前接入 Seedance 引擎）。
 // 中风险工具：调用外部付费大模型 API，需要已配置视频 API Key。
-import type { ToolDefinition, ToolExecutionResult } from '@shared/types'
-import type { VideoAspect, VideoResolution } from '@shared/types'
+import type { ToolDefinition, ToolExecutionResult, VideoImageRef, VideoAspect, VideoResolution } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getVideoEngine, loadVideoConfig } from '../services/video-engine'
 import type { BuiltinTool } from './types'
@@ -40,6 +39,14 @@ export const videoGenerateTool: BuiltinTool = {
           type: 'string',
           enum: ['16:9', '9:16', '4:3', '3:4', '1:1'],
           description: 'Video aspect ratio (default 16:9)',
+        },
+        images: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Local image file paths (absolute) for image-to-video. ' +
+            '1 image = first frame; 2 images = first + last frame (max 2). ' +
+            'Only supported when the default provider is Seedance.',
         },
       },
       required: ['prompt'],
@@ -80,19 +87,29 @@ export const videoGenerateTool: BuiltinTool = {
         : undefined
     const model = typeof args['model'] === 'string' && args['model'] ? args['model'] : undefined
 
+    // 图生视频/首尾帧：最多 2 张，1 张=首帧，2 张=首尾帧
+    const imageRefs = resolveImageRefs(args['images'])
+
     const task = await getVideoEngine().generate({
       prompt,
       model,
       duration,
       resolution,
       aspect,
+      imageRefs,
     })
 
+    const imageCount = imageRefs?.length ?? 0
+    const inputLine =
+      imageCount > 0
+        ? `输入图片: ${imageCount} 张（${imageCount === 1 ? '首帧' : '首帧 + 尾帧'}）`
+        : `生成方式: 文生视频`
     const summary = [
       `视频生成任务已提交！`,
       ``,
       `任务 ID: ${task.id}`,
       `提示词: ${task.prompt}`,
+      inputLine,
       `分辨率: ${task.resolution}`,
       `画面比例: ${task.aspect}`,
       `时长: ${task.duration} 秒`,
@@ -112,7 +129,40 @@ export const videoGenerateTool: BuiltinTool = {
         aspect: task.aspect,
         duration: task.duration,
         status: task.status,
+        imageCount: imageRefs?.length ?? 0,
       },
     }
   },
+}
+
+/**
+ * 将工具入参 `images`（本地图片路径数组）解析为图生视频引用。
+ * 1 张 → 首帧；2 张 → 首尾帧；超过 2 张或格式非法时抛校验错误。
+ */
+function resolveImageRefs(raw: unknown): VideoImageRef[] | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (!Array.isArray(raw)) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'images must be an array of file paths.')
+  }
+  const paths: string[] = []
+  for (const item of raw) {
+    if (typeof item !== 'string' || item.trim() === '') {
+      throw new AppError(ErrorCodes.VALIDATION_ERROR, 'images must be an array of non-empty file paths.')
+    }
+    paths.push(item.trim())
+  }
+  if (paths.length === 0) return undefined
+  if (paths.length > 2) {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      '图生视频最多支持 2 张图片（首帧 + 尾帧）。',
+    )
+  }
+  if (paths.length === 1) {
+    return [{ path: paths[0], role: 'first_frame' }]
+  }
+  return [
+    { path: paths[0], role: 'first_frame' },
+    { path: paths[1], role: 'last_frame' },
+  ]
 }

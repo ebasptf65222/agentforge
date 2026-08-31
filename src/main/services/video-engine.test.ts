@@ -211,4 +211,35 @@ describe('VideoEngine', () => {
     expect(engine.get(task.id)?.provider).toBe('kling')
     engine.shutdown()
   })
+
+  it('should forward imageRefs to the adapter submit (M5)', async () => {
+    let seenSpec: { imageRefs?: unknown[] } | null = null
+    const adapter: VideoProviderAdapter = {
+      provider: 'seedance',
+      submit: async (spec) => {
+        seenSpec = spec as { imageRefs?: unknown[] }
+        return { providerTaskId: 'prov-img' }
+      },
+      status: async () => ({ status: 'queued' as const, progress: 5, downloadUrl: null }),
+    }
+    const engine = new VideoEngine({
+      adapterFactory: () => adapter,
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      pollIntervalMs: 1000,
+    })
+
+    await engine.generate({
+      prompt: 'animate a frame',
+      imageRefs: [
+        { path: '/tmp/a.png', role: 'first_frame' },
+        { path: '/tmp/b.png', role: 'last_frame' },
+      ],
+    })
+    expect(seenSpec?.imageRefs).toEqual([
+      { path: '/tmp/a.png', role: 'first_frame' },
+      { path: '/tmp/b.png', role: 'last_frame' },
+    ])
+    engine.shutdown()
+  })
 })
