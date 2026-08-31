@@ -102,6 +102,9 @@ function isTerminal(status: VideoTaskStatus): boolean {
           {{ STATUS_LABEL[sequence.status] }}
         </NTag>
         <span class="sequence-card__name">{{ sequence.title || '多镜头序列' }}</span>
+        <NTag v-if="sequence.continuity" type="success" size="tiny" :bordered="false">
+          顺序衔接
+        </NTag>
       </span>
       <span class="sequence-card__summary">
         <NTooltip placement="left" :delay="500">
@@ -134,6 +137,13 @@ function isTerminal(status: VideoTaskStatus): boolean {
             <NTag size="tiny" :type="statusType(task.status)" :bordered="false">
               {{ STATUS_LABEL[task.status] }}
             </NTag>
+            <span
+              v-if="task.isChained"
+              class="shot-row__chain"
+              title="以上一镜头尾帧自动截取作为首帧"
+            >
+              ⇣ 衔接
+            </span>
             <span class="shot-row__prompt">{{ task.prompt }}</span>
           </div>
 
@@ -250,6 +260,16 @@ function isTerminal(status: VideoTaskStatus): boolean {
   font-size: 12px;
   font-family: ui-monospace, Menlo, Consolas, monospace;
   color: var(--af-text-tertiary, #94a3b8);
+  flex-shrink: 0;
+}
+
+.shot-row__chain {
+  font-size: 11px;
+  color: var(--af-success-text, #22c55e);
+  background-color: color-mix(in srgb, var(--af-success-text, #22c55e) 14%, transparent);
+  border-radius: 4px;
+  padding: 0 5px;
+  line-height: 1.5;
   flex-shrink: 0;
 }
 

@@ -190,6 +190,10 @@ export const ErrorCodes = {
   VIDEO_INVALID_CONFIG: 'VIDEO_INVALID_CONFIG',
   /** 视频任务不存在 */
   VIDEO_TASK_NOT_FOUND: 'VIDEO_TASK_NOT_FOUND',
+  /** 视频任务状态不可重试（仅 failed / cancelled 可重试） */
+  VIDEO_TASK_NOT_RETRYABLE: 'VIDEO_TASK_NOT_RETRYABLE',
+  /** 视频序列不存在 */
+  VIDEO_SEQUENCE_NOT_FOUND: 'VIDEO_SEQUENCE_NOT_FOUND',
   /** 视频生成 API 调用错误（认证、网络、服务端等） */
   VIDEO_API_ERROR: 'VIDEO_API_ERROR',
   /** 视频生成 API 限流 */
@@ -198,6 +202,8 @@ export const ErrorCodes = {
   VIDEO_GENERATION_FAILED: 'VIDEO_GENERATION_FAILED',
   /** 视频文件下载/落盘失败 */
   VIDEO_DOWNLOAD_ERROR: 'VIDEO_DOWNLOAD_ERROR',
+  /** 视频尾帧抽取失败（M8 连续性衔接所需 ffmpeg 截帧） */
+  VIDEO_FRAME_EXTRACT_ERROR: 'VIDEO_FRAME_EXTRACT_ERROR',
 
   // ─── 通用 ────────────────────────────────────────────────────
   /** 数据库错误 */

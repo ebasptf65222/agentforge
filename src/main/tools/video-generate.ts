@@ -14,7 +14,7 @@ export const videoGenerateTool: BuiltinTool = {
       'Generate an AI video by submitting a video generation task. ' +
       'Use the `prompt` field for a single video, or `shots` (2 or more) for a ' +
       'multi-shot sequence where each shot is generated as its own video. ' +
-      'Returns immediately with a task ID (or sequence ID); tasks run asynchronously ' +
+      'Returned immediately with a task ID (or sequence ID); tasks run asynchronously ' +
       'and results are delivered when ready. Requires a configured video API key in settings.',
     inputSchema: {
       type: 'object',
@@ -46,6 +46,14 @@ export const videoGenerateTool: BuiltinTool = {
             required: ['prompt'],
           },
           description: 'Multi-shot: 2+ shots. Each shot becomes its own video task grouped under one sequence. When provided, `prompt` is ignored.',
+        },
+        continuity: {
+          type: 'boolean',
+          description:
+            'Continuity mode for a `shots` sequence: each shot is generated strictly in order and ' +
+            'starts from the previous shot\'s auto-captured last frame, producing a coherent narrative. ' +
+            'Requires shots to be text-to-video only (no `images`) and provider image-to-video support. ' +
+            'Ignored when `shots` is not provided.',
         },
         model: {
           type: 'string',
@@ -98,10 +106,11 @@ export const videoGenerateTool: BuiltinTool = {
     }
 
     const model = typeof args['model'] === 'string' && args['model'] ? args['model'] : undefined
+    const continuity = args['continuity'] === true
 
     // 多镜头序列路径
     if (Array.isArray(args['shots']) && args['shots'].length > 0) {
-      return this.executeSequence(args, { resolution, aspect, model })
+      return this.executeSequence(args, { resolution, aspect, model, continuity })
     }
 
     // 单镜头路径
@@ -171,7 +180,12 @@ export const videoGenerateTool: BuiltinTool = {
   /** 多镜头序列：解析 shots 并提交序列生成 */
   async executeSequence(
     args: Record<string, unknown>,
-    common: { resolution?: VideoResolution; aspect?: VideoAspect; model?: string },
+    common: {
+      resolution?: VideoResolution
+      aspect?: VideoAspect
+      model?: string
+      continuity?: boolean
+    },
   ): Promise<ToolExecutionResult> {
     loadVideoConfig()
     const shots = resolveShots(args['shots'])
@@ -186,13 +200,16 @@ export const videoGenerateTool: BuiltinTool = {
       model: common.model,
       resolution: common.resolution,
       aspect: common.aspect,
+      continuity: common.continuity,
     })
 
+    const isContinuity = sequence.continuity
     const lines = [
       `多镜头视频序列已提交！`,
       ``,
       `序列 ID: ${sequence.id}`,
       `镜头: ${sequence.totalCount} 个`,
+      `模式: ${isContinuity ? '连续性衔接（尾帧自动衔接）' : '并行跑批'}`,
       ``,
     ]
     shots.forEach((shot, index) => {
@@ -202,7 +219,12 @@ export const videoGenerateTool: BuiltinTool = {
           (imgRefCount > 0 ? `（含参考图 ${imgRefCount} 张）` : ``),
       )
     })
-    lines.push(``, `每个镜头将在后台异步生成，完成后会自动通知。`)
+    lines.push(
+      ``,
+      isContinuity
+        ? `镜头将按顺序生成：每个镜头以上一镜头尾帧为首帧，完成后自动通知。`
+        : `每个镜头将在后台异步生成，完成后会自动通知。`,
+    )
 
     return {
       isError: false,
@@ -214,6 +236,7 @@ export const videoGenerateTool: BuiltinTool = {
         resolution: common.resolution ?? '720P',
         aspect: common.aspect ?? '16:9',
         status: sequence.status,
+        continuity: sequence.continuity,
       },
     }
   },

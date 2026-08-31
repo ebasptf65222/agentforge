@@ -398,6 +398,18 @@ const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
     comment: 'VIDEO-M6: 序列内镜头序号',
     sql: `ALTER TABLE video_tasks ADD COLUMN shot_index INTEGER`,
   },
+  {
+    table: 'video_tasks',
+    column: 'is_chained',
+    comment: 'VIDEO-M8: 是否使用自动衔接尾帧作为首帧',
+    sql: `ALTER TABLE video_tasks ADD COLUMN is_chained INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    table: 'video_sequences',
+    column: 'continuity',
+    comment: 'VIDEO-M8: 是否为连续性衔接序列',
+    sql: `ALTER TABLE video_sequences ADD COLUMN continuity INTEGER NOT NULL DEFAULT 0`,
+  },
 ] as const
 
 /**
@@ -480,9 +492,11 @@ const TABLE_MIGRATIONS: readonly { table: string; sql: string }[] = [
       output_path      TEXT,
       sequence_id      TEXT,
       shot_index       INTEGER,
+      is_chained       INTEGER NOT NULL DEFAULT 0,
       created_at       INTEGER NOT NULL,
       updated_at       INTEGER NOT NULL
     )`,
+
   },
   {
     table: 'video_sequences',
@@ -495,6 +509,7 @@ const TABLE_MIGRATIONS: readonly { table: string; sql: string }[] = [
       succeeded_count  INTEGER NOT NULL DEFAULT 0,
       failed_count     INTEGER NOT NULL DEFAULT 0,
       cancelled_count  INTEGER NOT NULL DEFAULT 0,
+      continuity       INTEGER NOT NULL DEFAULT 0,
       created_at       INTEGER NOT NULL,
       updated_at       INTEGER NOT NULL
     )`,

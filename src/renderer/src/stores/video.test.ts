@@ -54,6 +54,16 @@ function mockElectronVideo(overrides?: Record<string, unknown>): Record<string, 
     status: vi.fn(),
     list: vi.fn().mockResolvedValue([]),
     cancel: vi.fn(),
+    retry: vi.fn(),
+    cancelSequence: vi.fn(),
+    deleteTask: vi.fn().mockResolvedValue(undefined),
+    deleteSequence: vi.fn().mockResolvedValue(undefined),
+    retryTasks: vi.fn(),
+    cancelSequences: vi.fn(),
+    deleteTasks: vi.fn(),
+    deleteSequences: vi.fn(),
+    parseCsv: vi.fn(),
+    batchGenerate: vi.fn(),
     getConfig: vi.fn(),
     testConfig: vi.fn(),
     listSequences: vi.fn().mockResolvedValue([]),
@@ -104,6 +114,67 @@ describe('video store', () => {
     expect(result?.status).toBe('cancelled')
     expect(store.getTask('t1')?.status).toBe('cancelled')
     expect(api.cancel).toHaveBeenCalledWith('t1')
+  })
+
+  it('retry 提交新任务并 upsert（M9）', async () => {
+    const api = mockElectronVideo({
+      retry: vi.fn().mockResolvedValue(task({ id: 't2' })),
+    })
+    const store = useVideoStore()
+
+    const result = await store.retry('t1')
+
+    expect(api.retry).toHaveBeenCalledWith('t1')
+    expect(result.id).toBe('t2')
+    expect(store.getTask('t2')?.id).toBe('t2')
+  })
+
+  it('cancelSequence 更新序列为取消（M9）', async () => {
+    const api = mockElectronVideo({
+      cancelSequence: vi.fn().mockResolvedValue(sequence({ id: 'seq-1', status: 'cancelled' })),
+    })
+    const store = useVideoStore()
+
+    const seq = await store.cancelSequence('seq-1')
+
+    expect(seq.status).toBe('cancelled')
+    expect(store.getSequence('seq-1')?.status).toBe('cancelled')
+    expect(api.cancelSequence).toHaveBeenCalledWith('seq-1')
+  })
+
+  it('deleteTask 从本地状态移除（M9）', async () => {
+    const api = mockElectronVideo({
+      list: vi.fn().mockResolvedValue([task({ id: 't1', status: 'succeeded', progress: 100 })]),
+      deleteTask: vi.fn().mockResolvedValue(undefined),
+    })
+    const store = useVideoStore()
+    await store.refresh()
+    expect(store.getTask('t1')).toBeTruthy()
+
+    await store.deleteTask('t1')
+
+    expect(store.getTask('t1')).toBeNull()
+    expect(api.deleteTask).toHaveBeenCalledWith('t1')
+  })
+
+  it('deleteSequence 移除序列及其子任务（M9）', async () => {
+    const api = mockElectronVideo({
+      list: vi.fn().mockResolvedValue([
+        task({ id: 't1', status: 'succeeded', progress: 100, sequenceId: 'seq-1' }),
+      ]),
+      listSequences: vi.fn().mockResolvedValue([sequence({ id: 'seq-1', status: 'succeeded', totalCount: 1, succeededCount: 1 })]),
+      deleteSequence: vi.fn().mockResolvedValue(undefined),
+    })
+    const store = useVideoStore()
+    await store.refresh()
+    await store.refreshSequences()
+    expect(store.getSequence('seq-1')).toBeTruthy()
+
+    await store.deleteSequence('seq-1')
+
+    expect(store.getSequence('seq-1')).toBeNull()
+    expect(store.getTask('t1')).toBeNull()
+    expect(api.deleteSequence).toHaveBeenCalledWith('seq-1')
   })
 
   it('refresh 拉取列表并合并任务', async () => {
@@ -251,5 +322,182 @@ describe('video store', () => {
     expect(detailSpy).toHaveBeenCalledTimes(1)
     expect(api.getSequenceDetail).toHaveBeenCalledWith('seq-a')
     expect(store.getSequence('seq-a')?.status).toBe('running')
+  })
+
+  // ─── M10: 选择模型 ─────────────────────────────────────────
+
+  it('toggle 选中/取消任务与序列', () => {
+    mockElectronVideo({})
+    const store = useVideoStore()
+
+    store.toggleSelectTask('t1')
+    expect(store.isTaskSelected('t1')).toBe(true)
+    store.toggleSelectTask('t1')
+    expect(store.isTaskSelected('t1')).toBe(false)
+    expect(store.selectedTaskCount).toBe(0)
+
+    store.toggleSelectSequence('seq-1')
+    expect(store.isSequenceSelected('seq-1')).toBe(true)
+    expect(store.selectedCount).toBe(1)
+    store.clearSelection()
+    expect(store.selectedCount).toBe(0)
+  })
+
+  it('selectAllTasks / selectAllSequences 去重并覆盖', () => {
+    mockElectronVideo({})
+    const store = useVideoStore()
+
+    store.selectAllTasks(['a', 'b', 'a'])
+    store.selectAllSequences(['s1'])
+
+    expect(store.selectedTaskIds).toEqual(['a', 'b'])
+    expect(store.selectedSequenceIds).toEqual(['s1'])
+  })
+
+  // ─── M10: 批量动作 ─────────────────────────────────────────
+
+  it('batchRetry upsert 新任务并清除对应选择（M10）', async () => {
+    const api = mockElectronVideo({
+      retryTasks: vi.fn().mockResolvedValue({
+        succeeded: [task({ id: 'n2', status: 'running' })],
+        failed: [],
+      }),
+    })
+    const store = useVideoStore()
+    store.toggleSelectTask('t1')
+
+    await store.batchRetry(['t1'])
+
+    expect(api.retryTasks).toHaveBeenCalledWith(['t1'])
+    expect(store.getTask('n2')?.id).toBe('n2')
+    expect(store.isTaskSelected('t1')).toBe(false)
+  })
+
+  it('batchDeleteTasks 移除本地任务并清除选择（M10）', async () => {
+    const api = mockElectronVideo({
+      list: vi.fn().mockResolvedValue([
+        task({ id: 'a', status: 'succeeded', progress: 100 }),
+        task({ id: 'b', status: 'succeeded', progress: 100 }),
+      ]),
+      deleteTasks: vi.fn().mockResolvedValue({ succeeded: ['a', 'b'], failed: [] }),
+    })
+    const store = useVideoStore()
+    await store.refresh()
+
+    await store.batchDeleteTasks(['a', 'b'])
+
+    expect(api.deleteTasks).toHaveBeenCalledWith(['a', 'b'])
+    expect(store.getTask('a')).toBeNull()
+    expect(store.getTask('b')).toBeNull()
+  })
+
+  it('batchDeleteSequences 移除序列及其子任务（M10）', async () => {
+    const api = mockElectronVideo({
+      list: vi.fn().mockResolvedValue([
+        task({ id: 'c1', status: 'succeeded', progress: 100, sequenceId: 'seq-a' }),
+        task({ id: 'c2', status: 'succeeded', progress: 100, sequenceId: 'seq-a' }),
+      ]),
+      listSequences: vi.fn().mockResolvedValue([
+        sequence({ id: 'seq-a', status: 'succeeded', totalCount: 2, succeededCount: 2 }),
+      ]),
+      deleteSequences: vi.fn().mockResolvedValue({ succeeded: ['seq-a'], failed: [] }),
+    })
+    const store = useVideoStore()
+    await store.refresh()
+    await store.refreshSequences()
+
+    await store.batchDeleteSequences(['seq-a'])
+
+    expect(api.deleteSequences).toHaveBeenCalledWith(['seq-a'])
+    expect(store.getSequence('seq-a')).toBeNull()
+    expect(store.getTask('c1')).toBeNull()
+    expect(store.getTask('c2')).toBeNull()
+  })
+
+  it('batchCancelSequences upsert 序列为取消（M10）', async () => {
+    const api = mockElectronVideo({
+      cancelSequences: vi.fn().mockResolvedValue({
+        succeeded: [sequence({ id: 'seq-1', status: 'cancelled' })],
+        failed: [],
+      }),
+    })
+    const store = useVideoStore()
+    store.toggleSelectSequence('seq-1')
+
+    await store.batchCancelSequences(['seq-1'])
+
+    expect(api.cancelSequences).toHaveBeenCalledWith(['seq-1'])
+    expect(store.getSequence('seq-1')?.status).toBe('cancelled')
+    expect(store.isSequenceSelected('seq-1')).toBe(false)
+  })
+
+  // ─── M11: CSV 批量造片 ──────────────────────────────────────
+
+  it('parseCsv 返回解析预览（M11）', async () => {
+    const api = mockElectronVideo({
+      parseCsv: vi.fn().mockResolvedValue({
+        rows: [{ prompt: 'a cat' }, { prompt: 'a dog', duration: 6 }],
+        skipped: [{ line: 4, reason: 'prompt is empty' }],
+        headerMissingPrompt: false,
+      }),
+    })
+    const store = useVideoStore()
+
+    const result = await store.parseCsv('/tmp/batch.csv')
+
+    expect(api.parseCsv).toHaveBeenCalledWith('/tmp/batch.csv')
+    expect(result.rows).toHaveLength(2)
+    expect(result.skipped[0]?.line).toBe(4)
+    expect(result.headerMissingPrompt).toBe(false)
+  })
+
+  it('parseCsv 出错时向上抛出（M11）', async () => {
+    mockElectronVideo({
+      parseCsv: vi.fn().mockRejectedValue(new Error('file not found')),
+    })
+    const store = useVideoStore()
+    await expect(store.parseCsv('/tmp/missing.csv')).rejects.toThrow('file not found')
+  })
+
+  it('batchGenerate upsert 成功任务（M11）', async () => {
+    const api = mockElectronVideo({
+      batchGenerate: vi.fn().mockResolvedValue({
+        succeeded: [task({ id: 't1', prompt: 'a cat' }), task({ id: 't2', prompt: 'a dog' })],
+        failed: [],
+      }),
+    })
+    const store = useVideoStore()
+
+    await store.batchGenerate([{ prompt: 'a cat' }, { prompt: 'a dog' }])
+
+    expect(api.batchGenerate).toHaveBeenCalledWith(
+      [{ prompt: 'a cat' }, { prompt: 'a dog' }],
+      undefined,
+    )
+    expect(store.getTask('t1')?.id).toBe('t1')
+    expect(store.getTask('t2')?.id).toBe('t2')
+  })
+
+  it('batchGenerate 部分失败时仍 upsert 成功项（M11）', async () => {
+    mockElectronVideo({
+      batchGenerate: vi.fn().mockResolvedValue({
+        succeeded: [task({ id: 't1' })],
+        failed: [{ id: 'a dog', message: 'provider rejected' }],
+      }),
+    })
+    const store = useVideoStore()
+
+    await store.batchGenerate([{ prompt: 'a cat' }, { prompt: 'a dog' }])
+
+    expect(store.getTask('t1')?.id).toBe('t1')
+  })
+
+  it('batchGenerate 空行时直接返回不调用（M11）', async () => {
+    const api = mockElectronVideo({ batchGenerate: vi.fn() })
+    const store = useVideoStore()
+
+    await store.batchGenerate([])
+
+    expect(api.batchGenerate).not.toHaveBeenCalled()
   })
 })

@@ -4,7 +4,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-type ViewName = 'chat' | 'settings' | 'kb' | 'wiki'
+type ViewName = 'chat' | 'settings' | 'kb' | 'wiki' | 'video'
 
 /** 视口断点（UI-REDESIGN v1.0） */
 export type Viewport = 'compact' | 'medium' | 'wide'

@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { initDatabase, closeDatabase } from '../index'
-import { createVideoTask, updateVideoTask, listVideoTasksBySequence } from './video-task'
+import { createVideoTask, createQueuedVideoTask, updateVideoTask, listVideoTasksBySequence } from './video-task'
 import {
   createVideoSequence,
   getVideoSequenceById,
@@ -56,6 +56,46 @@ describe('video-sequence repository', () => {
     const updated = updateVideoSequence(seq.id, { status: 'succeeded', succeededCount: 2 })
     expect(updated?.status).toBe('succeeded')
     expect(updated?.succeededCount).toBe(2)
+  })
+
+  it('should persist a sequence with the continuity flag (M8)', () => {
+    const seq = createVideoSequence({ title: 'Cinematic', totalCount: 2, continuity: true })
+    expect(seq.continuity).toBe(true)
+    expect(getVideoSequenceById(seq.id)?.continuity).toBe(true)
+
+    const plain = createVideoSequence({ title: 'Batch', totalCount: 2 })
+    expect(plain.continuity).toBe(false)
+  })
+
+  it('should create a queued placeholder task with the chained flag (M8)', () => {
+    const seq = createVideoSequence({ title: 'Cinematic', totalCount: 2, continuity: true })
+    const first = createQueuedVideoTask({
+      provider: 'seedance',
+      prompt: 'anchor',
+      model: 'm',
+      duration: 5,
+      resolution: '720P',
+      aspect: '16:9',
+      sequenceId: seq.id,
+      shotIndex: 0,
+      isChained: false,
+    })
+    const second = createQueuedVideoTask({
+      provider: 'seedance',
+      prompt: 'chained',
+      model: 'm',
+      duration: 5,
+      resolution: '720P',
+      aspect: '16:9',
+      sequenceId: seq.id,
+      shotIndex: 1,
+      isChained: true,
+    })
+    expect(first.status).toBe('queued')
+    expect(first.isChained).toBe(false)
+    expect(second.status).toBe('queued')
+    expect(second.isChained).toBe(true)
+    expect(second.providerTaskId).toBeNull()
   })
 
   it('should reconcile succeeded when all shots succeed', () => {

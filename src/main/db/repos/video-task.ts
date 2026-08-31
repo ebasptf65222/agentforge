@@ -42,6 +42,7 @@ interface VideoTaskRow {
   output_path: string | null
   sequence_id: string | null
   shot_index: number | null
+  is_chained: number
   created_at: number
   updated_at: number
 }
@@ -64,6 +65,7 @@ function rowToTask(row: VideoTaskRow): VideoTask {
     outputPath: row.output_path,
     sequenceId: row.sequence_id,
     shotIndex: row.shot_index,
+    isChained: Boolean(row.is_chained),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -81,8 +83,8 @@ export function createVideoTask(params: CreateVideoTaskRow): VideoTask {
     `INSERT INTO video_tasks
       (id, provider, provider_task_id, prompt, model, duration, resolution, aspect,
        status, progress, error_code, error_message, download_url, output_path,
-       sequence_id, shot_index, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       sequence_id, shot_index, is_chained, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     params.provider ?? 'seedance',
@@ -100,12 +102,60 @@ export function createVideoTask(params: CreateVideoTaskRow): VideoTask {
     null,
     params.sequenceId ?? null,
     params.shotIndex ?? null,
+    params.isChained ? 1 : 0,
     now,
     now,
   )
 
   const task = getVideoTaskById(id)
   if (!task) throw new Error('Failed to create video task')
+  return task
+}
+
+/**
+ * 创建多镜头序列中的“排队”子任务（M8 连续性衔接专用）。
+ * 仅在连续性序列生成时使用：各镜头先以 queued 落库占位，
+ * 达成一个镜头后由引擎截取其尾帧，再把下一个 queued 任务提交到厂商。
+ * 非连续性（M6 并行跑批）无需此路径。
+ */
+export function createQueuedVideoTask(params: {
+  provider: VideoProvider
+  prompt: string
+  model: string
+  duration: number
+  resolution: VideoTask['resolution']
+  aspect: VideoTask['aspect']
+  sequenceId: string
+  shotIndex: number
+  isChained: boolean
+}): VideoTask {
+  const db: Database.Database = getDatabase()
+  const now = Date.now()
+  const id = generateId()
+
+  db.prepare(
+    `INSERT INTO video_tasks
+      (id, provider, provider_task_id, prompt, model, duration, resolution, aspect,
+       status, progress, error_code, error_message, download_url, output_path,
+       sequence_id, shot_index, is_chained, created_at, updated_at)
+     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    params.provider,
+    params.prompt,
+    params.model,
+    params.duration,
+    params.resolution,
+    params.aspect,
+    params.sequenceId,
+    params.shotIndex,
+    params.isChained ? 1 : 0,
+    now,
+    now,
+  )
+
+  const task = getVideoTaskById(id)
+  if (!task) throw new Error('Failed to create queued video task')
   return task
 }
 

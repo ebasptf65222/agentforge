@@ -55,6 +55,8 @@ export interface VideoTask {
   sequenceId: string | null
   /** 在序列内的镜头序号（从 0 开始） */
   shotIndex: number | null
+  /** 该镜头是否使用了自动衔接的尾帧作为首帧（M8 连续性） */
+  isChained: boolean
   createdAt: number
   updatedAt: number
 }
@@ -102,6 +104,8 @@ export interface VideoSequence {
   failedCount: number
   /** 已取消镜头数 */
   cancelledCount: number
+  /** 是否为连续性衔接序列（M8：镜头 i 尾帧自动作为镜头 i+1 首帧） */
+  continuity: boolean
   createdAt: number
   updatedAt: number
 }
@@ -114,6 +118,12 @@ export interface CreateVideoSequenceParams {
   aspect?: VideoAspect
   /** 至少 2 个镜头 */
   shots: VideoShot[]
+  /**
+   * 连续性衔接（M8）：为 true 时镜头 i 生成后自动截取其尾帧作为镜头 i+1 的首帧，
+   * 并按顺序逐个生成以形成连贯叙事。要求镜头为纯文生（首帧由衔接提供），且厂商支持图生视频。
+   * 缺省为 false（M6 并行跑批）。
+   */
+  continuity?: boolean
 }
 
 /** 多镜头序列详情（序列 + 其下的镜头子任务，供渲染层一次性渲染） */

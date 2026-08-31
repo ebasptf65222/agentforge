@@ -13,6 +13,8 @@ export interface CreateVideoSequenceParams {
   title: string
   provider?: VideoProvider
   totalCount: number
+  /** M8：是否为连续性衔接序列（镜头 i 尾帧自动作为镜头 i+1 首帧） */
+  continuity?: boolean
 }
 
 /** 运行时可更新的序列字段 */
@@ -33,6 +35,7 @@ interface VideoSequenceRow {
   succeeded_count: number
   failed_count: number
   cancelled_count: number
+  continuity: number
   created_at: number
   updated_at: number
 }
@@ -47,6 +50,7 @@ function rowToSequence(row: VideoSequenceRow): VideoSequence {
     succeededCount: row.succeeded_count,
     failedCount: row.failed_count,
     cancelledCount: row.cancelled_count,
+    continuity: Boolean(row.continuity),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -62,9 +66,18 @@ export function createVideoSequence(params: CreateVideoSequenceParams): VideoSeq
 
   db.prepare(
     `INSERT INTO video_sequences
-      (id, title, provider, status, total_count, succeeded_count, failed_count, cancelled_count, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?, ?)`,
-  ).run(id, params.title, params.provider ?? 'seedance', 'submitted', params.totalCount, now, now)
+      (id, title, provider, status, total_count, succeeded_count, failed_count, cancelled_count, continuity, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?)`,
+  ).run(
+    id,
+    params.title,
+    params.provider ?? 'seedance',
+    'submitted',
+    params.totalCount,
+    params.continuity ? 1 : 0,
+    now,
+    now,
+  )
 
   const seq = getVideoSequenceById(id)
   if (!seq) throw new Error('Failed to create video sequence')
@@ -88,7 +101,7 @@ export function getVideoSequenceById(id: string): VideoSequence | null {
 export function listVideoSequences(limit = 50): VideoSequence[] {
   const db: Database.Database = getDatabase()
   const rows = db
-    .prepare('SELECT * FROM video_sequences ORDER BY created_at DESC LIMIT ?')
+    .prepare('SELECT * FROM video_sequences ORDER BY created_at DESC, rowid DESC LIMIT ?')
     .all(Math.max(1, Math.min(limit, 200))) as VideoSequenceRow[]
   return rows.map(rowToSequence)
 }

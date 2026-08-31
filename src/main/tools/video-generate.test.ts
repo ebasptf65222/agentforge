@@ -273,6 +273,22 @@ describe('videoGenerateTool', () => {
       )
     })
 
+    it('should forward continuity=true as the sequence continuity mode (M8)', async () => {
+      generateSequenceSpy.mockResolvedValue({
+        sequence: { id: 'seq-1', continuity: true, totalCount: 2, status: 'running', provider: 'seedance' },
+        tasks: [],
+      })
+
+      await videoGenerateTool.execute({
+        shots: [{ prompt: 'a' }, { prompt: 'b' }],
+        continuity: true,
+      })
+
+      expect(generateSequenceSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ continuity: true }),
+      )
+    })
+
     it('should map per-shot images to imageRefs', async () => {
       await videoGenerateTool.execute({
         shots: [
