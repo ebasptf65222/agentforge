@@ -51,6 +51,10 @@ export interface VideoTask {
   downloadUrl: string | null
   /** 本地落盘相对路径（workspace/videos/...） */
   outputPath: string | null
+  /** 所属多镜头序列 ID（非 M6 多镜头时为 null） */
+  sequenceId: string | null
+  /** 在序列内的镜头序号（从 0 开始） */
+  shotIndex: number | null
   createdAt: number
   updatedAt: number
 }
@@ -64,6 +68,52 @@ export interface CreateVideoTaskParams {
   aspect?: VideoAspect
   /** 图生视频/首尾帧参考图（1 张=首帧；2 张=首尾帧） */
   imageRefs?: VideoImageRef[]
+  /** 所属多镜头序列 ID（内部，M6 多镜头子任务使用） */
+  sequenceId?: string | null
+  /** 序列内镜头序号 */
+  shotIndex?: number | null
+}
+
+/** 单个镜头（M6 多镜头顺序生成） */
+export interface VideoShot {
+  /** 镜头提示词，描述该镜头的画面/动作/场景 */
+  prompt: string
+  /** 该镜头时长（秒，缺省用序列默认或引擎默认） */
+  duration?: number
+  /** 该镜头参考图（可选，1 张=首帧，2 张=首尾帧） */
+  imageRefs?: VideoImageRef[]
+}
+
+/** 多镜头序列状态（复用同一套任务状态机） */
+export type VideoSequenceStatus = VideoTaskStatus
+
+/** 多镜头序列实体（持久化到 video_sequences 表） */
+export interface VideoSequence {
+  id: string
+  /** 序列标题（可由首个镜头提示词截取） */
+  title: string
+  provider: VideoProvider
+  status: VideoSequenceStatus
+  /** 镜头总数 */
+  totalCount: number
+  /** 成功镜头数 */
+  succeededCount: number
+  /** 失败镜头数 */
+  failedCount: number
+  /** 已取消镜头数 */
+  cancelledCount: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** 创建多镜头序列参数 */
+export interface CreateVideoSequenceParams {
+  title?: string
+  model?: string
+  resolution?: VideoResolution
+  aspect?: VideoAspect
+  /** 至少 2 个镜头 */
+  shots: VideoShot[]
 }
 
 /** 运行时厂商配置（明文 API Key，由引擎解密后注入） */

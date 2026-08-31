@@ -9,6 +9,7 @@ import { initDatabase, closeDatabase } from '../db/index'
 import { updateSettings, getSettings } from '../db/repos/app-settings'
 import { getVideoEngine, resetVideoEngine, VideoEngine } from './video-engine'
 import type { VideoProviderAdapter, VideoProviderConfig } from './video-provider/types'
+import { getVideoSequenceById } from '../db/repos/video-sequence'
 
 const TEST_CONFIG: VideoProviderConfig = {
   provider: 'seedance',
@@ -240,6 +241,86 @@ describe('VideoEngine', () => {
       { path: '/tmp/a.png', role: 'first_frame' },
       { path: '/tmp/b.png', role: 'last_frame' },
     ])
+    engine.shutdown()
+  })
+
+  it('should create a sequence with child tasks carrying sequenceId/shotIndex (M6)', async () => {
+    const engine = new VideoEngine({
+      adapterFactory: () => makeAdapter([{ status: 'running' }]),
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 60_000,
+    })
+
+    const { sequence, tasks } = await engine.generateSequence({
+      shots: [{ prompt: 'shot one' }, { prompt: 'shot two' }],
+    })
+    expect(sequence.totalCount).toBe(2)
+    expect(sequence.status).toBe('submitted')
+    expect(tasks).toHaveLength(2)
+    expect(tasks[0].sequenceId).toBe(sequence.id)
+    expect(tasks[0].shotIndex).toBe(0)
+    expect(tasks[1].shotIndex).toBe(1)
+    engine.shutdown()
+  })
+
+  it('should reject a sequence with fewer than 2 shots (M6)', async () => {
+    const engine = new VideoEngine({
+      adapterFactory: () => makeAdapter([{ status: 'running' }]),
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      pollIntervalMs: 60_000,
+    })
+    await expect(
+      engine.generateSequence({ shots: [{ prompt: 'only one' }] }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    engine.shutdown()
+  })
+
+  it('should reconcile sequence to succeeded when all shots succeed (M6)', async () => {
+    const engine = new VideoEngine({
+      adapterFactory: () =>
+        makeAdapter([{ status: 'succeeded', progress: 100, downloadUrl: 'https://x/v.mp4' }]),
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 5,
+    })
+
+    const { sequence, tasks } = await engine.generateSequence({
+      shots: [{ prompt: 'shot one' }, { prompt: 'shot two' }],
+    })
+    await waitFor(() => getVideoSequenceById(sequence.id)?.status === 'succeeded')
+
+    const seq = getVideoSequenceById(sequence.id)
+    expect(seq?.succeededCount).toBe(2)
+    expect(seq?.failedCount).toBe(0)
+    expect(engine.get(tasks[0].id)?.status).toBe('succeeded')
+    expect(engine.get(tasks[1].id)?.status).toBe('succeeded')
+    engine.shutdown()
+  })
+
+  it('should reconcile sequence to failed when any shot fails (M6)', async () => {
+    const adapter: VideoProviderAdapter = {
+      provider: 'seedance',
+      submit: async () => ({ providerTaskId: 'prov-fail' }),
+      status: async () => ({ status: 'failed' as const, progress: 100, downloadUrl: null }),
+    }
+    const engine = new VideoEngine({
+      adapterFactory: () => adapter,
+      configProvider: () => TEST_CONFIG,
+      notify: () => undefined,
+      pollIntervalMs: 5,
+    })
+
+    const { sequence } = await engine.generateSequence({
+      shots: [{ prompt: 'a' }, { prompt: 'b' }],
+    })
+    await waitFor(() => getVideoSequenceById(sequence.id)?.status === 'failed')
+
+    const seq = getVideoSequenceById(sequence.id)
+    expect(seq?.failedCount).toBe(2)
     engine.shutdown()
   })
 })

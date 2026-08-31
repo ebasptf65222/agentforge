@@ -1,7 +1,7 @@
 // AgentForge: video_generate 内置工具
 // 允许 AI 在对话中提交一个 AI 视频生成任务（当前接入 Seedance 引擎）。
 // 中风险工具：调用外部付费大模型 API，需要已配置视频 API Key。
-import type { ToolDefinition, ToolExecutionResult, VideoImageRef, VideoAspect, VideoResolution } from '@shared/types'
+import type { ToolDefinition, ToolExecutionResult, VideoImageRef, VideoAspect, VideoResolution, VideoShot } from '@shared/types'
 import { AppError, ErrorCodes } from '../utils/error'
 import { getVideoEngine, loadVideoConfig } from '../services/video-engine'
 import type { BuiltinTool } from './types'
@@ -12,15 +12,40 @@ export const videoGenerateTool: BuiltinTool = {
     name: 'video_generate',
     description:
       'Generate an AI video by submitting a video generation task. ' +
-      'Returns immediately with a task ID; the task runs asynchronously and the result ' +
-      'is delivered when ready. Use this tool when the user asks to create/generate a video ' +
-      'from a text prompt. Requires a configured video API key in settings.',
+      'Use the `prompt` field for a single video, or `shots` (2 or more) for a ' +
+      'multi-shot sequence where each shot is generated as its own video. ' +
+      'Returns immediately with a task ID (or sequence ID); tasks run asynchronously ' +
+      'and results are delivered when ready. Requires a configured video API key in settings.',
     inputSchema: {
       type: 'object',
       properties: {
         prompt: {
           type: 'string',
-          description: 'Detailed description of the video content to generate, including subject, action, scene, style, lighting and camera movement',
+          description: 'Detailed description of the video content to generate, including subject, action, scene, style, lighting and camera movement. Required unless `shots` is provided.',
+        },
+        shots: {
+          type: 'array',
+          minItems: 2,
+          items: {
+            type: 'object',
+            properties: {
+              prompt: {
+                type: 'string',
+                description: 'This shot\'s prompt: subject, action, scene, style, lighting, camera.',
+              },
+              duration: {
+                type: 'number',
+                description: 'This shot\'s duration in seconds (4-15, optional).',
+              },
+              images: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Optional local image paths for this shot (≤2). 1 = first frame, 2 = first + last frame.',
+              },
+            },
+            required: ['prompt'],
+          },
+          description: 'Multi-shot: 2+ shots. Each shot becomes its own video task grouped under one sequence. When provided, `prompt` is ignored.',
         },
         model: {
           type: 'string',
@@ -28,7 +53,7 @@ export const videoGenerateTool: BuiltinTool = {
         },
         duration: {
           type: 'number',
-          description: 'Video duration in seconds (4-15, default 5)',
+          description: 'Video duration in seconds (4-15, default 5, single-shot only)',
         },
         resolution: {
           type: 'string',
@@ -44,27 +69,18 @@ export const videoGenerateTool: BuiltinTool = {
           type: 'array',
           items: { type: 'string' },
           description:
-            'Local image file paths (absolute) for image-to-video. ' +
+            'Local image file paths (absolute) for image-to-video (single-shot). ' +
             '1 image = first frame; 2 images = first + last frame (max 2). ' +
             'Only supported when the default provider is Seedance.',
         },
       },
-      required: ['prompt'],
+      required: [],
     },
     riskLevel: 'medium',
     source: 'builtin',
   } satisfies ToolDefinition,
 
   async execute(args: Record<string, unknown>): Promise<ToolExecutionResult> {
-    const prompt = args['prompt']
-
-    if (typeof prompt !== 'string' || prompt.trim() === '') {
-      throw new AppError(ErrorCodes.VALIDATION_ERROR, 'prompt must be a non-empty string.')
-    }
-
-    // 先校验配置是否完整，避免提交后才失败
-    loadVideoConfig()
-
     const resolution = args['resolution'] as VideoResolution | undefined
     if (resolution !== undefined && !['480P', '720P', '1080P'].includes(resolution)) {
       throw new AppError(
@@ -81,11 +97,29 @@ export const videoGenerateTool: BuiltinTool = {
       )
     }
 
+    const model = typeof args['model'] === 'string' && args['model'] ? args['model'] : undefined
+
+    // 多镜头序列路径
+    if (Array.isArray(args['shots']) && args['shots'].length > 0) {
+      return this.executeSequence(args, { resolution, aspect, model })
+    }
+
+    // 单镜头路径
+    const prompt = args['prompt']
+    if (typeof prompt !== 'string' || prompt.trim() === '') {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'prompt must be a non-empty string when shots is not provided.',
+      )
+    }
+
+    // 先校验配置是否完整，避免提交后才失败
+    loadVideoConfig()
+
     const duration =
       typeof args['duration'] === 'number' && Number.isFinite(args['duration'])
         ? args['duration']
         : undefined
-    const model = typeof args['model'] === 'string' && args['model'] ? args['model'] : undefined
 
     // 图生视频/首尾帧：最多 2 张，1 张=首帧，2 张=首尾帧
     const imageRefs = resolveImageRefs(args['images'])
@@ -133,6 +167,56 @@ export const videoGenerateTool: BuiltinTool = {
       },
     }
   },
+
+  /** 多镜头序列：解析 shots 并提交序列生成 */
+  async executeSequence(
+    args: Record<string, unknown>,
+    common: { resolution?: VideoResolution; aspect?: VideoAspect; model?: string },
+  ): Promise<ToolExecutionResult> {
+    loadVideoConfig()
+    const shots = resolveShots(args['shots'])
+    if (shots.length < 2) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'shots 多镜头模式至少需要 2 个镜头。',
+      )
+    }
+    const { sequence } = await getVideoEngine().generateSequence({
+      shots,
+      model: common.model,
+      resolution: common.resolution,
+      aspect: common.aspect,
+    })
+
+    const lines = [
+      `多镜头视频序列已提交！`,
+      ``,
+      `序列 ID: ${sequence.id}`,
+      `镜头: ${sequence.totalCount} 个`,
+      ``,
+    ]
+    shots.forEach((shot, index) => {
+      const imgRefCount = shot.imageRefs?.length ?? 0
+      lines.push(
+        ` 镜头 ${index + 1}: ${shot.prompt}` +
+          (imgRefCount > 0 ? `（含参考图 ${imgRefCount} 张）` : ``),
+      )
+    })
+    lines.push(``, `每个镜头将在后台异步生成，完成后会自动通知。`)
+
+    return {
+      isError: false,
+      content: lines.join('\n'),
+      metadata: {
+        sequenceId: sequence.id,
+        provider: sequence.provider,
+        shotCount: sequence.totalCount,
+        resolution: common.resolution ?? '720P',
+        aspect: common.aspect ?? '16:9',
+        status: sequence.status,
+      },
+    }
+  },
 }
 
 /**
@@ -165,4 +249,38 @@ function resolveImageRefs(raw: unknown): VideoImageRef[] | undefined {
     { path: paths[0], role: 'first_frame' },
     { path: paths[1], role: 'last_frame' },
   ]
+}
+
+/**
+ * 将工具入参 `shots`（多镜头数组）解析为内部 VideoShot 列表。
+ * 校验：必须是数组、每个镜头含非空 prompt、每镜头图片 ≤2 张。
+ */
+function resolveShots(raw: unknown): VideoShot[] {
+  if (!Array.isArray(raw)) {
+    throw new AppError(ErrorCodes.VALIDATION_ERROR, 'shots must be an array of shot objects.')
+  }
+  const shots: VideoShot[] = []
+  for (const item of raw) {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+      throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Each shot must be an object with a prompt.')
+    }
+    const shot = item as Record<string, unknown>
+    const prompt = shot['prompt']
+    if (typeof prompt !== 'string' || prompt.trim() === '') {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'Each shot must have a non-empty prompt.',
+      )
+    }
+    const duration =
+      typeof shot['duration'] === 'number' && Number.isFinite(shot['duration'])
+        ? (shot['duration'] as number)
+        : undefined
+    shots.push({
+      prompt: prompt.trim(),
+      duration,
+      imageRefs: resolveImageRefs(shot['images']),
+    })
+  }
+  return shots
 }

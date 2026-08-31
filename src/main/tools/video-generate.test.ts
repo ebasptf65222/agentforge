@@ -6,6 +6,7 @@ import { AppError, ErrorCodes } from '../utils/error'
 
 describe('videoGenerateTool', () => {
   let generateSpy: ReturnType<typeof vi.spyOn>
+  let generateSequenceSpy: ReturnType<typeof vi.spyOn>
   let configSpy: ReturnType<typeof vi.spyOn>
 
   const fakeTask = {
@@ -23,19 +24,41 @@ describe('videoGenerateTool', () => {
     errorMessage: null,
     downloadUrl: null,
     outputPath: null,
+    sequenceId: null,
+    shotIndex: null,
     createdAt: 1,
     updatedAt: 1,
+  }
+
+  const fakeSequence = {
+    sequence: {
+      id: 'seq-1',
+      title: 'story',
+      provider: 'seedance',
+      status: 'submitted',
+      totalCount: 2,
+      succeededCount: 0,
+      failedCount: 0,
+      cancelledCount: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+    tasks: [fakeTask, fakeTask],
   }
 
   beforeEach(() => {
     generateSpy = vi
       .spyOn(videoEngine.VideoEngine.prototype, 'generate')
       .mockResolvedValue(fakeTask as never)
+    generateSequenceSpy = vi
+      .spyOn(videoEngine.VideoEngine.prototype, 'generateSequence')
+      .mockResolvedValue(fakeSequence as never)
     configSpy = vi.spyOn(videoEngine, 'loadVideoConfig')
   })
 
   afterEach(() => {
     generateSpy.mockRestore()
+    generateSequenceSpy.mockRestore()
     configSpy.mockRestore()
   })
 
@@ -48,9 +71,13 @@ describe('videoGenerateTool', () => {
       expect(videoGenerateTool.definition.riskLevel).toBe('medium')
     })
 
-    it('should have prompt as required parameter', () => {
-      const required = videoGenerateTool.definition.inputSchema.required as string[]
-      expect(required).toContain('prompt')
+    it('should expose prompt as a property (conditionally required)', () => {
+      const props = videoGenerateTool.definition.inputSchema.properties as Record<
+        string,
+        Record<string, unknown>
+      >
+      expect(props['prompt']).toBeDefined()
+      expect(props['shots']).toBeDefined()
     })
 
     it('should expose enum options for resolution and aspect', () => {
@@ -204,6 +231,112 @@ describe('videoGenerateTool', () => {
       ).rejects.toSatisfy(
         (e: AppError) =>
           e instanceof AppError && e.code === ErrorCodes.VIDEO_INVALID_CONFIG,
+      )
+    })
+  })
+
+  describe('execute (M6 multi-shot)', () => {
+    beforeEach(() => {
+      configSpy.mockReturnValue({ provider: 'seedance', apiKey: 'k', baseUrl: 'u', model: 'm' })
+    })
+
+    it('should delegate to generateSequence when shots provided', async () => {
+      const result = await videoGenerateTool.execute({
+        shots: [{ prompt: 'shot one' }, { prompt: 'shot two' }],
+      })
+
+      expect(generateSequenceSpy).toHaveBeenCalledTimes(1)
+      expect(generateSequenceSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          shots: [{ prompt: 'shot one' }, { prompt: 'shot two' }],
+        }),
+      )
+      expect(result.isError).toBe(false)
+      expect(result.content).toContain('seq-1')
+      expect(result.metadata).toMatchObject({ sequenceId: 'seq-1', shotCount: 2 })
+    })
+
+    it('should forward common resolution/aspect to the sequence', async () => {
+      await videoGenerateTool.execute({
+        shots: [{ prompt: 'a' }, { prompt: 'b' }],
+        resolution: '1080P',
+        aspect: '9:16',
+        model: 'custom-model',
+      })
+
+      expect(generateSequenceSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resolution: '1080P',
+          aspect: '9:16',
+          model: 'custom-model',
+        }),
+      )
+    })
+
+    it('should map per-shot images to imageRefs', async () => {
+      await videoGenerateTool.execute({
+        shots: [
+          { prompt: 'a', images: ['/tmp/f.png'] },
+          { prompt: 'b', images: ['/tmp/x.png', '/tmp/y.png'] },
+        ],
+      })
+
+      expect(generateSequenceSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          shots: [
+            { prompt: 'a', duration: undefined, imageRefs: [{ path: '/tmp/f.png', role: 'first_frame' }] },
+            {
+              prompt: 'b',
+              duration: undefined,
+              imageRefs: [
+                { path: '/tmp/x.png', role: 'first_frame' },
+                { path: '/tmp/y.png', role: 'last_frame' },
+              ],
+            },
+          ],
+        }),
+      )
+    })
+
+    it('should throw VALIDATION_ERROR for shots with fewer than 2 entries', async () => {
+      await expect(
+        videoGenerateTool.execute({ shots: [{ prompt: 'only one' }] }),
+      ).rejects.toSatisfy(
+        (e: AppError) =>
+          e instanceof AppError && e.code === ErrorCodes.VALIDATION_ERROR,
+      )
+      expect(generateSequenceSpy).not.toHaveBeenCalled()
+    })
+
+    it('should throw VALIDATION_ERROR when shots is not an array', async () => {
+      await expect(
+        videoGenerateTool.execute({ shots: 'not-an-array' }),
+      ).rejects.toSatisfy(
+        (e: AppError) =>
+          e instanceof AppError && e.code === ErrorCodes.VALIDATION_ERROR,
+      )
+    })
+
+    it('should throw VALIDATION_ERROR when a shot lacks a prompt', async () => {
+      await expect(
+        videoGenerateTool.execute({ shots: [{ prompt: 'a' }, { prompt: '   ' }] }),
+      ).rejects.toSatisfy(
+        (e: AppError) =>
+          e instanceof AppError && e.code === ErrorCodes.VALIDATION_ERROR,
+      )
+    })
+
+    it('should throw VALIDATION_ERROR when a per-shot image array exceeds 2', async () => {
+      await expect(
+        videoGenerateTool.execute({
+          shots: [
+            { prompt: 'a' },
+            { prompt: 'b', images: ['/tmp/1.png', '/tmp/2.png', '/tmp/3.png'] },
+          ],
+        }),
+      ).rejects.toSatisfy(
+        (e: AppError) =>
+          e instanceof AppError && e.code === ErrorCodes.VALIDATION_ERROR,
       )
     })
   })

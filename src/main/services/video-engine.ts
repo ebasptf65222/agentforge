@@ -11,9 +11,11 @@
 import { writeFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
+  CreateVideoSequenceParams,
   CreateVideoTaskParams,
   VideoAsyncEvent,
   VideoProvider,
+  VideoSequence,
   VideoTask,
   VideoTaskStatus,
 } from '@shared/types'
@@ -23,6 +25,7 @@ import {
   listVideoTasks,
   updateVideoTask,
 } from '../db/repos/video-task'
+import { createVideoSequence, reconcileVideoSequence } from '../db/repos/video-sequence'
 import { getSettings } from '../db/repos/app-settings'
 import { decryptApiKey } from '../utils/encryption'
 import { getWorkspaceService } from './workspace-service'
@@ -164,18 +167,88 @@ export class VideoEngine {
   }
 
   /**
-   * 提交并跟踪一个视频生成任务。
+   * 提交并跟踪一个视频生成任务（单镜头，M5 图生视频/首尾帧走此处）。
    */
   async generate(params: CreateVideoTaskParams): Promise<VideoTask> {
-    const duration = Math.max(1, Math.min(Math.round(params.duration ?? 5), this.maxDuration))
-    const resolution = params.resolution ?? '720P'
-    const aspect = params.aspect ?? '16:9'
     const prompt = params.prompt.trim()
     if (!prompt) {
       throw new AppError(ErrorCodes.VALIDATION_ERROR, 'Video prompt must not be empty')
     }
 
     const config = this.configProvider()
+    const task = await this.submitSingle(params, config, {})
+    this.ensureTimer()
+    return task
+  }
+
+  /**
+   * 提交并跟踪一个多镜头序列（M6）。
+   * 一次性创建父序列 + N 个子任务（每个镜头一个视频任务），
+   * 所有子任务进入统一轮询；任一子任务到达终态时聚合父序列状态。
+   *
+   * @returns 父序列记录与子任务列表
+   */
+  async generateSequence(params: CreateVideoSequenceParams): Promise<{
+    sequence: VideoSequence
+    tasks: VideoTask[]
+  }> {
+    const shots = params.shots
+    if (!shots || shots.length < 2) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'Video sequence requires at least 2 shots.',
+      )
+    }
+    for (const shot of shots) {
+      if (!shot.prompt.trim()) {
+        throw new AppError(
+          ErrorCodes.VALIDATION_ERROR,
+          'Every shot in a video sequence must have a non-empty prompt.',
+        )
+      }
+    }
+
+    const config = this.configProvider()
+    const title =
+      params.title?.trim() || `${shots[0].prompt.trim().slice(0, 30)}…`
+    const sequence = createVideoSequence({
+      title,
+      provider: config.provider,
+      totalCount: shots.length,
+    })
+
+    const tasks: VideoTask[] = []
+    for (let index = 0; index < shots.length; index++) {
+      const shot = shots[index]
+      const task = await this.submitSingle(
+        {
+          prompt: shot.prompt,
+          model: params.model,
+          duration: shot.duration,
+          resolution: params.resolution,
+          aspect: params.aspect,
+          imageRefs: shot.imageRefs,
+        },
+        config,
+        { sequenceId: sequence.id, shotIndex: index },
+      )
+      tasks.push(task)
+    }
+
+    this.ensureTimer()
+    return { sequence, tasks }
+  }
+
+  /** 提交单个视频任务并加入轮询队列（generate / generateSequence 共用） */
+  private async submitSingle(
+    params: CreateVideoTaskParams,
+    config: VideoProviderConfig,
+    meta: { sequenceId?: string | null; shotIndex?: number | null },
+  ): Promise<VideoTask> {
+    const duration = Math.max(1, Math.min(Math.round(params.duration ?? 5), this.maxDuration))
+    const resolution = params.resolution ?? '720P'
+    const aspect = params.aspect ?? '16:9'
+    const prompt = params.prompt.trim()
     const adapter = this.getAdapter(config.provider)
 
     // 1. 持久化任务（submitted）
@@ -186,6 +259,8 @@ export class VideoEngine {
       duration,
       resolution,
       aspect,
+      sequenceId: meta.sequenceId ?? null,
+      shotIndex: meta.shotIndex ?? null,
     })
 
     // 2. 提交到厂商
@@ -201,8 +276,6 @@ export class VideoEngine {
 
     // 3. 进入轮询队列
     state.active.set(task.id, task)
-    this.ensureTimer()
-
     this.notify({ type: 'progress', taskId: task.id, progress: task.progress, status: task.status })
 
     return task
@@ -236,6 +309,7 @@ export class VideoEngine {
         updateVideoTask(id, { status: 'cancelled', progress: task.progress }) ?? task
       state.active.delete(id)
       this.pollFailures.delete(id)
+      this.reconcileParentSequence(id)
       this.ensureTimer()
       return updated
     }
@@ -344,6 +418,7 @@ export class VideoEngine {
     state.active.delete(id)
     this.pollFailures.delete(id)
     this.notify({ type: 'completed', taskId: id, outputPath: outputPath ?? '' })
+    this.reconcileParentSequence(id)
     this.stopTimerIfIdle()
   }
 
@@ -364,7 +439,16 @@ export class VideoEngine {
         message: errorMessage ?? errorCode ?? 'Video generation failed',
       })
     }
+    this.reconcileParentSequence(id)
     this.stopTimerIfIdle()
+  }
+
+  /** 若该任务是多镜头序列的子任务，则重算父序列状态 */
+  private reconcileParentSequence(taskId: string): void {
+    const task = getVideoTaskById(taskId)
+    if (task?.sequenceId) {
+      reconcileVideoSequence(task.sequenceId)
+    }
   }
 
   /** 计算视频落盘的相对/绝对路径（workspace/videos/{provider}-{taskId}.mp4） */

@@ -386,6 +386,18 @@ const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
     comment: 'P3-01: 是否为分支会话',
     sql: `ALTER TABLE conversations ADD COLUMN is_forked INTEGER DEFAULT 0 CHECK(is_forked IN (0, 1))`,
   },
+  {
+    table: 'video_tasks',
+    column: 'sequence_id',
+    comment: 'VIDEO-M6: 所属多镜头序列 ID',
+    sql: `ALTER TABLE video_tasks ADD COLUMN sequence_id TEXT`,
+  },
+  {
+    table: 'video_tasks',
+    column: 'shot_index',
+    comment: 'VIDEO-M6: 序列内镜头序号',
+    sql: `ALTER TABLE video_tasks ADD COLUMN shot_index INTEGER`,
+  },
 ] as const
 
 /**
@@ -466,6 +478,23 @@ const TABLE_MIGRATIONS: readonly { table: string; sql: string }[] = [
       error_message    TEXT,
       download_url     TEXT,
       output_path      TEXT,
+      sequence_id      TEXT,
+      shot_index       INTEGER,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL
+    )`,
+  },
+  {
+    table: 'video_sequences',
+    sql: `CREATE TABLE IF NOT EXISTS video_sequences (
+      id               TEXT PRIMARY KEY,
+      title            TEXT NOT NULL,
+      provider         TEXT NOT NULL DEFAULT 'seedance',
+      status           TEXT NOT NULL DEFAULT 'submitted',
+      total_count      INTEGER NOT NULL DEFAULT 0,
+      succeeded_count  INTEGER NOT NULL DEFAULT 0,
+      failed_count     INTEGER NOT NULL DEFAULT 0,
+      cancelled_count  INTEGER NOT NULL DEFAULT 0,
       created_at       INTEGER NOT NULL,
       updated_at       INTEGER NOT NULL
     )`,
@@ -486,6 +515,7 @@ const SCHEDULER_INDEXES: readonly string[] = [
 const VIDEO_INDEXES: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_video_tasks_status ON video_tasks(status)`,
   `CREATE INDEX IF NOT EXISTS idx_video_tasks_created ON video_tasks(created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_video_tasks_sequence ON video_tasks(sequence_id)`,
 ] as const
 
 /**
@@ -496,16 +526,16 @@ const VIDEO_INDEXES: readonly string[] = [
  * 对每条记录通过 hasColumn 检查后执行对应的 ALTER TABLE。
  */
 function runConditionalMigrations(db: Database.Database): void {
-  // 列迁移：幂等地添加缺失的列
-  COLUMN_MIGRATIONS.forEach((migration) => {
-    if (!hasColumn(db, migration.table, migration.column)) {
+  // 表迁移：幂等地创建缺失的表（新库先建表，避免后续 ALTER 依赖表不存在）
+  TABLE_MIGRATIONS.forEach((migration) => {
+    if (!hasTable(db, migration.table)) {
       db.exec(migration.sql)
     }
   })
 
-  // 表迁移：幂等地创建缺失的表
-  TABLE_MIGRATIONS.forEach((migration) => {
-    if (!hasTable(db, migration.table)) {
+  // 列迁移：幂等地添加缺失的列
+  COLUMN_MIGRATIONS.forEach((migration) => {
+    if (!hasColumn(db, migration.table, migration.column)) {
       db.exec(migration.sql)
     }
   })

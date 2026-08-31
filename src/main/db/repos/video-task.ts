@@ -40,6 +40,8 @@ interface VideoTaskRow {
   error_message: string | null
   download_url: string | null
   output_path: string | null
+  sequence_id: string | null
+  shot_index: number | null
   created_at: number
   updated_at: number
 }
@@ -60,6 +62,8 @@ function rowToTask(row: VideoTaskRow): VideoTask {
     errorMessage: row.error_message,
     downloadUrl: row.download_url,
     outputPath: row.output_path,
+    sequenceId: row.sequence_id,
+    shotIndex: row.shot_index,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -76,8 +80,9 @@ export function createVideoTask(params: CreateVideoTaskRow): VideoTask {
   db.prepare(
     `INSERT INTO video_tasks
       (id, provider, provider_task_id, prompt, model, duration, resolution, aspect,
-       status, progress, error_code, error_message, download_url, output_path, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       status, progress, error_code, error_message, download_url, output_path,
+       sequence_id, shot_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     params.provider ?? 'seedance',
@@ -93,6 +98,8 @@ export function createVideoTask(params: CreateVideoTaskRow): VideoTask {
     null,
     null,
     null,
+    params.sequenceId ?? null,
+    params.shotIndex ?? null,
     now,
     now,
   )
@@ -121,6 +128,17 @@ export function listVideoTasks(limit = 50): VideoTask[] {
   const rows = db
     .prepare('SELECT * FROM video_tasks ORDER BY created_at DESC LIMIT ?')
     .all(Math.max(1, Math.min(limit, 200))) as VideoTaskRow[]
+  return rows.map(rowToTask)
+}
+
+/**
+ * 获取指定多镜头序列下的全部子任务（按镜头序号升序）。
+ */
+export function listVideoTasksBySequence(sequenceId: string): VideoTask[] {
+  const db: Database.Database = getDatabase()
+  const rows = db
+    .prepare('SELECT * FROM video_tasks WHERE sequence_id = ? ORDER BY shot_index ASC, created_at ASC')
+    .all(sequenceId) as VideoTaskRow[]
   return rows.map(rowToTask)
 }
 
