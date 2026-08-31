@@ -88,7 +88,7 @@ async function handleUploadClick(): Promise<void> {
   const filePath = await window.electron.file.selectFile({
     title: '选择原始资料',
     filters: [
-      { name: '知识库文件', extensions: ['md', 'txt', 'pdf', 'docx', 'xlsx', 'csv', 'json', 'html', 'xml'] },
+      { name: '知识库文件', extensions: ['md', 'markdown', 'txt', 'csv', 'tsv', 'json', 'html', 'xml', 'yaml', 'yml', 'rst', 'pdf', 'docx', 'xlsx'] },
       { name: '所有文件', extensions: ['*'] },
     ],
   })
@@ -262,7 +262,7 @@ void handleGoCompile // UI-REDESIGN v1.0: 返回按钮已移除，保留跳转�
             <UploadOutlined />
           </NIcon>
           <span class="wiki-view__drop-text">{{ isDragOver ? '释放文件以上传' : '拖拽文件到此处，或点击上方按钮上传' }}</span>
-          <span class="wiki-view__drop-hint">支持 .md .txt .pdf .docx .xlsx .csv .json</span>
+          <span class="wiki-view__drop-hint">支持 .md .txt .csv .json 等文本格式，以及 .pdf .docx .xlsx（自动解析为文本）</span>
         </div>
 
         <!-- Go compile prompt -->

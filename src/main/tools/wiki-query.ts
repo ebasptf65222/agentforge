@@ -4,7 +4,7 @@
 
 import type { BuiltinTool } from './types'
 import { AppError, ErrorCodes } from '../utils/error'
-import { isWikiInitialized, readIndex, readWikiPage, listWikiPages, listRawSources, readRawSource, appendLog } from '../wiki/wiki-manager'
+import { isWikiInitialized, readIndex, readWikiPage, listWikiPages, listRawSources, readRawSource, appendLog, getWikiPath } from '../wiki/wiki-manager'
 
 /** wiki_query 工具定义与执行函数 */
 export const wikiQueryTool: BuiltinTool = {
@@ -58,13 +58,14 @@ LLM Wiki 是一个由 AI 持续维护的结构化 Markdown 知识库，包含实
     try {
       // 检查 wiki 是否已初始化
       const initialized = await isWikiInitialized()
+      const wikiRoot = getWikiPath()
 
       switch (action) {
         case 'index': {
           if (!initialized) {
             return {
               isError: false,
-              content: 'LLM Wiki 尚未初始化。请先使用 wiki_ingest action=init 初始化。',
+              content: `LLM Wiki 尚未初始化（Wiki 根目录：${wikiRoot}）。请先使用 wiki_ingest action=init 初始化；如果该目录不存在，请提示用户检查应用当前选择的工作区是否正确。`,
             }
           }
           const indexContent = await readIndex()
@@ -78,7 +79,7 @@ LLM Wiki 是一个由 AI 持续维护的结构化 Markdown 知识库，包含实
           if (!initialized) {
             return {
               isError: false,
-              content: 'LLM Wiki 尚未初始化。请先使用 wiki_ingest action=init 初始化。',
+              content: `LLM Wiki 尚未初始化（Wiki 根目录：${wikiRoot}）。请先使用 wiki_ingest action=init 初始化；如果该目录不存在，请提示用户检查应用当前选择的工作区是否正确。`,
             }
           }
 
@@ -99,7 +100,7 @@ LLM Wiki 是一个由 AI 持续维护的结构化 Markdown 知识库，包含实
           if (!initialized) {
             return {
               isError: false,
-              content: 'LLM Wiki 尚未初始化。请先使用 wiki_ingest action=init 初始化。',
+              content: `LLM Wiki 尚未初始化（Wiki 根目录：${wikiRoot}）。请先使用 wiki_ingest action=init 初始化；如果该目录不存在，请提示用户检查应用当前选择的工作区是否正确。`,
             }
           }
 
@@ -137,7 +138,7 @@ LLM Wiki 是一个由 AI 持续维护的结构化 Markdown 知识库，包含实
           if (!initialized) {
             return {
               isError: false,
-              content: 'LLM Wiki 尚未初始化。请使用 wiki_ingest action=init 初始化。\n\n初始化后，你将获得一个三层知识库结构：\n- raw/ ← 原始资料（不可变）\n- wiki/ ← LLM 编译的知识页面\n- rules/ ← 规则定义',
+              content: `LLM Wiki 尚未初始化（Wiki 根目录：${wikiRoot}）。请使用 wiki_ingest action=init 初始化。\n\n如果该目录不存在，请提示用户检查应用当前选择的工作区是否正确——Wiki 绑定工作区，切换工作区后 Wiki 会随之变化。\n\n初始化后，你将获得一个三层知识库结构：\n- raw/ ← 原始资料（不可变）\n- wiki/ ← LLM 编译的知识页面\n- rules/ ← 规则定义`,
             }
           }
 

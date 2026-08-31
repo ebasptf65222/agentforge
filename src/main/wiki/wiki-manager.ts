@@ -2,11 +2,12 @@
 // 三层架构：raw/（原始资料）→ wiki/（编译知识）→ rules/（规则定义）
 // 三操作：Ingest（编译）、Query（查询）、Lint（健康检查）
 
-import { readFile, writeFile, readdir, stat, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, appendFile, readdir, stat, mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, relative, extname, basename } from 'node:path'
 import { getWorkspacePath } from '../ipc/workspace'
 import { AppError, ErrorCodes } from '../utils/error'
+import { parseDocument } from '../knowledge-base/parser'
 
 // ─── 类型定义 ───────────────────────────────────────────────────
 
@@ -114,24 +115,67 @@ export async function isWikiInitialized(): Promise<boolean> {
 
 // ─── Raw 资料操作 ──────────────────────────────────────────────
 
+/** 允许直接按纯文本导入的扩展名（小写，含点） */
+const TEXT_EXTENSIONS = new Set([
+  '.md', '.markdown', '.mdx', '.txt', '.csv', '.tsv', '.json', '.jsonl',
+  '.html', '.htm', '.xml', '.yaml', '.yml', '.rst', '.log', '.ini', '.toml',
+])
+
+/** 需要解析转换的二进制文档格式 → parser fileType（复用 KB 解析器） */
+const BINARY_DOC_EXTENSIONS: Record<string, 'pdf' | 'docx' | 'xlsx'> = {
+  '.pdf': 'pdf',
+  '.docx': 'docx',
+  '.xlsx': 'xlsx',
+}
+
 /**
  * 将文件放置到 raw/ 目录（复制/链接）。
+ * - 纯文本格式：按 utf-8 原样复制
+ * - PDF/DOCX/XLSX：解析提取文本后以 Markdown 形式存入 raw/（保留原始扩展名以便溯源）
  * @param sourcePath - 源文件绝对路径
  * @returns raw/ 中的相对路径
+ * @throws {AppError} VALIDATION_ERROR - 不支持的文件格式或解析结果为空
  */
 export async function addRawSource(sourcePath: string): Promise<string> {
   const wikiPath = getWikiPath()
   const rawDir = join(wikiPath, 'raw')
 
-  // 读取源文件内容
-  const content = await readFile(sourcePath, 'utf-8')
+  const ext = extname(sourcePath).toLowerCase()
   const fileName = basename(sourcePath)
-  const destPath = join(rawDir, fileName)
+  let destName: string
+  let content: string
+
+  if (ext in BINARY_DOC_EXTENSIONS) {
+    // 二进制文档：解析为文本（PDF/Word/Excel），扫描版 PDF 等无文本内容时会报错
+    const fileType = BINARY_DOC_EXTENSIONS[ext]
+    const parsed = await parseDocument(sourcePath, fileType)
+    if (parsed.content.trim() === '') {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        `解析 ${fileType.toUpperCase()} 文件未提取到任何文本内容: ${fileName}。扫描版 PDF（图片型）暂不支持，请先使用 OCR 转换为文本。`,
+        { sourcePath, ext },
+      )
+    }
+    content = parsed.content
+    destName = `${fileName}.md`
+  } else if (TEXT_EXTENSIONS.has(ext)) {
+    content = await readFile(sourcePath, 'utf-8')
+    destName = fileName
+  } else {
+    throw new AppError(
+      ErrorCodes.VALIDATION_ERROR,
+      `不支持的文件格式: ${ext || '(无扩展名)'}。LLM Wiki 支持纯文本格式（md/txt/csv/json/html/xml/yaml 等）及 PDF、Word（.docx）、Excel（.xlsx）文档。`,
+      { sourcePath, ext },
+    )
+  }
 
   // 写入 raw/ 目录（不可变副本）
+  const destPath = join(rawDir, destName)
   await writeFile(destPath, content, 'utf-8')
 
-  return relative(wikiPath, destPath)
+  // 统一使用正斜杠：Windows 上 relative() 返回反斜杠路径，
+  // 会导致消费方 replace('raw/', '') 前缀剥离失败（历史索引失败根因）
+  return relative(wikiPath, destPath).replace(/\\/g, '/')
 }
 
 /**
@@ -191,8 +235,13 @@ export async function listWikiPages(): Promise<WikiPageInfo[]> {
       const fullPath = join(dir, entry.name)
       if (entry.isDirectory()) {
         await scanDir(fullPath, entry.name)
-      } else if (entry.name.endsWith('.md') && entry.name !== SPECIAL_FILES.INDEX) {
-        const relPath = relative(wikiDir, fullPath)
+      } else if (
+        entry.name.endsWith('.md') &&
+        entry.name !== SPECIAL_FILES.INDEX &&
+        entry.name !== SPECIAL_FILES.LOG // 防止 LLM 误写到 wiki/ 下的 log.md 被当成知识页面
+      ) {
+        // 统一使用正斜杠（Windows 上 relative() 返回反斜杠，会导致 index 链接与 page_path 查询失效）
+        const relPath = relative(wikiDir, fullPath).replace(/\\/g, '/')
         const content = await readFile(fullPath, 'utf-8')
         const title = extractTitle(content) || entry.name.replace('.md', '')
         const summary = extractSummary(content)
@@ -322,7 +371,8 @@ export async function appendLog(entryType: string, description: string): Promise
   if (!existsSync(logPath)) {
     await writeFile(logPath, getDefaultLog() + entry, 'utf-8')
   } else {
-    await writeFile(logPath, entry, 'utf-8', { flag: 'a' })
+    // 注意：必须使用 appendFile 追加写入；writeFile 会整文件覆盖丢失历史
+    await appendFile(logPath, entry, 'utf-8')
   }
 }
 
@@ -364,10 +414,15 @@ export async function getWikiStats(): Promise<WikiStats> {
   const lastIngest = [...ingestMatches].pop()?.[1] ?? null
   const lastLint = [...lintMatches].pop()?.[1] ?? null
 
-  // 计算 wiki 总大小
+  // 计算 wiki 总大小（实际文件字节数）
   let totalSize = 0
   for (const page of wikiPages) {
-    totalSize += page.lastModified // 用 lastModified 近似，实际应读取文件大小
+    try {
+      const s = await stat(join(wikiPath, 'wiki', page.path))
+      totalSize += s.size
+    } catch {
+      // 文件可能在统计过程中被删除，跳过
+    }
   }
 
   return {
@@ -441,8 +496,8 @@ function getDefaultSchema(): string {
 1. **新增资料**：读取 raw/ 中的新文件，提取关键信息，创建或更新相关页面
 2. **交叉引用**：实体间使用 [[双向链接]] 语法
 3. **矛盾标注**：当新信息与已有内容冲突时，用 \`> [!warning]\` 标注
-4. **索引更新**：每次 ingest 后必须完整更新 index.md
-5. **日志记录**：每次 ingest/query/lint 后追加到 log.md
+4. **索引更新**：每次 ingest 完成页面创建/更新后，必须调用 \`wiki_ingest action=regenerate_index\`（后端会自动写入 index.md，无需手动 file_write）
+5. **日志记录**：日志由系统自动追加到 log.md（ingest/regenerate_index 时），不要手动写 log.md，也不要在 wiki/ 目录下创建 log.md
 
 ## 查询规则
 

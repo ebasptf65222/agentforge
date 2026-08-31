@@ -4,7 +4,7 @@
 
 import type { BuiltinTool } from './types'
 import { AppError, ErrorCodes } from '../utils/error'
-import { isWikiInitialized, listWikiPages, listRawSources, readIndex, readWikiPage, appendLog } from '../wiki/wiki-manager'
+import { isWikiInitialized, listWikiPages, listRawSources, readIndex, readWikiPage, appendLog, getWikiPath } from '../wiki/wiki-manager'
 
 /** wiki_lint 工具定义与执行函数 */
 export const wikiLintTool: BuiltinTool = {
@@ -54,7 +54,7 @@ export const wikiLintTool: BuiltinTool = {
       if (!initialized) {
         return {
           isError: false,
-          content: 'LLM Wiki 尚未初始化。请先使用 wiki_ingest action=init 初始化。',
+          content: `LLM Wiki 尚未初始化（Wiki 根目录：${getWikiPath()}）。请先使用 wiki_ingest action=init 初始化；如果该目录不存在，请提示用户检查应用当前选择的工作区是否正确。`,
         }
       }
 

@@ -15,20 +15,20 @@ export const wikiIngestTool: BuiltinTool = {
 
 工作流：
 1. 首次调用自动在工作区创建 .llm-wiki/ 目录结构（raw/ wiki/ rules/）
-2. 将 source_path 指向的文件复制到 raw/ 目录（不可变副本）
+2. 将 source_path 指向的文件复制到 raw/ 目录（不可变副本；PDF/DOCX/XLSX 会先自动解析为文本）
 3. 返回文件内容，你需要使用 file_read 读取原始资料，然后使用 file_write 在 wiki/ 下创建结构化页面
 
 注意事项：
 - raw/ 中的文件是只读的，不要修改
 - wiki/ 下的页面由你（LLM）负责创建和维护
-- 每次编译后必须更新 index.md（使用 regenerate_index 获取最新内容）
-- 每次编译后必须追加日志到 log.md`,
+- 每次编译后必须调用 regenerate_index 更新 index.md（后端自动写入，无需 file_write）
+- 日志由系统自动记录（ingest/regenerate_index 时后端自动追加），不要手动创建或修改 log.md，更不要在 wiki/ 目录下写 log.md`,
     inputSchema: {
       type: 'object',
       properties: {
         source_path: {
           type: 'string',
-          description: '要编译的源文件绝对路径（支持 .md, .txt, .pdf, .docx, .xlsx, .csv）',
+          description: '要编译的源文件绝对路径（支持 .md, .txt, .csv, .json, .html, .xml, .yaml 等纯文本，以及 .pdf, .docx, .xlsx 文档——后两者会自动解析为文本存入 raw/）',
         },
         action: {
           type: 'string',
@@ -86,7 +86,7 @@ export const wikiIngestTool: BuiltinTool = {
 
           return {
             isError: false,
-            content: `✅ 资料已导入 raw/ 目录：\n\n文件: ${fileName}\n大小: ${content.length} 字符\n位置: ${rawRelPath}\n\n---\n\n文件内容如下：\n\n\`\`\`\n${content.slice(0, 8000)}${content.length > 8000 ? `\n\n... (内容过长，截断至 8000 字符，共 ${content.length} 字符)` : ''}\n\`\`\`\n\n请执行以下操作：\n1. 读取此文件内容${content.length > 8000 ? '（使用 file_read 读取完整文件）' : ''}\n2. 分析关键信息（实体、概念、数据）\n3. 在 wiki/ 下创建或更新相关页面\n4. 更新 index.md（使用 wiki_ingest action=regenerate_index 获取最新内容）\n5. 追加日志到 log.md${existingContext}`,
+            content: `✅ 资料已导入 raw/ 目录：\n\n文件: ${fileName}\n大小: ${content.length} 字符\n位置: ${rawRelPath}\n\n---\n\n文件内容如下：\n\n\`\`\`\n${content.slice(0, 8000)}${content.length > 8000 ? `\n\n... (内容过长，截断至 8000 字符，共 ${content.length} 字符)` : ''}\n\`\`\`\n\n请执行以下操作：\n1. 读取此文件内容${content.length > 8000 ? '（使用 file_read 读取完整文件）' : ''}\n2. 分析关键信息（实体、概念、数据）\n3. 在 wiki/ 下创建或更新相关页面\n4. 调用 wiki_ingest action=regenerate_index 自动更新 index.md（后端自动写入，日志自动记录）${existingContext}`,
           }
         }
 
@@ -120,9 +120,12 @@ export const wikiIngestTool: BuiltinTool = {
 
         case 'regenerate_index': {
           const indexContent = await regenerateIndex()
+          // 闭环关键：后端直接写入 index.md，不再依赖 LLM 手动 file_write
+          await updateIndex(indexContent)
+          await appendLog('ingest', '重新生成并写入 index.md')
           return {
             isError: false,
-            content: `以下是重新生成的 index.md 内容。请使用 file_write 将其写入 .llm-wiki/index.md：\n\n\`\`\`markdown\n${indexContent}\n\`\`\``,
+            content: `✅ index.md 已自动更新（共 ${indexContent.split('\n').length} 行）。内容如下：\n\n\`\`\`markdown\n${indexContent}\n\`\`\``,
             metadata: { indexContent },
           }
         }
