@@ -10,6 +10,7 @@ import {
   NButton,
   NCheckbox,
   NEmpty,
+  NIcon,
   NInput,
   NModal,
   NPopconfirm,
@@ -19,7 +20,7 @@ import {
   NTag,
   NTooltip,
 } from 'naive-ui'
-import { RefreshOutlined, DeleteOutlined, CheckBoxOutlined, UploadFileOutlined } from '@vicons/material'
+import { RefreshOutlined, DeleteOutlined, CheckBoxOutlined, UploadFileOutlined, VideoLibraryOutlined } from '@vicons/material'
 import type { CreateVideoTaskParams, VideoTask, VideoTaskStatus, VideoSequence } from '@shared/types'
 import type { VideoCsvParseResult } from '@/types/electron-api'
 import { useVideoStore } from '@/stores/video'
@@ -102,6 +103,27 @@ const hasResults = computed(
   () => standaloneTasks.value.length > 0 || sequences.value.length > 0,
 )
 
+/** 库内是否已有任何数据（不受筛选影响） */
+const hasAnyData = computed(
+  () => videoStore.list.length > 0 || videoStore.sequenceList.length > 0,
+)
+
+/** 是否处于筛选/搜索状态 */
+const hasActiveFilters = computed(
+  () => filterType.value !== 'all' || statusFilter.value !== '' || keyword.value.trim() !== '',
+)
+
+function clearFilters(): void {
+  filterType.value = 'all'
+  statusFilter.value = ''
+  keyword.value = ''
+}
+
+/** 去对话页生成视频 */
+function goChat(): void {
+  uiStore.setCurrentView('chat')
+}
+
 const stats = computed(() => ({
   total: videoStore.sequenceList.length + videoStore.list.length,
   sequences: videoStore.sequenceList.length,
@@ -168,6 +190,10 @@ function handleDeleteTask(taskId: string): void {
 
 function handleDeleteSequence(sequenceId: string): void {
   void videoStore.deleteSequence(sequenceId)
+}
+
+function handleCancelSequence(sequenceId: string): void {
+  void videoStore.cancelSequence(sequenceId)
 }
 
 function handleRefresh(): void {
@@ -397,7 +423,33 @@ onMounted(() => {
     <div class="video-library__body">
       <NSpin :show="videoStore.loading" size="small">
         <div v-if="!hasResults && !videoStore.loading" class="video-library__empty">
-          <NEmpty description="暂无匹配的视频资源" />
+          <!-- 库为空：引导生成 -->
+          <template v-if="!hasAnyData">
+            <div class="video-library__empty-icon">
+              <NIcon :size="44"><VideoLibraryOutlined /></NIcon>
+            </div>
+            <p class="video-library__empty-title">视频库还是空的</p>
+            <p class="video-library__empty-desc">
+              在对话中让 AI 生成视频，或通过 CSV 批量导入提示词一次生成多个视频
+            </p>
+            <div class="video-library__empty-actions">
+              <NButton size="small" type="primary" @click="goChat">去对话生成</NButton>
+              <NButton size="small" tertiary @click="openCsvModal">
+                <template #icon><UploadFileOutlined :size="16" /></template>
+                批量造片
+              </NButton>
+            </div>
+          </template>
+          <!-- 有数据但筛选无结果 -->
+          <template v-else>
+            <NEmpty description="没有匹配的视频资源">
+              <template #extra>
+                <NButton v-if="hasActiveFilters" size="small" tertiary @click="clearFilters">
+                  清除筛选
+                </NButton>
+              </template>
+            </NEmpty>
+          </template>
         </div>
 
         <template v-else>
@@ -421,7 +473,9 @@ onMounted(() => {
                     <NPopconfirm
                       v-if="!isTerminal(sequence.status)"
                       title="取消该序列的全部进行中镜头？"
-                      @positive-click="handleDeleteSequence(sequence.id)"
+                      positive-text="取消生成"
+                      negative-text="再想想"
+                      @positive-click="handleCancelSequence(sequence.id)"
                     >
                       <template #trigger>
                         <NButton size="tiny" quaternary>取消</NButton>
@@ -636,18 +690,21 @@ onMounted(() => {
 
 .video-library__stat {
   font-size: 12px;
-  color: var(--af-text-muted, #94a3b8);
-  background: var(--af-surface-muted, #1e293b);
-  padding: 2px 8px;
+  color: var(--af-text-tertiary, #94a3b8);
+  background: var(--af-bg-input, #1f2937);
+  padding: 2px 10px;
   border-radius: 999px;
+  font-variant-numeric: tabular-nums;
 }
 
 .video-library__stat--seq {
-  color: var(--af-brand, #4b3fe3);
+  color: var(--af-brand, #818cf8);
+  background: var(--af-brand-dim, rgba(129, 140, 248, 0.12));
 }
 
 .video-library__stat--active {
-  color: var(--af-warning, #d97706);
+  color: var(--af-warning, #f59e0b);
+  background: color-mix(in srgb, var(--af-warning, #f59e0b) 14%, transparent);
 }
 
 .video-library__header-actions {
@@ -687,8 +744,8 @@ onMounted(() => {
   padding: 10px 12px;
   margin-bottom: 14px;
   border-radius: 10px;
-  background: var(--af-surface-muted, #1e293b);
-  border: 1px solid var(--af-border, #334155);
+  background: var(--af-brand-dim, rgba(129, 140, 248, 0.12));
+  border: 1px solid color-mix(in srgb, var(--af-brand, #818cf8) 30%, transparent);
 }
 
 .video-library__batchbar-left {
@@ -710,7 +767,44 @@ onMounted(() => {
 }
 
 .video-library__empty {
-  padding: 60px 0;
+  padding: 56px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.video-library__empty-icon {
+  width: 88px;
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--af-brand, #818cf8);
+  background: var(--af-brand-dim, rgba(129, 140, 248, 0.12));
+}
+
+.video-library__empty-title {
+  margin: 4px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--af-text-secondary, #cbd5e1);
+}
+
+.video-library__empty-desc {
+  margin: 0;
+  max-width: 340px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--af-text-muted, #94a3b8);
+}
+
+.video-library__empty-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .video-library__section-title {
@@ -721,6 +815,15 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 分组标题的品牌色竖条 */
+.video-library__section-title::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--af-brand, #818cf8);
 }
 
 .video-library__section--gap {
@@ -749,7 +852,8 @@ onMounted(() => {
 }
 
 .video-library__row:hover {
-  border-color: var(--af-border, #334155);
+  border-color: color-mix(in srgb, var(--af-brand, #818cf8) 35%, transparent);
+  background: color-mix(in srgb, var(--af-brand, #818cf8) 4%, transparent);
 }
 
 .video-library__check {

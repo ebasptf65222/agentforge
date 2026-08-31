@@ -37,7 +37,6 @@ function statusType(status: VideoTaskStatus): 'success' | 'error' | 'info' | 'de
     case 'succeeded':
       return 'success'
     case 'failed':
-    case 'cancelled':
       return 'error'
     case 'running':
     case 'submitted':
@@ -46,6 +45,19 @@ function statusType(status: VideoTaskStatus): 'success' | 'error' | 'info' | 'de
     default:
       return 'default'
   }
+}
+
+function formatRelativeTime(timestamp: number): string {
+  const diff = Date.now() - timestamp
+  const minute = 60 * 1000
+  const hour = 60 * minute
+  const day = 24 * hour
+  if (diff < minute) return '刚刚'
+  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`
+  if (diff < day) return `${Math.floor(diff / hour)} 小时前`
+  if (diff < 30 * day) return `${Math.floor(diff / day)} 天前`
+  const d = new Date(timestamp)
+  return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 /** 聚合进度 = 已结束镜头数 / 总数 */
@@ -93,7 +105,15 @@ function isTerminal(status: VideoTaskStatus): boolean {
 
 <template>
   <div class="sequence-card" :class="`sequence-card--${sequence.status}`">
-    <div class="sequence-card__head" role="button" tabindex="0" @click="toggle" @keydown.enter="toggle">
+    <div
+      class="sequence-card__head"
+      role="button"
+      tabindex="0"
+      :aria-expanded="expanded"
+      @click="toggle"
+      @keydown.enter="toggle"
+      @keydown.space.prevent="toggle"
+    >
       <NIcon :size="18" class="sequence-card__arrow" :class="{ 'is-expanded': expanded }">
         <ExpandMoreOutlined />
       </NIcon>
@@ -110,7 +130,7 @@ function isTerminal(status: VideoTaskStatus): boolean {
         <NTooltip placement="left" :delay="500">
           <template #trigger>
             <span class="sequence-card__summary-text">
-              {{ sequence.totalCount }} 镜头 · {{ summary }}
+              {{ sequence.totalCount }} 镜头 · {{ summary }} · {{ formatRelativeTime(sequence.createdAt) }}
             </span>
           </template>
           <span>点击展开各镜头进度</span>
@@ -191,6 +211,16 @@ function isTerminal(status: VideoTaskStatus): boolean {
   gap: 8px;
   cursor: pointer;
   user-select: none;
+  border-radius: var(--af-radius-sm, 6px);
+  outline: none;
+}
+
+.sequence-card__head:hover .sequence-card__name {
+  color: var(--af-brand, #818cf8);
+}
+
+.sequence-card__head:focus-visible {
+  box-shadow: 0 0 0 2px var(--af-brand-dim, rgba(129, 140, 248, 0.12));
 }
 
 .sequence-card__arrow {

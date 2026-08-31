@@ -44,55 +44,111 @@ const klingApiKey = ref('')
 const klingBaseUrl = ref('https://tokenhub.tencentmaas.com')
 const klingModel = ref('kling-video-v2.6')
 
+// 自定义厂商表单快照
+const customApiKey = ref('')
+const customBaseUrl = ref('')
+const customModel = ref('')
+const customProtocol = ref<'ark' | 'kling'>('ark')
+
+const CUSTOM_PROTOCOL_OPTIONS = [
+  { label: '火山方舟 ARK 兼容', value: 'ark' } as const,
+  { label: '可灵 TokenHub 兼容', value: 'kling' } as const,
+]
+
 const providerOptions = [
   { label: 'Seedance（火山方舟 ARK）', value: 'seedance' } as const,
   { label: 'Kling（腾讯云 TokenHub）', value: 'kling' } as const,
+  { label: '自定义厂商', value: 'custom' } as const,
 ]
 
-// 当前选中的厂商字段（v-model 双向映射到各厂商 ref）
-function providerField(
-  pick: (v: 'seedance' | 'kling') => { get: () => string; set: (v: string) => void },
+/** 当前选中的厂商字段（v-model 双向映射到各厂商 ref） */
+function fieldFor(
+  key: 'apiKey' | 'baseUrl' | 'model',
 ): WritableComputedRef<string> {
-  const seed = pick('seedance')
-  const kling = pick('kling')
+  const map: Record<
+    VideoProvider,
+    { get: () => string; set: (v: string) => void }
+  > = {
+    seedance: {
+      get: () =>
+        key === 'apiKey'
+          ? seedanceApiKey.value
+          : key === 'baseUrl'
+            ? seedanceBaseUrl.value
+            : seedanceModel.value,
+      set: (v) => {
+        if (key === 'apiKey') seedanceApiKey.value = v
+        else if (key === 'baseUrl') seedanceBaseUrl.value = v
+        else seedanceModel.value = v
+      },
+    },
+    kling: {
+      get: () =>
+        key === 'apiKey'
+          ? klingApiKey.value
+          : key === 'baseUrl'
+            ? klingBaseUrl.value
+            : klingModel.value,
+      set: (v) => {
+        if (key === 'apiKey') klingApiKey.value = v
+        else if (key === 'baseUrl') klingBaseUrl.value = v
+        else klingModel.value = v
+      },
+    },
+    custom: {
+      get: () =>
+        key === 'apiKey'
+          ? customApiKey.value
+          : key === 'baseUrl'
+            ? customBaseUrl.value
+            : customModel.value,
+      set: (v) => {
+        if (key === 'apiKey') customApiKey.value = v
+        else if (key === 'baseUrl') customBaseUrl.value = v
+        else customModel.value = v
+      },
+    },
+  }
   return computed({
-    get: () => (provider.value === 'kling' ? kling.get() : seed.get()),
-    set: (v: string) => (provider.value === 'kling' ? kling.set(v) : seed.set(v)),
+    get: () => map[provider.value].get(),
+    set: (v: string) => map[provider.value].set(v),
   })
 }
 
-const currentApiKey = providerField((p) =>
-  p === 'kling'
-    ? { get: () => klingApiKey.value, set: (v) => (klingApiKey.value = v) }
-    : { get: () => seedanceApiKey.value, set: (v) => (seedanceApiKey.value = v) },
-)
-const currentBaseUrl = providerField((p) =>
-  p === 'kling'
-    ? { get: () => klingBaseUrl.value, set: (v) => (klingBaseUrl.value = v) }
-    : { get: () => seedanceBaseUrl.value, set: (v) => (seedanceBaseUrl.value = v) },
-)
-const currentModel = providerField((p) =>
-  p === 'kling'
-    ? { get: () => klingModel.value, set: (v) => (klingModel.value = v) }
-    : { get: () => seedanceModel.value, set: (v) => (seedanceModel.value = v) },
-)
+const currentApiKey = fieldFor('apiKey')
+const currentBaseUrl = fieldFor('baseUrl')
+const currentModel = fieldFor('model')
 
 const apiKeyVisible = ref(false)
 const testing = ref(false)
 
-const providerLabel = computed(() => (provider.value === 'kling' ? 'Kling' : 'Seedance'))
+const PROVIDER_LABELS: Record<VideoProvider, string> = {
+  seedance: 'Seedance',
+  kling: 'Kling',
+  custom: '自定义厂商',
+}
+const providerLabel = computed(() => PROVIDER_LABELS[provider.value])
 const configured = computed(() => Boolean(currentApiKey.value))
-const apiKeyLabel = computed(() =>
-  provider.value === 'kling'
-    ? 'API Key（腾讯云 TokenHub，safeStorage 加密存储）'
-    : 'API Key（火山方舟 ARK，safeStorage 加密存储）',
-)
-const baseUrlPlaceholder = computed(() =>
-  provider.value === 'kling' ? 'https://tokenhub.tencentmaas.com' : 'https://ark.cn-beijing.volces.com/api/v3',
-)
-const modelPlaceholder = computed(() =>
-  provider.value === 'kling' ? 'kling-video-v2.6' : 'doubao-seedance',
-)
+const apiKeyLabel = computed(() => {
+  if (provider.value === 'kling') return 'API Key（腾讯云 TokenHub，safeStorage 加密存储）'
+  if (provider.value === 'custom') return 'API Key（自定义厂商，safeStorage 加密存储）'
+  return 'API Key（火山方舟 ARK，safeStorage 加密存储）'
+})
+const apiKeyPlaceholder = computed(() => {
+  if (provider.value === 'kling') return '请输入 TokenHub API Key'
+  if (provider.value === 'custom') return '请输入自定义厂商 API Key'
+  return '请输入 ARK API Key'
+})
+const baseUrlPlaceholder = computed(() => {
+  if (provider.value === 'kling') return 'https://tokenhub.tencentmaas.com'
+  if (provider.value === 'custom') return 'https://your-video-api.example.com/v1'
+  return 'https://ark.cn-beijing.volces.com/api/v3'
+})
+const modelPlaceholder = computed(() => {
+  if (provider.value === 'kling') return 'kling-video-v2.6'
+  if (provider.value === 'custom') return 'your-model-name'
+  return 'doubao-seedance'
+})
 
 onMounted(async () => {
   await settingsStore.loadSettings()
@@ -104,6 +160,9 @@ onMounted(async () => {
     seedanceModel.value = cfg.providers.seedance.model
     klingBaseUrl.value = cfg.providers.kling.baseUrl
     klingModel.value = cfg.providers.kling.model
+    customBaseUrl.value = cfg.providers.custom.baseUrl
+    customModel.value = cfg.providers.custom.model
+    customProtocol.value = cfg.providers.custom.protocol ?? 'ark'
     maxDuration.value = cfg.maxDuration
   } catch {
     // 配置读取失败时保留默认值
@@ -125,6 +184,12 @@ async function saveConfig(): Promise<void> {
     }
     await settingsStore.updateSetting('videoKlingBaseUrl', klingBaseUrl.value)
     await settingsStore.updateSetting('videoKlingModel', klingModel.value)
+    if (customApiKey.value) {
+      await settingsStore.updateSetting('videoCustomApiKey', customApiKey.value)
+    }
+    await settingsStore.updateSetting('videoCustomBaseUrl', customBaseUrl.value)
+    await settingsStore.updateSetting('videoCustomModel', customModel.value)
+    await settingsStore.updateSetting('videoCustomProtocol', customProtocol.value)
     await settingsStore.updateSetting('videoMaxDuration', maxDuration.value)
     showToast('视频配置已保存', 'success')
   } catch (error) {
@@ -165,11 +230,19 @@ function handleOpenVideo(relativePath: string): void {
           />
         </NFormItem>
 
+        <NFormItem v-if="provider === 'custom'" label="API 协议">
+          <NSelect
+            v-model:value="customProtocol"
+            :options="CUSTOM_PROTOCOL_OPTIONS"
+            placeholder="选择自定义接口兼容的协议"
+          />
+        </NFormItem>
+
         <NFormItem :label="apiKeyLabel">
           <NInput
             v-model:value="currentApiKey"
             :type="apiKeyVisible ? 'text' : 'password'"
-            :placeholder="provider === 'kling' ? '请输入 TokenHub API Key' : '请输入 ARK API Key'"
+            :placeholder="apiKeyPlaceholder"
             :show-password-on="'click'"
           >
             <template #suffix>

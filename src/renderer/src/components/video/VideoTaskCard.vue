@@ -38,7 +38,6 @@ const statusTagType = computed(() => {
     case 'succeeded':
       return 'success'
     case 'failed':
-    case 'cancelled':
       return 'error'
     case 'running':
     case 'submitted':
@@ -48,6 +47,27 @@ const statusTagType = computed(() => {
       return 'default'
   }
 })
+
+/** 仅失败/取消后允许重新生成，避免运行中重复提交 */
+const canRetry = computed(() => props.task.status === 'failed' || props.task.status === 'cancelled')
+
+/** 生成参数摘要：模型 · 时长 · 分辨率 · 比例 */
+const metaText = computed(
+  () => `${props.task.model} · ${props.task.duration} 秒 · ${props.task.resolution} · ${props.task.aspect}`,
+)
+
+function formatRelativeTime(timestamp: number): string {
+  const diff = Date.now() - timestamp
+  const minute = 60 * 1000
+  const hour = 60 * minute
+  const day = 24 * hour
+  if (diff < minute) return '刚刚'
+  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`
+  if (diff < day) return `${Math.floor(diff / hour)} 小时前`
+  if (diff < 30 * day) return `${Math.floor(diff / day)} 天前`
+  const d = new Date(timestamp)
+  return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 /** 本地播放地址（agentfile:///workspace/...） */
 const playUrl = computed(() =>
@@ -78,31 +98,27 @@ function handleOpen(): void {
   if (props.task.outputPath) emit('open', props.task.outputPath)
 }
 
-function formatSize(filePath: string | null): string {
+function fileName(filePath: string | null): string {
   if (!filePath) return ''
-  const name = filePath.split('/').pop() ?? ''
-  return name
+  return filePath.split('/').pop() ?? ''
 }
 </script>
 
 <template>
   <div class="video-task-card" :class="`video-task-card--${task.status}`">
     <div class="video-task-card__head">
-      <span class="video-task-card__title">
+      <span class="video-task-card__tags">
         <NTag :type="statusTagType" size="small" :bordered="false">
           {{ STATUS_LABEL[task.status] }}
         </NTag>
-        <span class="video-task-card__prompt">{{ task.prompt || '视频任务' }}</span>
+        <span class="video-task-card__time" :title="new Date(task.createdAt).toLocaleString()">
+          {{ formatRelativeTime(task.createdAt) }}
+        </span>
       </span>
       <NSpace :size="4">
         <NTooltip placement="top" :delay="500">
           <template #trigger>
-            <NButton
-              size="tiny"
-              quaternary
-              :disabled="terminal || task.status === 'cancelled'"
-              @click="handleStop"
-            >
+            <NButton v-if="!terminal" size="tiny" quaternary @click="handleStop">
               <template #icon><NIcon :size="14"><StopOutlined /></NIcon></template>
             </NButton>
           </template>
@@ -110,7 +126,7 @@ function formatSize(filePath: string | null): string {
         </NTooltip>
         <NTooltip placement="top" :delay="500">
           <template #trigger>
-            <NButton size="tiny" quaternary @click="handleRetry">
+            <NButton v-if="canRetry" size="tiny" quaternary @click="handleRetry">
               <template #icon><NIcon :size="14"><RefreshOutlined /></NIcon></template>
             </NButton>
           </template>
@@ -118,6 +134,12 @@ function formatSize(filePath: string | null): string {
         </NTooltip>
       </NSpace>
     </div>
+
+    <!-- 提示词 -->
+    <p class="video-task-card__prompt" :title="task.prompt">{{ task.prompt || '视频任务' }}</p>
+
+    <!-- 生成参数 -->
+    <span class="video-task-card__meta">{{ metaText }}</span>
 
     <!-- 进度 -->
     <div v-if="!terminal" class="video-task-card__progress">
@@ -133,10 +155,10 @@ function formatSize(filePath: string | null): string {
     </div>
 
     <!-- 失败错误 -->
-    <p v-if="task.status === 'failed' && task.errorMessage" class="video-task-card__error">
+    <div v-if="task.status === 'failed' && task.errorMessage" class="video-task-card__error">
       {{ task.errorMessage }}
-    </p>
-    <p v-else-if="task.status === 'cancelled'" class="video-task-card__error video-task-card__error--muted">
+    </div>
+    <p v-else-if="task.status === 'cancelled'" class="video-task-card__cancelled">
       任务已取消
     </p>
 
@@ -149,7 +171,7 @@ function formatSize(filePath: string | null): string {
         preload="metadata"
       ></video>
       <div class="video-task-card__foot">
-        <span class="video-task-card__file">{{ formatSize(task.outputPath) }}</span>
+        <span class="video-task-card__file">{{ fileName(task.outputPath) }}</span>
         <NButton size="tiny" text type="primary" @click="handleOpen">
           <template #icon><NIcon :size="14"><PlayArrowOutlined /></NIcon></template>
           在文件面板打开
@@ -178,20 +200,37 @@ function formatSize(filePath: string | null): string {
   gap: 8px;
 }
 
-.video-task-card__title {
+.video-task-card__tags {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
 
-.video-task-card__prompt {
-  font-size: 13px;
-  color: var(--af-text-primary, #e5e7eb);
+.video-task-card__time {
+  font-size: var(--af-font-xs, 11px);
+  color: var(--af-text-muted, #9ca3af);
   white-space: nowrap;
+}
+
+.video-task-card__prompt {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--af-text-primary, #e5e7eb);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 320px;
+  word-break: break-all;
+  cursor: default;
+}
+
+.video-task-card__meta {
+  font-size: var(--af-font-xs, 11px);
+  color: var(--af-text-muted, #9ca3af);
+  font-variant-numeric: tabular-nums;
 }
 
 .video-task-card__progress {
@@ -206,12 +245,18 @@ function formatSize(filePath: string | null): string {
 }
 
 .video-task-card__error {
-  margin: 0;
   font-size: 12px;
+  line-height: 1.6;
   color: var(--af-error, #ef4444);
+  background: color-mix(in srgb, var(--af-error, #ef4444) 10%, transparent);
+  border-radius: var(--af-radius-sm, 6px);
+  padding: 8px 10px;
+  word-break: break-all;
 }
 
-.video-task-card__error--muted {
+.video-task-card__cancelled {
+  margin: 0;
+  font-size: 12px;
   color: var(--af-text-muted, #9ca3af);
 }
 

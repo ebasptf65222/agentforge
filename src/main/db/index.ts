@@ -363,6 +363,30 @@ const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
     sql: `ALTER TABLE app_settings ADD COLUMN video_kling_model TEXT`,
   },
   {
+    table: 'app_settings',
+    column: 'video_custom_api_key',
+    comment: 'VIDEO-CUSTOM: 自定义厂商 API 密钥（加密）',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_custom_api_key TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_custom_base_url',
+    comment: 'VIDEO-CUSTOM: 自定义厂商 API 基础 URL',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_custom_base_url TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_custom_model',
+    comment: 'VIDEO-CUSTOM: 自定义厂商模型名',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_custom_model TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_custom_protocol',
+    comment: 'VIDEO-CUSTOM: 自定义厂商 API 协议（ark/kling）',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_custom_protocol TEXT`,
+  },
+  {
     table: 'kb_documents',
     column: 'content_hash',
     comment: 'RAG-FIX-02: 文档内容哈希（快速去重）',

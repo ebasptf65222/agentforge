@@ -207,6 +207,12 @@ export async function handleVideoConfig(): Promise<VideoConfigView> {
         model: settings.videoKlingModel ?? DEFAULT_KLING_MODEL,
         configured: Boolean(settings.videoKlingApiKey),
       },
+      custom: {
+        baseUrl: settings.videoCustomBaseUrl ?? '',
+        model: settings.videoCustomModel ?? '',
+        configured: Boolean(settings.videoCustomApiKey),
+        protocol: settings.videoCustomProtocol === 'kling' ? 'kling' : 'ark',
+      },
     },
     maxDuration: settings.videoMaxDuration ?? 10,
   }
@@ -412,6 +418,7 @@ export function registerVideoHandlers(): void {
         : (validateOptionalEnum<VideoProvider>(provider['provider'], 'provider', [
             'seedance',
             'kling',
+            'custom',
           ]) as VideoProvider),
     ),
   )

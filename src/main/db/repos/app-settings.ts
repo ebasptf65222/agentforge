@@ -62,6 +62,10 @@ interface AppSettingsRow {
   video_kling_api_key: string | null
   video_kling_base_url: string | null
   video_kling_model: string | null
+  video_custom_api_key: string | null
+  video_custom_base_url: string | null
+  video_custom_model: string | null
+  video_custom_protocol: string | null
   window_bounds: string | null
   updated_at: number
 }
@@ -179,7 +183,7 @@ export interface UpdateSettingsParams {
   embeddingModel?: string | null
   embeddingApiKey?: string | null
   embeddingDimensions?: number | null
-  videoProvider?: 'seedance' | 'kling' | null
+  videoProvider?: 'seedance' | 'kling' | 'custom' | null
   videoBaseUrl?: string | null
   videoModel?: string | null
   videoApiKey?: string | null
@@ -187,6 +191,10 @@ export interface UpdateSettingsParams {
   videoKlingApiKey?: string | null
   videoKlingBaseUrl?: string | null
   videoKlingModel?: string | null
+  videoCustomApiKey?: string | null
+  videoCustomBaseUrl?: string | null
+  videoCustomModel?: string | null
+  videoCustomProtocol?: 'ark' | 'kling' | null
   windowBounds?: WindowBounds | null
 }
 
@@ -282,7 +290,7 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     embeddingModel: row.embedding_model ?? 'nomic-embed-text',
     embeddingApiKey: row.embedding_api_key ?? undefined,
     embeddingDimensions: row.embedding_dimensions ?? 768,
-    videoProvider: (row.video_provider ?? undefined) as 'seedance' | 'kling' | undefined,
+    videoProvider: (row.video_provider ?? undefined) as 'seedance' | 'kling' | 'custom' | undefined,
     videoBaseUrl: row.video_base_url ?? undefined,
     videoModel: row.video_model ?? undefined,
     videoApiKey: row.video_api_key ?? undefined,
@@ -290,6 +298,10 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     videoKlingApiKey: row.video_kling_api_key ?? undefined,
     videoKlingBaseUrl: row.video_kling_base_url ?? undefined,
     videoKlingModel: row.video_kling_model ?? undefined,
+    videoCustomApiKey: row.video_custom_api_key ?? undefined,
+    videoCustomBaseUrl: row.video_custom_base_url ?? undefined,
+    videoCustomModel: row.video_custom_model ?? undefined,
+    videoCustomProtocol: (row.video_custom_protocol ?? undefined) as 'ark' | 'kling' | undefined,
     windowBounds,
     updatedAt: row.updated_at,
   }
@@ -692,6 +704,26 @@ export function updateSettings(params: UpdateSettingsParams): void {
   if (params.videoKlingModel !== undefined) {
     setClauses.push('video_kling_model = ?')
     values.push(params.videoKlingModel === null ? null : params.videoKlingModel)
+  }
+
+  if (params.videoCustomApiKey !== undefined) {
+    setClauses.push('video_custom_api_key = ?')
+    values.push(params.videoCustomApiKey === null ? null : params.videoCustomApiKey)
+  }
+
+  if (params.videoCustomBaseUrl !== undefined) {
+    setClauses.push('video_custom_base_url = ?')
+    values.push(params.videoCustomBaseUrl === null ? null : params.videoCustomBaseUrl)
+  }
+
+  if (params.videoCustomModel !== undefined) {
+    setClauses.push('video_custom_model = ?')
+    values.push(params.videoCustomModel === null ? null : params.videoCustomModel)
+  }
+
+  if (params.videoCustomProtocol !== undefined) {
+    setClauses.push('video_custom_protocol = ?')
+    values.push(params.videoCustomProtocol === null ? null : params.videoCustomProtocol)
   }
 
   db.prepare(`UPDATE app_settings SET ${setClauses.join(', ')} WHERE id = 1`).run(...values)

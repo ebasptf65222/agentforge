@@ -54,6 +54,8 @@ export interface VideoProviderConfig {
   apiKey: string
   baseUrl: string
   model: string
+  /** 仅 custom 厂商：复用的协议实现（ark=火山方舟兼容 / kling=TokenHub 兼容），缺省 ark */
+  protocol?: 'ark' | 'kling'
 }
 
 /** 适配器工厂，供引擎按配置选择 */

@@ -112,7 +112,7 @@ describe('VideoEngine', () => {
     const result = engine.get(task.id)
     expect(result?.status).toBe('succeeded')
     expect(result?.progress).toBe(100)
-    expect(result?.outputPath).toMatch(/^videos\/seedance-[\w-]+\.mp4$/)
+    expect(result?.outputPath?.replace(/\\/g, '/')).toMatch(/^videos\/seedance-[\w-]+\.mp4$/)
     expect(events).toContain('completed')
     engine.shutdown()
   })

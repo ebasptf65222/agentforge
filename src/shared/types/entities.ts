@@ -150,8 +150,8 @@ export interface AppSettings {
   embeddingApiKey?: string
   /** 嵌入向量维度（用于校验） */
   embeddingDimensions?: number
-  /** 视频生成厂商（'seedance' | 'kling'） */
-  videoProvider?: 'seedance' | 'kling'
+  /** 视频生成厂商（'seedance' | 'kling' | 'custom'） */
+  videoProvider?: 'seedance' | 'kling' | 'custom'
   /** 视频生成 API 基础 URL（默认火山方舟 ARK） */
   videoBaseUrl?: string
   /** 视频生成模型名 */
@@ -166,6 +166,14 @@ export interface AppSettings {
   videoKlingBaseUrl?: string
   /** 可灵模型名 */
   videoKlingModel?: string
+  /** 自定义厂商 API Key（safeStorage 加密存储） */
+  videoCustomApiKey?: string
+  /** 自定义厂商 API 基础 URL（必填） */
+  videoCustomBaseUrl?: string
+  /** 自定义厂商模型名（必填） */
+  videoCustomModel?: string
+  /** 自定义厂商 API 协议（ark=火山方舟兼容 / kling=TokenHub 兼容，默认 ark） */
+  videoCustomProtocol?: 'ark' | 'kling'
   windowBounds?: { x: number; y: number; width: number; height: number; isMaximized: boolean }
   updatedAt: number
 }

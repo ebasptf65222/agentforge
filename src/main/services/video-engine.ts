@@ -41,6 +41,7 @@ import { decryptApiKey } from '../utils/encryption'
 import { getWorkspaceService } from './workspace-service'
 import { createVideoProviderAdapter } from './video-provider'
 import { DEFAULT_KLING_BASE_URL, DEFAULT_KLING_MODEL } from './video-provider/kling'
+import { normalizeCustomProtocol } from './video-provider/custom'
 import type { VideoProviderAdapter, VideoProviderConfig } from './video-provider/types'
 import { extractLastFrame } from '../utils/ffmpeg'
 import { AppError, ErrorCodes } from '../utils/error'
@@ -107,11 +108,18 @@ export function loadVideoConfig(provider?: VideoProvider): VideoProviderConfig {
   let baseUrl: string
   let model: string
   let providerLabel: string
+  let protocol: 'ark' | 'kling' | undefined
   if (active === 'kling') {
     apiKeyEnc = settings.videoKlingApiKey
     baseUrl = settings.videoKlingBaseUrl?.trim() || DEFAULT_KLING_BASE_URL
     model = settings.videoKlingModel?.trim() || DEFAULT_KLING_MODEL
     providerLabel = 'Kling'
+  } else if (active === 'custom') {
+    apiKeyEnc = settings.videoCustomApiKey
+    baseUrl = settings.videoCustomBaseUrl?.trim() || ''
+    model = settings.videoCustomModel?.trim() || ''
+    protocol = normalizeCustomProtocol(settings.videoCustomProtocol)
+    providerLabel = '自定义厂商'
   } else {
     apiKeyEnc = settings.videoApiKey
     baseUrl = settings.videoBaseUrl?.trim() || 'https://ark.cn-beijing.volces.com/api/v3'
@@ -125,6 +133,12 @@ export function loadVideoConfig(provider?: VideoProvider): VideoProviderConfig {
       `Video generation is not configured. Set a ${providerLabel} API key in Settings.`,
     )
   }
+  if (active === 'custom' && (!baseUrl || !model)) {
+    throw new AppError(
+      ErrorCodes.VIDEO_INVALID_CONFIG,
+      'Custom video provider requires both Base URL and model in Settings.',
+    )
+  }
   let apiKey: string
   try {
     apiKey = decryptApiKey(apiKeyEnc)
@@ -134,7 +148,7 @@ export function loadVideoConfig(provider?: VideoProvider): VideoProviderConfig {
       `Failed to decrypt video API key: ${error instanceof Error ? error.message : String(error)}`,
     )
   }
-  return { provider: active, apiKey, baseUrl, model }
+  return { provider: active, apiKey, baseUrl, model, protocol }
 }
 
 /**

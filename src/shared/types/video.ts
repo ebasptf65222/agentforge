@@ -3,7 +3,10 @@
 // 集成设计见 /workspace/ai-video-generation-integration（M1 打通 Seedance 引擎链路）。
 
 /** 视频生成厂商 */
-export type VideoProvider = 'seedance' | 'kling'
+export type VideoProvider = 'seedance' | 'kling' | 'custom'
+
+/** 自定义厂商使用的 API 协议（复用内置适配器） */
+export type VideoCustomProtocol = 'ark' | 'kling'
 
 /** 视频任务状态 */
 export type VideoTaskStatus =
@@ -153,6 +156,8 @@ export interface VideoProviderConfigView {
   model: string
   /** 是否已配置 API Key */
   configured: boolean
+  /** 仅 custom 厂商：使用的 API 协议 */
+  protocol?: VideoCustomProtocol
 }
 
 /** 视频生成配置回显（渲染进程设置页使用） */
