@@ -150,8 +150,8 @@ export function handleGetMcpStatus(params: unknown): {
   // 返回 connected 以反映 SDK 管理的真实状态。
   if (status === 'disconnected' && config?.enabled) {
     try {
-      const engineType = getSettings().engineType ?? 'copilot-sdk'
-      if (engineType === 'copilot-sdk') {
+      const engineType = getSettings().engineType ?? 'code'
+      if (engineType === 'code') {
         const hasValidConfig =
           (config.transport === 'stdio' && !!config.command) ||
           (config.transport === 'http' && !!config.url)

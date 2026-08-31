@@ -445,9 +445,14 @@ function runConditionalMigrations(db: Database.Database): void {
     db.exec(sql)
   })
 
-  // 008: 移除 builtin 引擎，存量 'builtin' 设置迁移到 'copilot-sdk'
+  // 008: 移除 builtin 引擎，存量 'builtin' 设置迁移到 'copilot-sdk'（已由 009 升级为 'code'）
   // （幂等：执行后库中不存在 engine_type='builtin' 的行）
-  db.exec(`UPDATE app_settings SET engine_type = 'copilot-sdk' WHERE engine_type = 'builtin'`)
+  db.exec(`UPDATE app_settings SET engine_type = 'code' WHERE engine_type = 'builtin'`)
+
+  // 009: 引擎重命名 copilot-sdk → code、langgraph → work
+  // （幂等：执行后库中不存在旧引擎标识的行）
+  db.exec(`UPDATE app_settings SET engine_type = 'code' WHERE engine_type = 'copilot-sdk'`)
+  db.exec(`UPDATE app_settings SET engine_type = 'work' WHERE engine_type = 'langgraph'`)
 }
 
 /**

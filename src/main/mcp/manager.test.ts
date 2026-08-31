@@ -102,10 +102,10 @@ vi.mock('../tools/registry', () => ({
   }),
 }))
 
-// Mock app-settings：使用 LangGraph 引擎（manager 仅在 langgraph 引擎下自建连接并注册工具；
-// copilot-sdk 引擎下连接由 SDK 管理，本测试聚焦连接管理逻辑）
+// Mock app-settings：使用 Work 引擎（manager 仅在 work 引擎下自建连接并注册工具；
+// code 引擎下连接由 SDK 管理，本测试聚焦连接管理逻辑）
 vi.mock('../db/repos/app-settings', () => ({
-  getSettings: vi.fn(() => ({ engineType: 'langgraph' })),
+  getSettings: vi.fn(() => ({ engineType: 'work' })),
 }))
 
 // 在 mock 设置完成后导入被测模块

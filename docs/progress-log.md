@@ -1,5 +1,26 @@
 # AgentForge 进度日志
 
+## 引擎重命名：copilot-sdk → code、langgraph → work (2026-08-31)
+
+**任务**: 将双引擎标识重命名为更符合产品定位的 `code`（编码引擎）/ `work`（工作流编排引擎），含数据库存量迁移与 UI 文案同步。
+
+### 变更概要
+
+- 共享类型：`EngineType = 'code' | 'work'`（enums.ts）
+- 引擎分发：`engine-dispatcher.ts` 句柄/锁标识更新，`executeWithCopilotSdk` → `executeWithCode`、`executeWithLangGraph` → `executeWithWork`，路由对旧值 `'langgraph'` 容错
+- 数据库：`schema.sql` 默认值改为 `'code'`；`db/index.ts` 新增幂等迁移 009（存量 `'copilot-sdk'` → `'code'`、`'langgraph'` → `'work'`，`'builtin'` 直接迁至 `'code'`）
+- MCP：`mcp/manager.ts`、`ipc/mcp.ts` 引擎判断改用 `'work'` / `'code'`
+- IPC 校验：`ipc/settings.ts` 白名单改为 `['code', 'work']`
+- 渲染进程：`use-engine-config.ts` / `GeneralSettings.vue` / `EngineConfigPopover.vue` 选项改为 Code / Work，`isCopilotEngine` 更名 `isCodeEngine`
+- 文档：README.md、AGENT.md、project-overview.md 同步更新
+
+### 验证结果
+
+- `pnpm typecheck`: 通过
+- 定向 vitest（mcp/manager、langgraph/bridge、db/repos/app-settings）: 96 passed
+
+---
+
 ## UI 重构 v1.0 批次 A+B+C：AppShell 导航壳 + 执行可视化重组 + 响应式断点 (2026-08-21)
 
 **任务**: 按 `docs/design-v1/` 设计方案实施 UI 重构（导航 IA 统一、Agent 执行可视化、响应式适配），仅改 renderer 布局层，IPC/store 数据接口零变更。

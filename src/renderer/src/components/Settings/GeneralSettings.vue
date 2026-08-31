@@ -69,8 +69,8 @@ const APPROVAL_OPTIONS: ReadonlyArray<{ value: ApprovalMode; label: string }> = 
 ]
 
 const ENGINE_OPTIONS: ReadonlyArray<{ value: EngineType; label: string; desc: string }> = [
-  { value: 'copilot-sdk', label: 'Copilot SDK', desc: 'GitHub Copilot SDK 驱动' },
-  { value: 'langgraph', label: 'LangGraph', desc: 'LangChain + LangGraph 编排引擎' },
+  { value: 'code', label: 'Code', desc: '编码引擎（GitHub Copilot SDK 驱动）' },
+  { value: 'work', label: 'Work', desc: '工作流编排引擎（LangChain + LangGraph）' },
 ]
 
 const REASONING_EFFORT_OPTIONS: ReadonlyArray<{
@@ -487,8 +487,8 @@ const reasoningSummaryOptions = computed<SelectOption[]>(() =>
   REASONING_SUMMARY_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
 )
 
-/** Whether Copilot SDK engine is selected (controls reasoning effort visibility). */
-const isCopilotEngine = computed(() => settings.value?.engineType === 'copilot-sdk')
+/** Whether Code engine is selected (controls reasoning effort visibility). */
+const isCodeEngine = computed(() => settings.value?.engineType === 'code')
 
 // ─── NInputNumber writable adapters ───────────────────────────
 // NInputNumber uses v-model:value (number | null). These computeds bridge
@@ -596,7 +596,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
         </div>
         <div class="setting-row__control">
           <NRadioGroup
-            :value="settings?.engineType ?? 'copilot-sdk'"
+            :value="settings?.engineType ?? 'code'"
             @update:value="(v) => updateEngineType(v as EngineType)"
           >
             <NRadioButton
@@ -611,7 +611,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 推理强度（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">推理强度</span>
           <span class="setting-row__desc">控制 Copilot SDK 的推理深度，影响响应速度和质量</span>
@@ -626,7 +626,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- Wire API 模式（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">Wire API 模式</span>
           <span class="setting-row__desc">控制 SDK 使用哪种 OpenAI API 格式，影响多轮状态和推理支持</span>
@@ -641,7 +641,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 技能目录（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">技能目录</span>
           <span class="setting-row__desc">SDK 从这些目录加载 .md 技能文件，为 AI 提供额外技能定义</span>
@@ -658,7 +658,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 配置自动发现（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">配置自动发现</span>
           <span class="setting-row__desc">自动从工作目录发现 .mcp.json 和技能目录，与显式配置合并</span>
@@ -672,7 +672,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 上下文层级（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">上下文层级</span>
           <span class="setting-row__desc">长上下文模式可支持更长的对话历史（需模型支持）</span>
@@ -687,7 +687,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 推理摘要（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">推理摘要</span>
           <span class="setting-row__desc">控制推理过程的摘要输出模式</span>
@@ -702,7 +702,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 排除工具（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">排除工具</span>
           <span class="setting-row__desc">禁止 AI 使用这些工具（与允许列表互补）</span>
@@ -719,7 +719,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- Git 操作支持（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">Git 上下文</span>
           <span class="setting-row__desc">向 AI 提供分支、文件状态等 Git 信息</span>
@@ -733,7 +733,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 工具搜索延迟阈值（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">工具搜索延迟阈值</span>
           <span class="setting-row__desc">超过此数量的工具将延迟加载（0 = SDK 默认，最大 200）</span>
@@ -744,7 +744,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 默认代理排除工具（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">默认代理排除工具</span>
           <span class="setting-row__desc">默认代理禁止使用这些工具（与全局排除列表不同）</span>
@@ -761,7 +761,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- Open Plugins 目录（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">Open Plugins 目录</span>
           <span class="setting-row__desc">SDK 从这些目录加载 Open Plugins 格式的插件</span>
@@ -778,7 +778,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 自定义指令目录（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">自定义指令目录</span>
           <span class="setting-row__desc">SDK 从这些目录加载 .github/copilot-instructions.md 等指令文件</span>
@@ -795,7 +795,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 记忆功能（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">记忆功能</span>
           <span class="setting-row__desc">启用 SDK 记忆功能，AI 可跨对话记住重要信息</span>
@@ -809,7 +809,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 跳过自定义指令（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">跳过自定义指令</span>
           <span class="setting-row__desc">忽略 .github/copilot-instructions.md 等自动发现的指令文件</span>
@@ -823,7 +823,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- ask_user 双向交互（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">AI 主动提问</span>
           <span class="setting-row__desc">允许 AI 在需要时主动向用户提问（ask_user）</span>
@@ -837,7 +837,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- Elicitation 表单交互（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">表单交互</span>
           <span class="setting-row__desc">允许 AI 通过表单收集结构化输入（elicitation）</span>
@@ -851,7 +851,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- Agent 执行模式（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">Agent 模式</span>
           <span class="setting-row__desc">控制 Agent 的执行策略（计划模式先规划再执行，自动模式全自动）</span>
@@ -866,7 +866,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 最大提示词 token 数（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">压缩阈值（Token）</span>
           <span class="setting-row__desc">超过此 token 数时触发上下文压缩（0 = SDK 默认）</span>
@@ -877,7 +877,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 排除的内置代理（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">排除内置代理</span>
           <span class="setting-row__desc">禁止使用 SDK 内置代理（如 code、debug 等）</span>
@@ -894,7 +894,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 技能加载开关（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">SDK 技能加载</span>
           <span class="setting-row__desc">启用 SDK 内置技能和目录发现（关闭后仅使用项目内置 Skill）</span>
@@ -908,7 +908,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 禁用的技能（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">禁用的技能</span>
           <span class="setting-row__desc">按名称禁用特定 SDK 技能</span>
@@ -925,7 +925,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 上下文压缩阈值（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">上下文压缩阈值</span>
           <span class="setting-row__desc">上下文使用率达到此比例时开始后台压缩（0.1-0.99，默认 0.80）</span>
@@ -936,7 +936,7 @@ const agentModeOptions = computed<SelectOption[]>(() =>
       </div>
 
       <!-- 大输出最大字节数（仅 Copilot SDK 引擎） -->
-      <div v-if="isCopilotEngine" class="setting-row">
+      <div v-if="isCodeEngine" class="setting-row">
         <div class="setting-row__label">
           <span class="setting-row__title">大输出限制（字节）</span>
           <span class="setting-row__desc">工具输出超过此大小时自动截断存储（默认 51200 = 50KB）</span>

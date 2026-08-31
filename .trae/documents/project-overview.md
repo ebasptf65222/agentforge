@@ -27,13 +27,12 @@ src/
 
 ## 核心功能
 
-### 1. 三引擎 Agent 架构（核心亮点）
+### 1. 双引擎 Agent 架构（核心亮点）
 
-通过 [engine-dispatcher.ts](file:///d:/桌面/ai/agentforge/src/main/agent/engine-dispatcher.ts) 路由分发三种执行引擎，可按会话切换：
+通过 [engine-dispatcher.ts](file:///d:/桌面/ai/agentforge/src/main/agent/engine-dispatcher.ts) 路由分发两种执行引擎，可按会话切换：
 
-- **`builtin`**：自研 ReAct（Thought-Action-Observation）执行循环，含审批机制、Token 计数、上下文截断
-- **`copilot-sdk`**：桥接 GitHub Copilot SDK（[agent-bridge.ts](file:///d:/桌面/ai/agentforge/src/main/copilot/agent-bridge.ts)），持久化会话 + SDK 原生上下文压缩（Infinite Sessions）、BYOK 自定义模型提供商、子代理编排、ask_user / Elicitation 双向交互、斜杠命令、技能目录、Hooks 生命周期钩子
-- **`langgraph`**：桥接 LangGraph 状态图（state-graph + checkpointer），支持 SQLite 检查点、记忆存储、MCP 适配
+- **`code`**（默认）：编码引擎，桥接 GitHub Copilot SDK（[agent-bridge.ts](file:///d:/桌面/ai/agentforge/src/main/copilot/agent-bridge.ts)），持久化会话 + SDK 原生上下文压缩（Infinite Sessions）、BYOK 自定义模型提供商、子代理编排、ask_user / Elicitation 双向交互、斜杠命令、技能目录、Hooks 生命周期钩子
+- **`work`**：工作流编排引擎，桥接 LangGraph 状态图（state-graph + checkpointer），支持 SQLite 检查点、记忆存储、MCP 适配
 
 ### 2. 工具系统（约 20+ 内置工具）
 

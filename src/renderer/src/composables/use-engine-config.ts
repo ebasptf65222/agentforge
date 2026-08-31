@@ -10,8 +10,8 @@ import { showToast } from '@/utils/toast'
 // ─── Option constants ─────────────────────────────────────────
 
 export const ENGINE_OPTIONS: ReadonlyArray<{ value: EngineType; label: string; short: string }> = [
-  { value: 'copilot-sdk', label: 'Copilot SDK', short: 'SDK' },
-  { value: 'langgraph', label: 'LangGraph', short: 'LangGraph' },
+  { value: 'code', label: 'Code', short: 'Code' },
+  { value: 'work', label: 'Work', short: 'Work' },
 ]
 
 export const REASONING_EFFORT_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
@@ -47,8 +47,8 @@ export function useEngineConfig() {
   const settingsStore = useSettingsStore()
 
   const settings = computed<AppSettings | null>(() => settingsStore.settings)
-  const currentEngine = computed<EngineType>(() => settings.value?.engineType ?? 'copilot-sdk')
-  const isCopilotEngine = computed(() => currentEngine.value === 'copilot-sdk')
+  const currentEngine = computed<EngineType>(() => settings.value?.engineType ?? 'code')
+  const isCodeEngine = computed(() => currentEngine.value === 'code')
 
   // ─── Engine switch ──────────────────────────────────────────
 
@@ -143,7 +143,7 @@ export function useEngineConfig() {
     // State
     settings,
     currentEngine,
-    isCopilotEngine,
+    isCodeEngine,
     // Actions
     switchEngine,
     updateReasoningEffort,

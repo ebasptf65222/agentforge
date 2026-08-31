@@ -6,7 +6,7 @@
 |------|------|
 | 当前阶段 | P5 - 发布打磨 (完成) |
 | 当前任务 | 全部 P5 任务完成 |
-| 上次完成任务 | 引擎精简：移除 builtin 引擎，三引擎精简为双引擎（copilot-sdk 默认 / langgraph） |
+| 上次完成任务 | 引擎重命名：copilot-sdk → code（默认）/ langgraph → work |
 | 测试总数 | 1576 passed (67 files) |
 | Git 远程 | Gitee (私有仓库) |
 
@@ -27,7 +27,7 @@
 
 ### P2 - Agent 引擎 + MCP 工具 (done)
 
-- P2-01: done - Agent ReAct 执行引擎 (executor.ts，已于引擎精简时移除，功能由 Copilot SDK 引擎覆盖)
+- P2-01: done - Agent ReAct 执行引擎 (executor.ts，已于引擎精简时移除，功能由 Code 引擎（Copilot SDK）覆盖)
 - P2-02: done - 工具注册与内置工具 (file-read/write, web-search/scrape, directory-list)
 - P2-03: done - 审批机制 (approval.ts)
 - P2-04: done - MCP 客户端 (client.ts, transport.ts, manager.ts)
@@ -59,6 +59,16 @@
 - P5-05: done - 配置 electron-builder 打包
 - P5-06: done - 项目 README 与发布文档
 - P5-07: done - 类型检查 + 端到端打包验证
+
+## 引擎重命名记录 (2026-08-31)
+
+- 引擎标识重命名，更符合产品定位：`copilot-sdk` → `code`（编码引擎）/ `langgraph` → `work`（工作流编排引擎）
+- `EngineType = 'code' | 'work'`；默认引擎 `'code'`（GitHub Copilot SDK 驱动）
+- 分发逻辑：`executeWithCode` / `executeWithWork`，路由对旧值 `'langgraph'` 容错
+- 数据迁移：`db/index.ts` 幂等 UPDATE 009，存量 `'copilot-sdk'`/`'builtin'` 刷为 `'code'`、`'langgraph'` 刷为 `'work'`
+- MCP 判断：`mcp/manager.ts` 连接管理判断改为 `=== 'work'`（work 自建连接注册工具；code 走 mcp-bridge 传 SDK）
+- UI：引擎选项显示 Code / Work，`isCopilotEngine` 更名 `isCodeEngine`
+- `src/main/langgraph/` 目录名保持不变（LangGraph 是实现框架，非引擎标识）
 
 ## 引擎精简记录 (2026-08-29)
 

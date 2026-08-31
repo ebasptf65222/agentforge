@@ -15,7 +15,7 @@ const emit = defineEmits<{
 const {
   settings,
   currentEngine,
-  isCopilotEngine,
+  isCodeEngine,
   updateReasoningEffort,
   updateWireApi,
   updateAgentMode,
@@ -46,8 +46,8 @@ function handleOpenFullSettings(): void {
     </div>
 
     <div class="engine-config__body">
-      <!-- ─── Copilot SDK options ─────────────────────────── -->
-      <template v-if="isCopilotEngine">
+      <!-- ─── Code engine options ─────────────────────────── -->
+      <template v-if="isCodeEngine">
         <div class="config-field">
           <span class="config-field__label">推理强度</span>
           <NSelect

@@ -10,7 +10,7 @@ vi.mock('../db/index', () => ({
 }))
 
 vi.mock('../db/repos/app-settings', () => ({
-  getSettings: vi.fn(() => ({ approvalTimeoutMs: 10000, engineType: 'langgraph' })),
+  getSettings: vi.fn(() => ({ approvalTimeoutMs: 10000, engineType: 'work' })),
 }))
 
 vi.mock('../copilot/agent-bridge', () => ({

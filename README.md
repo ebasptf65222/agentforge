@@ -2,7 +2,7 @@
 
 > 本地优先的个人 AI Agent 桌面工作站
 
-AgentForge 是一款基于 Electron 的桌面 AI Agent 应用，集成了流式对话、双执行引擎（Copilot SDK / LangGraph）、工具调用、MCP 协议、Skills 意图匹配和本地知识库，所有数据存储在本地 SQLite 数据库中，无需云端依赖。
+AgentForge 是一款基于 Electron 的桌面 AI Agent 应用，集成了流式对话、双执行引擎（Code / Work）、工具调用、MCP 协议、Skills 意图匹配和本地知识库，所有数据存储在本地 SQLite 数据库中，无需云端依赖。
 
 ## 功能特性
 
@@ -16,8 +16,8 @@ AgentForge 是一款基于 Electron 的桌面 AI Agent 应用，集成了流式�
 ### Agent 引擎
 
 - 双引擎架构（按会话全局切换）：
-  - **Copilot SDK**（默认）：GitHub Copilot SDK 驱动，持久化会话、上下文自动压缩（Infinite Sessions）、BYOK 自定义模型提供商、子代理编排、ask_user / Elicitation 双向交互
-  - **LangGraph**：LangChain + LangGraph 状态图编排，SQLite 检查点与记忆存储
+  - **Code**（默认）：编码引擎，GitHub Copilot SDK 驱动，持久化会话、上下文自动压缩（Infinite Sessions）、BYOK 自定义模型提供商、子代理编排、ask_user / Elicitation 双向交互
+  - **Work**：工作流编排引擎，LangChain + LangGraph 状态图编排，SQLite 检查点与记忆存储
 - 工具风险分级：`low`（自动执行）/ `medium`（需确认）/ `high`（必须审批）
 - 审批超时机制（默认 60s），支持 `suggest` / `auto-edit` / `full-auto` 三种模式
 - Token 计数与上下文长度管理，超限自动截断历史消息

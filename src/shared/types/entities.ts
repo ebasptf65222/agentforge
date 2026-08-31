@@ -94,7 +94,7 @@ export interface AppSettings {
   voice: VoiceConfig
   workspace: WorkspaceConfig
   engineType: EngineType
-  /** SDK 引擎推理强度（仅 copilot-sdk 引擎生效） */
+  /** Code 引擎（Copilot SDK）推理强度（仅 code 引擎生效） */
   copilotReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   /** SDK wire API 模式：'auto' 表示根据模型自动判断（GPT-4o/o 系列用 responses） */
   copilotWireApi?: 'completions' | 'responses' | 'auto'

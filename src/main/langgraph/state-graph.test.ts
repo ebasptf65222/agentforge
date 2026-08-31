@@ -249,13 +249,32 @@ describe('StateGraph (P2-02)', () => {
       expect(result.status).toBe('completed')
     })
 
-    it('无法解析的输出应视为完成', async () => {
+    it('无法解析的输出应注入纠错消息重试，随后正常完成', async () => {
       const options = createOptions({
-        outputs: ['This is just plain text without any action or final answer format.'],
+        outputs: [
+          'This is just plain text without any action or final answer format.',
+          'Final Answer: Done.',
+        ],
       })
 
       const result = await executeWithStateGraph(options)
 
+      expect(result.status).toBe('completed')
+      expect(result.summary).toBe('Done.')
+    })
+
+    it('持续无法解析时重试耗尽后按完成结束', async () => {
+      const options = createOptions({
+        outputs: [
+          'garbage output 1',
+          'garbage output 2',
+          'garbage output 3',
+        ],
+      })
+
+      const result = await executeWithStateGraph(options)
+
+      // 重试 2 次后仍无法解析，按兜底 finish 结束（不再无限循环）
       expect(result.status).toBe('completed')
     })
 

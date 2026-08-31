@@ -18,15 +18,26 @@ export class ModelWrapper {
   /**
    * 调用模型，返回完整响应
    *
+   * 流式推送策略：模型的 Thought 部分实时推送给用户；
+   * 一旦检测到 Action 协议文本（工具调用 JSON）开始输出，停止推送
+   * （该部分是引擎内部协议，不应展示给用户；工具执行情况由轨迹展示）。
+   *
    * @param messages - 对话消息列表
    * @param abortSignal - 可选的中断信号
    * @returns 累积的完整文本
    */
   async invoke(messages: AdapterMessage[], abortSignal?: AbortSignal): Promise<string> {
     let output = ''
+    let suppress = false
     for await (const chunk of this.adapter.streamChat(messages, abortSignal)) {
       if (chunk.type === 'text') {
         output += chunk.content
+        if (suppress) continue
+        // 检测到协议输出标记后停止向用户流式推送剩余内容
+        if (/(?:Action|行动)\s*[:：]/i.test(output)) {
+          suppress = true
+          continue
+        }
         this.callbacks?.onStreamChunk({ type: 'text', content: chunk.content })
       }
     }

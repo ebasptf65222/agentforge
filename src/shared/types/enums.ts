@@ -19,8 +19,8 @@ export type ModelProvider = 'openai' | 'deepseek' | 'anthropic' | 'custom'
 /** MCP 传输类型 */
 export type TransportType = 'stdio' | 'http'
 
-/** Agent 执行引擎类型 */
-export type EngineType = 'copilot-sdk' | 'langgraph'
+/** Agent 执行引擎类型（code: 编码引擎 / work: 工作流编排引擎） */
+export type EngineType = 'code' | 'work'
 
 /** 工具风险等级 */
 export type ToolRiskLevel = 'low' | 'medium' | 'high'

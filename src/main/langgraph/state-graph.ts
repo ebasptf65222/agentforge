@@ -86,28 +86,86 @@ interface ParsedOutput {
   toolName?: string
   args?: Record<string, unknown>
   summary?: string
+  /** true 表示输出未能匹配任何已知格式，走兜底当作 finish（疑似工具调用解析失败） */
+  fallback?: boolean
+}
+
+/**
+ * 修复 JSON 字符串值内的裸控制字符（LLM 输出 JSON 的最常见格式错误）：
+ * 字符串内部的字面换行符 / 制表符未转义为 \n / \t，导致 JSON.parse 失败。
+ * 逐字符扫描并跟踪是否处于字符串内部，仅转义字符串值内的控制字符。
+ */
+function escapeControlCharsInStrings(text: string): string {
+  let result = ''
+  let inString = false
+  let escaped = false
+  for (const ch of text) {
+    if (escaped) {
+      result += ch
+      escaped = false
+      continue
+    }
+    if (inString && ch === '\\') {
+      result += ch
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      inString = !inString
+      result += ch
+      continue
+    }
+    if (inString) {
+      if (ch === '\n') {
+        result += '\\n'
+        continue
+      }
+      if (ch === '\r') {
+        result += '\\r'
+        continue
+      }
+      if (ch === '\t') {
+        result += '\\t'
+        continue
+      }
+    }
+    result += ch
+  }
+  return result
 }
 
 /**
  * 从 LLM 输出文本中提取 JSON 对象。
  * 支持：直接 JSON、```json 代码块、花括号提取。
+ * 对解析失败的候选文本先尝试修复字符串内的裸换行再解析。
  */
 function extractJson(text: string): Record<string, unknown> | null {
   const trimmed = text.trim()
   try {
     return JSON.parse(trimmed) as Record<string, unknown>
   } catch { /* continue */ }
+  try {
+    return JSON.parse(escapeControlCharsInStrings(trimmed)) as Record<string, unknown>
+  } catch { /* continue */ }
   const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
   if (codeBlockMatch?.[1]) {
+    const candidate = codeBlockMatch[1].trim()
     try {
-      return JSON.parse(codeBlockMatch[1].trim()) as Record<string, unknown>
+      return JSON.parse(candidate) as Record<string, unknown>
+    } catch { /* continue */ }
+    try {
+      return JSON.parse(escapeControlCharsInStrings(candidate)) as Record<string, unknown>
     } catch { /* continue */ }
   }
   const firstBrace = trimmed.indexOf('{')
   const lastBrace = trimmed.lastIndexOf('}')
   if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = trimmed.slice(firstBrace, lastBrace + 1)
     try {
-      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>
+      return JSON.parse(candidate) as Record<string, unknown>
+    } catch { /* continue */ }
+    try {
+      return JSON.parse(escapeControlCharsInStrings(candidate)) as Record<string, unknown>
     } catch { /* continue */ }
   }
   return null
@@ -206,11 +264,14 @@ function parseOutput(output: string): ParsedOutput {
   }
 
   // ── 优先级 5: 无法解析，视为直接回复 ──
-  console.warn('[parseOutput] 未检测到明确动作，返回 finish')
+  // 标记 fallback：agentNode 会据此注入纠错消息重试，而不是把"疑似未执行的工具调用"
+  // 当作任务完成（否则会出现模型声称文件已生成、但工具从未执行的假完成）
+  console.warn('[parseOutput] 未检测到明确动作，返回 finish (fallback)')
   return {
     thought: output.trim(),
     actionType: 'finish',
     summary: output.trim(),
+    fallback: true,
   }
 }
 
@@ -275,6 +336,10 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
   const MAX_CONSECUTIVE_FAILURES = 3
   let consecutiveFailures = 0
 
+  // 输出格式解析失败重试计数器（防止纠错循环无限进行）
+  const MAX_PARSE_FAILURE_RETRIES = 2
+  let parseFailureRetries = 0
+
   // 加载项目规则（AGENTS.md），与 builtin 引擎一致
   let projectRules = ''
   try {
@@ -327,6 +392,29 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
     ]
 
     if (parsed.actionType === 'finish') {
+      // 兜底 finish（输出无法解析为已知格式）：疑似模型输出了工具调用但解析失败。
+      // 注入纠错消息让模型按格式重新输出，而不是把未执行的动作当作任务完成，
+      // 避免"模型声称文件已生成、但工具从未执行"的假完成。
+      if (parsed.fallback && parseFailureRetries < MAX_PARSE_FAILURE_RETRIES) {
+        parseFailureRetries++
+        console.warn(
+          `[StateGraph] Output failed to parse (attempt ${parseFailureRetries}/${MAX_PARSE_FAILURE_RETRIES}), requesting reformat`,
+        )
+        const retryMessage: AgentContextMessage = {
+          role: 'user',
+          content:
+            '系统无法从你的上一条输出中解析出有效的 Action 或 Final Answer。请严格按以下格式重新输出：\n' +
+            '1. 需要调用工具时输出一行：Action: {"type": "tool", "tool": "工具名", "arguments": {...}}\n' +
+            '   注意：arguments 必须是合法 JSON，字符串内的换行必须写成 \\n，不要输出真实的换行符。\n' +
+            '2. 任务完成时输出一行：Final Answer: <给用户的总结>\n' +
+            '重要：在收到系统返回的 Observation 之前，绝对不要声称工具已执行成功。',
+        }
+        return {
+          messages: [...newMessages, retryMessage],
+          step: 1,
+        }
+      }
+
       const trajectory = eventConverter.pushTrajectory({
         thought: parsed.thought,
         action: null,
@@ -483,12 +571,15 @@ export async function executeWithStateGraph(options: StateGraphOptions): Promise
   }
 
   // ─── 条件边 ───────────────────────────────────────────────
-  const routeAfterAgent = (state: AgentStateType): 'tools' | typeof END => {
+  const routeAfterAgent = (state: AgentStateType): 'agent' | 'tools' | typeof END => {
     if (state.status === 'completed') return END
     if (state.status === 'cancelled' || state.status === 'failed') return END
 
     const lastMessage = state.messages[state.messages.length - 1]
-    if (!lastMessage || lastMessage.role !== 'assistant') return END
+    if (!lastMessage) return END
+
+    // 解析失败纠错重试：agent 节点追加了 user 纠错消息，回到 agent 继续执行
+    if (lastMessage.role === 'user') return 'agent'
 
     const parsed = parseOutput(lastMessage.content)
     return parsed.actionType === 'tool' ? 'tools' : END
@@ -724,10 +815,11 @@ function buildSystemPrompt(tools: WrappedTool[], skillPrompt?: string, projectRu
   let prompt = `你是一个自主执行 Agent。你可以使用以下工具来完成任务：\n\n${toolSection}\n\n`
   prompt += `执行规则：\n`
   prompt += `1. 每次输出一个 Thought（推理过程）和一个 Action（工具调用）\n`
-  prompt += `2. Action 格式为 JSON: {"type": "tool", "tool": "工具名", "arguments": {...}}\n`
-  prompt += `3. 任务完成时输出: {"type": "finish", "summary": "总结"}\n`
-  prompt += `4. 不要编造工具结果，等待系统返回 Observation\n`
-  prompt += `5. 文件操作请使用 ws_write（工作区写入）工具，不要直接回复说已创建文件\n\n`
+  prompt += `2. 需要调用工具时，输出一行合法单行 JSON: Action: {"type": "tool", "tool": "工具名", "arguments": {...}}\n`
+  prompt += `   注意：arguments 必须是合法 JSON，字符串值内的换行必须转义为 \\n，禁止输出真实的换行符\n`
+  prompt += `3. 任务完成时输出: Final Answer: <给用户的总结>\n`
+  prompt += `4. 不要编造工具结果，必须等待系统返回 Observation 后才能确认操作结果\n`
+  prompt += `5. 文件创建/修改必须通过文件写入工具执行。在收到工具返回的 Observation 之前，绝对不要声称文件已创建\n\n`
 
   if (skillPrompt) {
     prompt += `\n${skillPrompt}\n`

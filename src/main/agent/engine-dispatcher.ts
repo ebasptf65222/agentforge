@@ -2,7 +2,7 @@
 //
 // 从 ipc/agent.ts 中提取的双引擎路由分发逻辑。
 // 职责：
-// 1. 双引擎路由分发（copilot-sdk / langgraph）
+// 1. 双引擎路由分发（code / work）
 // 2. 并发控制（currentBridge / currentLangGraphBridge）
 // 3. 主窗口事件推送（trajectory / approval-request / stream-chunk）
 // 4. 微批次回调构建（createBatchedCallbacks）
@@ -47,8 +47,8 @@ import { ExecutionLock } from './execution-lock'
  * 锁持有时存储当前活跃引擎的类型和引用。
  */
 type EngineHandle =
-  | { readonly type: 'copilot-sdk'; readonly bridge: CopilotAgentBridge }
-  | { readonly type: 'langgraph'; readonly bridge: LangGraphAgentBridge }
+  | { readonly type: 'code'; readonly bridge: CopilotAgentBridge }
+  | { readonly type: 'work'; readonly bridge: LangGraphAgentBridge }
 
 /** 全局执行锁，替代独立的模块级变量 */
 const executionLock = new ExecutionLock<EngineHandle>()
@@ -65,7 +65,7 @@ export function resetCurrentExecutor(): void {
  */
 export function getCurrentBridge(): CopilotAgentBridge | null {
   const handle = executionLock.getCurrent()
-  return handle?.type === 'copilot-sdk' ? handle.bridge : null
+  return handle?.type === 'code' ? handle.bridge : null
 }
 
 /**
@@ -73,7 +73,7 @@ export function getCurrentBridge(): CopilotAgentBridge | null {
  */
 export function getCurrentLangGraphBridge(): LangGraphAgentBridge | null {
   const handle = executionLock.getCurrent()
-  return handle?.type === 'langgraph' ? handle.bridge : null
+  return handle?.type === 'work' ? handle.bridge : null
 }
 
 // ─── 主窗口事件推送 ───────────────────────────────────────────────
@@ -164,12 +164,12 @@ export function getToolsMap(): Map<string, RegisteredTool> {
 // ─── 引擎执行 ─────────────────────────────────────────────────────
 
 /**
- * 使用 LangGraph 引擎执行 Agent 请求。
+ * 使用 Work 引擎执行 Agent 请求。
  *
- * LangGraph 引擎使用 LangChain + LangGraph 框架，复用现有 ModelAdapter 和 ToolRegistry。
+ * Work 引擎基于 LangChain + LangGraph 框架，复用现有 ModelAdapter 和 ToolRegistry。
  * 支持流式输出、工具调用、审批机制，与现有 UI 完全兼容。
  */
-async function executeWithLangGraph(request: AgentExecutionRequest): Promise<ExecutionResult> {
+async function executeWithWork(request: AgentExecutionRequest): Promise<ExecutionResult> {
   const { callbacks, flush, destroy } = createBatchedCallbacks(request.conversationId)
 
   const settings = getSettings()
@@ -178,7 +178,7 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
     callbacks,
     approvalTimeoutMs: settings.approvalTimeoutMs,
   })
-  executionLock.acquire({ type: 'langgraph', bridge })
+  executionLock.acquire({ type: 'work', bridge })
 
   let result: ExecutionResult
   try {
@@ -190,7 +190,7 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
     const contextResult = loadHistoryAndTruncate(
       request.conversationId,
       contextWindow,
-      '[Agent LangGraph]',
+      '[Agent Work]',
     )
 
     // 解析 Skill
@@ -221,7 +221,7 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
         // 自动匹配的 Skill 如果有必填变量缺失，降级为无 Skill（不阻断对话）
         if (skillResolution.source === 'auto') {
           console.warn(
-            `[Agent LangGraph] Auto-matched skill "${skill.name}" failed to build context, skipping:`,
+            `[Agent Work] Auto-matched skill "${skill.name}" failed to build context, skipping:`,
             err instanceof Error ? err.message : err,
           )
         } else {
@@ -242,7 +242,7 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
     // 保存助手回复
     saveAgentResult(request.conversationId, result)
   } catch (error) {
-    console.error('[Agent LangGraph] Execution error:', error)
+    console.error('[Agent Work] Execution error:', error)
     saveAgentError(request.conversationId, error)
     throw error
   } finally {
@@ -255,12 +255,12 @@ async function executeWithLangGraph(request: AgentExecutionRequest): Promise<Exe
 }
 
 /**
- * 使用 Copilot SDK 引擎执行 Agent 请求。
+ * 使用 Code 引擎（GitHub Copilot SDK）执行 Agent 请求。
  *
  * 增强版：支持 Skill 集成（prompt 注入 + 工具过滤）、workingDirectory、
  * largeOutput、reasoningEffort 等 SDK 高级能力。
  */
-async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<ExecutionResult> {
+async function executeWithCode(request: AgentExecutionRequest): Promise<ExecutionResult> {
   const { callbacks, flush, destroy } = createBatchedCallbacks(request.conversationId)
 
   const settings = getSettings()
@@ -269,7 +269,7 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
     callbacks,
     approvalTimeoutMs: settings.approvalTimeoutMs,
   })
-  executionLock.acquire({ type: 'copilot-sdk', bridge })
+  executionLock.acquire({ type: 'code', bridge })
 
   let result: ExecutionResult
   try {
@@ -510,13 +510,13 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
     saveAgentResult(request.conversationId, result)
   } catch (error) {
     // 保存错误信息到消息（透传真实错误信息，而非吞掉为 "Execution failed"）
-    console.error('[Agent SDK] Execution error:', error)
+    console.error('[Agent Code] Execution error:', error)
 
     // 对 CLI 相关错误提供更友好的提示
     const errMsg = error instanceof Error ? error.message : String(error)
     if (errMsg.includes('CLI_START_ERROR') || errMsg.includes('CLI binary not found') || errMsg.includes('Timeout waiting for CLI')) {
       console.error(
-        '[Agent SDK] Copilot CLI is not available. ' +
+        '[Agent Code] Copilot CLI is not available. ' +
         'Ensure @github/copilot and the platform package are installed. ' +
         'You can also set COPILOT_CLI_PATH environment variable.'
       )
@@ -537,8 +537,8 @@ async function executeWithCopilotSdk(request: AgentExecutionRequest): Promise<Ex
  * 双引擎路由分发入口。
  *
  * 根据设置中的 engineType 分发到对应引擎执行：
- * - 'langgraph'  → LangGraph 引擎（LangGraphAgentBridge）
- * - 其余（默认 'copilot-sdk'，含旧值容错）→ Copilot SDK 引擎（CopilotAgentBridge）
+ * - 'work' → Work 引擎（LangGraphAgentBridge，LangChain + LangGraph 编排）
+ * - 其余（默认 'code'，含旧值容错）→ Code 引擎（CopilotAgentBridge，GitHub Copilot SDK）
  *
  * 包含并发控制：在任何 await 之前检查并设置锁，防止竞态条件。
  *
@@ -556,11 +556,13 @@ export async function executeAgentFlow(request: AgentExecutionRequest): Promise<
   // 获取设置，判断引擎类型
   const settings = getSettings()
 
-  // LangGraph 引擎路径：使用 LangChain + LangGraph
-  if (settings.engineType === 'langgraph') {
-    return executeWithLangGraph(request)
+  // Work 引擎路径：使用 LangChain + LangGraph 编排
+  // （含旧值 'langgraph' 的容错，数据库迁移前启动时仍可正确路由）
+  const engineType = settings.engineType as string
+  if (engineType === 'work' || engineType === 'langgraph') {
+    return executeWithWork(request)
   }
 
-  // 默认路径：使用 Copilot SDK（含旧值 'builtin' 的容错回退）
-  return executeWithCopilotSdk(request)
+  // 默认路径：使用 Code 引擎（GitHub Copilot SDK）
+  return executeWithCode(request)
 }
