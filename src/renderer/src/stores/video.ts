@@ -4,7 +4,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed, onUnmounted } from 'vue'
-import type { VideoTask, VideoAsyncEvent, CreateVideoTaskParams } from '@shared/types'
+import type { VideoTask, VideoAsyncEvent, VideoConfigView, VideoProvider, CreateVideoTaskParams } from '@shared/types'
 import { showToast } from '@/utils/toast'
 
 export const useVideoStore = defineStore('video', () => {
@@ -90,13 +90,8 @@ export const useVideoStore = defineStore('video', () => {
   }
 
   /** 读取配置回显 */
-  async function getConfig(): Promise<{ configured: boolean; baseUrl: string; model: string; maxDuration: number }> {
-    return (await window.electron.video.getConfig()) as {
-      configured: boolean
-      baseUrl: string
-      model: string
-      maxDuration: number
-    }
+  async function getConfig(): Promise<VideoConfigView> {
+    return (await window.electron.video.getConfig()) as VideoConfigView
   }
 
   /** 初始化：订阅事件流并拉取任务列表 */
@@ -105,6 +100,11 @@ export const useVideoStore = defineStore('video', () => {
       stopEvent = window.electron.video.onEvent(handleEvent)
     }
     void refresh()
+  }
+
+  /** 测试指定厂商配置（校验 key 解密与配置完整性） */
+  async function testConfig(provider: VideoProvider): Promise<void> {
+    await window.electron.video.testConfig(provider)
   }
 
   onUnmounted(() => {
@@ -125,6 +125,7 @@ export const useVideoStore = defineStore('video', () => {
     cancel,
     refresh,
     getConfig,
+    testConfig,
     init,
   }
 })

@@ -27,6 +27,7 @@ import { getSettings } from '../db/repos/app-settings'
 import { decryptApiKey } from '../utils/encryption'
 import { getWorkspaceService } from './workspace-service'
 import { createVideoProviderAdapter } from './video-provider'
+import { DEFAULT_KLING_BASE_URL, DEFAULT_KLING_MODEL } from './video-provider/kling'
 import type { VideoProviderAdapter, VideoProviderConfig } from './video-provider/types'
 import { AppError, ErrorCodes } from '../utils/error'
 
@@ -36,7 +37,7 @@ const DEFAULT_POLL_INTERVAL_MS = 15_000
 const MAX_CONSECUTIVE_POLL_FAILURES = 3
 
 /** 读取视频运行时配置（含 API Key 解密的处理函数） */
-export type VideoConfigProvider = () => VideoProviderConfig
+export type VideoConfigProvider = (provider?: VideoProvider) => VideoProviderConfig
 /** 进度/结果事件推送函数 */
 export type VideoEventEmitter = (event: VideoAsyncEvent) => void
 /** 下载函数（可注入以便测试） */
@@ -73,20 +74,37 @@ const defaultNotify: VideoEventEmitter = (event) => {
 }
 
 /**
- * 从应用设置读取并构建视频运行时配置。
+ * 从应用设置读取并构建指定厂商的视频运行时配置。
  * 视频 API Key 在 settings 中为 safeStorage 加密存储，此处解密。
+ *
+ * @param provider - 目标厂商；缺省时使用设置中的默认厂商（videoProvider）。
  */
-export function loadVideoConfig(): VideoProviderConfig {
+export function loadVideoConfig(provider?: VideoProvider): VideoProviderConfig {
   const settings = getSettings()
-  const apiKeyEnc = settings.videoApiKey
+  const active: VideoProvider = provider ?? settings.videoProvider ?? 'seedance'
+
+  let apiKeyEnc: string | undefined
+  let baseUrl: string
+  let model: string
+  let providerLabel: string
+  if (active === 'kling') {
+    apiKeyEnc = settings.videoKlingApiKey
+    baseUrl = settings.videoKlingBaseUrl?.trim() || DEFAULT_KLING_BASE_URL
+    model = settings.videoKlingModel?.trim() || DEFAULT_KLING_MODEL
+    providerLabel = 'Kling'
+  } else {
+    apiKeyEnc = settings.videoApiKey
+    baseUrl = settings.videoBaseUrl?.trim() || 'https://ark.cn-beijing.volces.com/api/v3'
+    model = settings.videoModel?.trim() || 'doubao-seedance'
+    providerLabel = 'Seedance'
+  }
+
   if (!apiKeyEnc) {
     throw new AppError(
       ErrorCodes.VIDEO_INVALID_CONFIG,
-      'Video generation is not configured. Set a Seedance API key in Settings.',
+      `Video generation is not configured. Set a ${providerLabel} API key in Settings.`,
     )
   }
-  const model = settings.videoModel?.trim() || 'doubao-seedance'
-  const baseUrl = settings.videoBaseUrl?.trim() || 'https://ark.cn-beijing.volces.com/api/v3'
   let apiKey: string
   try {
     apiKey = decryptApiKey(apiKeyEnc)
@@ -96,14 +114,14 @@ export function loadVideoConfig(): VideoProviderConfig {
       `Failed to decrypt video API key: ${error instanceof Error ? error.message : String(error)}`,
     )
   }
-  return { provider: 'seedance', apiKey, baseUrl, model }
+  return { provider: active, apiKey, baseUrl, model }
 }
 
 /**
  * 视频任务引擎单例。
  */
 export class VideoEngine {
-  private adapter: VideoProviderAdapter | null = null
+  private readonly adapters = new Map<VideoProvider, VideoProviderAdapter>()
   private readonly adapterFactory: (provider: VideoProvider) => VideoProviderAdapter
   private readonly configProvider: VideoConfigProvider
   private readonly notify: VideoEventEmitter
@@ -132,15 +150,17 @@ export class VideoEngine {
     this.pollFailures = new Map()
   }
 
-  private loadRuntimeConfig(): VideoProviderConfig {
-    return loadVideoConfig()
+  private loadRuntimeConfig(provider?: VideoProvider): VideoProviderConfig {
+    return loadVideoConfig(provider)
   }
 
-  private getAdapter(): VideoProviderAdapter {
-    if (!this.adapter) {
-      this.adapter = this.adapterFactory('seedance')
+  private getAdapter(provider: VideoProvider): VideoProviderAdapter {
+    let adapter = this.adapters.get(provider)
+    if (!adapter) {
+      adapter = this.adapterFactory(provider)
+      this.adapters.set(provider, adapter)
     }
-    return this.adapter
+    return adapter
   }
 
   /**
@@ -156,10 +176,11 @@ export class VideoEngine {
     }
 
     const config = this.configProvider()
-    const adapter = this.getAdapter()
+    const adapter = this.getAdapter(config.provider)
 
     // 1. 持久化任务（submitted）
     let task = createVideoTask({
+      provider: config.provider,
       prompt,
       model: config.model,
       duration,
@@ -254,9 +275,9 @@ export class VideoEngine {
 
   private async pollOnce(id: string, task: VideoTask): Promise<void> {
     const providerTaskId = task.providerTaskId as string
-    const config = this.configProvider()
+    const config = this.configProvider(task.provider)
     try {
-      const result = await this.getAdapter().status(providerTaskId, config)
+      const result = await this.getAdapter(task.provider).status(providerTaskId, config)
       this.pollFailures.delete(id)
 
       if (result.status === 'succeeded') {
@@ -298,7 +319,7 @@ export class VideoEngine {
     let outputPath: string | null = null
     try {
       if (downloadUrl) {
-        const { relPath, absPath } = this.resolveOutputPaths(id)
+        const { relPath, absPath } = this.resolveOutputPaths(id, task.provider)
         await this.download(downloadUrl, absPath)
         outputPath = relPath
       }
@@ -346,10 +367,13 @@ export class VideoEngine {
     this.stopTimerIfIdle()
   }
 
-  /** 计算视频落盘的相对/绝对路径（workspace/videos/seedance-{taskId}.mp4） */
-  private resolveOutputPaths(taskId: string): { relPath: string; absPath: string } {
+  /** 计算视频落盘的相对/绝对路径（workspace/videos/{provider}-{taskId}.mp4） */
+  private resolveOutputPaths(
+    taskId: string,
+    provider: VideoProvider,
+  ): { relPath: string; absPath: string } {
     const workspaceRoot = getWorkspaceService().getPath()
-    const relPath = join('videos', `seedance-${taskId}.mp4`)
+    const relPath = join('videos', `${provider}-${taskId}.mp4`)
     return { relPath, absPath: join(workspaceRoot, relPath) }
   }
 

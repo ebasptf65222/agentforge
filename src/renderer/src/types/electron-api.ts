@@ -40,6 +40,8 @@ import type {
   CheckpointDiff,
   VideoTask,
   VideoAsyncEvent,
+  VideoConfigView,
+  VideoProvider,
   CreateVideoTaskParams,
 } from '@shared/types'
 
@@ -578,16 +580,7 @@ interface CheckpointAPI {
   delete(params: CheckpointDeleteParams): Promise<CheckpointDeleteResult>
 }
 
-/** 视频生成配置回显（不含 API Key） */
-interface VideoConfigView {
-  provider: 'seedance'
-  baseUrl: string
-  model: string
-  maxDuration: number
-  configured: boolean
-}
-
-/** 视频生成命名空间（M3 AI 视频生成） */
+/** 视频生成命名空间（M3/M4 AI 视频生成，多厂商） */
 interface VideoAPI {
   /** 提交一个视频生成任务 */
   generate(params: CreateVideoTaskParams): Promise<VideoTask>
@@ -597,10 +590,10 @@ interface VideoAPI {
   list(limit?: number): Promise<VideoTask[]>
   /** 取消在途任务 */
   cancel(id: string): Promise<VideoTask | null>
-  /** 读取视频生成配置（不含 API Key） */
+  /** 读取视频生成配置（不含 API Key，含多厂商回显） */
   getConfig(): Promise<VideoConfigView>
-  /** 测试连接（校验配置完整性） */
-  testConfig(): Promise<{ ok: boolean; provider: 'seedance'; baseUrl: string; model: string }>
+  /** 测试指定厂商连接（校验配置完整性） */
+  testConfig(provider?: VideoProvider): Promise<{ ok: boolean; provider: VideoProvider; baseUrl: string; model: string }>
   /** 订阅异步推送事件（progress / completed / failed），返回取消订阅函数 */
   onEvent(callback: (event: VideoAsyncEvent) => void): () => void
 }
@@ -687,4 +680,5 @@ export type {
   ConversationTreeResult,
   VideoAPI,
   VideoConfigView,
+  VideoProvider,
 }

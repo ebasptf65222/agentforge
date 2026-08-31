@@ -185,4 +185,30 @@ describe('VideoEngine', () => {
     expect(engine).toBe(getVideoEngine())
     await expect(engine.list()).toBeDefined()
   })
+
+  it('should route adapter and persist provider by config provider (M4)', async () => {
+    const requestedProviders: string[] = []
+    const adapter: VideoProviderAdapter = {
+      provider: 'kling',
+      submit: async () => ({ providerTaskId: 'kt-1' }),
+      status: async () => ({ status: 'queued' as const, progress: 5, downloadUrl: null }),
+    }
+    const engine = new VideoEngine({
+      adapterFactory: (provider) => {
+        requestedProviders.push(provider)
+        return adapter
+      },
+      configProvider: () => ({ ...TEST_CONFIG, provider: 'kling' }),
+      notify: () => undefined,
+      download: async () => undefined,
+      pollIntervalMs: 1000,
+    })
+
+    const task = await engine.generate({ prompt: 'a cat' })
+    expect(requestedProviders).toContain('kling')
+    expect(task.provider).toBe('kling')
+    // 永久化到库中的 provider 也应为 kling
+    expect(engine.get(task.id)?.provider).toBe('kling')
+    engine.shutdown()
+  })
 })

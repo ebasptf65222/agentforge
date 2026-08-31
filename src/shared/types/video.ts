@@ -3,7 +3,7 @@
 // 集成设计见 /workspace/ai-video-generation-integration（M1 打通 Seedance 引擎链路）。
 
 /** 视频生成厂商 */
-export type VideoProvider = 'seedance'
+export type VideoProvider = 'seedance' | 'kling'
 
 /** 视频任务状态 */
 export type VideoTaskStatus =
@@ -66,3 +66,20 @@ export type VideoAsyncEvent =
   | { type: 'progress'; taskId: string; progress: number; status: VideoTaskStatus }
   | { type: 'completed'; taskId: string; outputPath: string }
   | { type: 'failed'; taskId: string; message: string }
+
+/** 单个厂商的配置回显（不含 API Key） */
+export interface VideoProviderConfigView {
+  baseUrl: string
+  model: string
+  /** 是否已配置 API Key */
+  configured: boolean
+}
+
+/** 视频生成配置回显（渲染进程设置页使用） */
+export interface VideoConfigView {
+  /** 默认生成厂商（设置页下拉可切换） */
+  defaultProvider: VideoProvider
+  /** 各厂商配置回显 */
+  providers: Record<VideoProvider, VideoProviderConfigView>
+  maxDuration: number
+}

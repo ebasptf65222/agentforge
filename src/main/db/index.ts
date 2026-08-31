@@ -345,6 +345,24 @@ const COLUMN_MIGRATIONS: readonly ColumnMigration[] = [
     sql: `ALTER TABLE app_settings ADD COLUMN video_max_duration INTEGER DEFAULT 10`,
   },
   {
+    table: 'app_settings',
+    column: 'video_kling_api_key',
+    comment: 'VIDEO-M4: 可灵（TokenHub）API 密钥（加密）',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_kling_api_key TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_kling_base_url',
+    comment: 'VIDEO-M4: 可灵 API 基础 URL（默认 TokenHub）',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_kling_base_url TEXT`,
+  },
+  {
+    table: 'app_settings',
+    column: 'video_kling_model',
+    comment: 'VIDEO-M4: 可灵模型名',
+    sql: `ALTER TABLE app_settings ADD COLUMN video_kling_model TEXT`,
+  },
+  {
     table: 'kb_documents',
     column: 'content_hash',
     comment: 'RAG-FIX-02: 文档内容哈希（快速去重）',

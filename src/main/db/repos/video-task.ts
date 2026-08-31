@@ -10,6 +10,7 @@ import { generateId } from '../../utils/id'
 /** 创建任务时的本地状态字段 */
 interface CreateVideoTaskRow extends CreateVideoTaskParams {
   model: string
+  provider?: VideoProvider
 }
 
 /** 运行时可更新的任务字段 */
@@ -79,7 +80,7 @@ export function createVideoTask(params: CreateVideoTaskRow): VideoTask {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
-    'seedance',
+    params.provider ?? 'seedance',
     null,
     params.prompt,
     params.model,

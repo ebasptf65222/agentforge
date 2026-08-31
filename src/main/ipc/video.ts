@@ -6,10 +6,14 @@ import { ipcMain } from 'electron'
 import type {
   CreateVideoTaskParams,
   VideoAspect,
+  VideoConfigView,
+  VideoProvider,
   VideoResolution,
   VideoTask,
 } from '@shared/types'
 import { getVideoEngine, loadVideoConfig } from '../services/video-engine'
+import { DEFAULT_ARK_BASE_URL } from '../services/video-provider/seedance'
+import { DEFAULT_KLING_BASE_URL, DEFAULT_KLING_MODEL } from '../services/video-provider/kling'
 import {
   createValidatedHandler,
   validateNonEmptyString,
@@ -17,15 +21,6 @@ import {
   validateOptionalNumber,
   validateOptionalString,
 } from '../utils/ipc-validator'
-
-/** 视频生成配置回显（不含 API Key） */
-export interface VideoConfigView {
-  provider: 'seedance'
-  baseUrl: string
-  model: string
-  maxDuration: number
-  configured: boolean
-}
 
 // ─── 处理函数（委托给引擎） ───────────────────────────────────
 
@@ -59,30 +54,41 @@ export async function handleVideoCancel(id: string): Promise<VideoTask | null> {
 
 /**
  * 读取当前视频生成配置（不含 API Key，仅用于前端回显）。
+ * 返回默认厂商与各厂商各自的 BaseUrl/模型/是否已配置 Key。
  */
 export async function handleVideoConfig(): Promise<VideoConfigView> {
   const { getSettings } = await import('../db/repos/app-settings')
   const settings = getSettings()
   return {
-    provider: (settings.videoProvider ?? 'seedance') as 'seedance',
-    baseUrl: settings.videoBaseUrl ?? 'https://ark.cn-beijing.volces.com/api/v3',
-    model: settings.videoModel ?? 'doubao-seedance',
+    defaultProvider: (settings.videoProvider ?? 'seedance') as VideoProvider,
+    providers: {
+      seedance: {
+        baseUrl: settings.videoBaseUrl ?? DEFAULT_ARK_BASE_URL,
+        model: settings.videoModel ?? 'doubao-seedance',
+        configured: Boolean(settings.videoApiKey),
+      },
+      kling: {
+        baseUrl: settings.videoKlingBaseUrl ?? DEFAULT_KLING_BASE_URL,
+        model: settings.videoKlingModel ?? DEFAULT_KLING_MODEL,
+        configured: Boolean(settings.videoKlingApiKey),
+      },
+    },
     maxDuration: settings.videoMaxDuration ?? 10,
-    configured: Boolean(settings.videoApiKey),
   }
 }
 
 /**
- * 测试链接：校验配置是否完整并尝试读取模型（不发起下载）。
+ * 测试链接：校验指定厂商配置是否完整（不发起下载）。
+ * 缺省 provider 时按默认厂商。
  */
-export async function handleVideoTestConfig(): Promise<{
+export async function handleVideoTestConfig(provider?: VideoProvider): Promise<{
   ok: boolean
-  provider: 'seedance'
+  provider: VideoProvider
   baseUrl: string
   model: string
 }> {
-  const config = loadVideoConfig()
-  return { ok: true, provider: 'seedance', baseUrl: config.baseUrl, model: config.model }
+  const config = loadVideoConfig(provider)
+  return { ok: true, provider: config.provider, baseUrl: config.baseUrl, model: config.model }
 }
 
 // ─── IPC 通道注册 ─────────────────────────────────────────────
@@ -151,5 +157,14 @@ export function registerVideoHandlers(): void {
   ipcMain.handle('video:get-config', () => handleVideoConfig())
 
   ipcMain.removeHandler('video:test-config')
-  ipcMain.handle('video:test-config', () => handleVideoTestConfig())
+  ipcMain.handle('video:test-config', (_event, provider) =>
+    handleVideoTestConfig(
+      provider === undefined
+        ? undefined
+        : (validateOptionalEnum<VideoProvider>(provider['provider'], 'provider', [
+            'seedance',
+            'kling',
+          ]) as VideoProvider),
+    ),
+  )
 }
