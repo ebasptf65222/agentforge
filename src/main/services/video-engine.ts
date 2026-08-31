@@ -435,6 +435,8 @@ export class VideoEngine {
         try {
           const config = this.configProvider(task.provider as VideoProvider)
           await this.submitPersisted(task, config, entry.imageRefs)
+          // M14 修复：提交后确保定时器存活，防止 stopTimerIfIdle 在 async 泄漏间隙提前停表
+          this.ensureTimer()
         } catch (error) {
           await this.handleTerminal(
             task.id,
