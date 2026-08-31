@@ -116,6 +116,13 @@ export interface CreateVideoSequenceParams {
   shots: VideoShot[]
 }
 
+/** 多镜头序列详情（序列 + 其下的镜头子任务，供渲染层一次性渲染） */
+export interface VideoSequenceDetail {
+  sequence: VideoSequence
+  /** 序列下的镜头子任务（按 shotIndex 升序） */
+  tasks: VideoTask[]
+}
+
 /** 运行时厂商配置（明文 API Key，由引擎解密后注入） */
 export interface VideoProviderConfig {
   provider: VideoProvider

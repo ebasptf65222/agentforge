@@ -42,6 +42,8 @@ import type {
   VideoAsyncEvent,
   VideoConfigView,
   VideoProvider,
+  VideoSequence,
+  VideoSequenceDetail,
   CreateVideoTaskParams,
 } from '@shared/types'
 
@@ -596,6 +598,10 @@ interface VideoAPI {
   testConfig(provider?: VideoProvider): Promise<{ ok: boolean; provider: VideoProvider; baseUrl: string; model: string }>
   /** 订阅异步推送事件（progress / completed / failed），返回取消订阅函数 */
   onEvent(callback: (event: VideoAsyncEvent) => void): () => void
+  /** 获取多镜头序列列表（M6） */
+  listSequences(limit?: number): Promise<VideoSequence[]>
+  /** 获取多镜头序列详情（含镜头子任务）（M6） */
+  getSequenceDetail(id: string): Promise<VideoSequenceDetail | null>
 }
 
 /** window.electron 完整类型 */

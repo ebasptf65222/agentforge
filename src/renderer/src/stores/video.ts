@@ -4,7 +4,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed, onUnmounted } from 'vue'
-import type { VideoTask, VideoAsyncEvent, VideoConfigView, VideoProvider, CreateVideoTaskParams } from '@shared/types'
+import type { VideoTask, VideoAsyncEvent, VideoConfigView, VideoProvider, CreateVideoTaskParams, VideoSequence, VideoSequenceDetail } from '@shared/types'
 import { showToast } from '@/utils/toast'
 
 export const useVideoStore = defineStore('video', () => {
@@ -12,6 +12,12 @@ export const useVideoStore = defineStore('video', () => {
 
   /** 任务映射：taskId → VideoTask */
   const tasks = ref<Record<string, VideoTask>>({})
+
+  /** 多镜头序列映射：sequenceId → VideoSequence */
+  const sequences = ref<Record<string, VideoSequence>>({})
+
+  /** 序列详情缓存：sequenceId → VideoSequenceDetail */
+  const sequenceDetails = ref<Record<string, VideoSequenceDetail>>({})
 
   /** 是否在加载任务列表 */
   const loading = ref(false)
@@ -26,6 +32,11 @@ export const useVideoStore = defineStore('video', () => {
     Object.values(tasks.value).sort((a, b) => b.createdAt - a.createdAt),
   )
 
+  /** 多镜头序列数组（按创建时间倒序，仅包含实际序列父记录） */
+  const sequenceList = computed<VideoSequence[]>(() =>
+    Object.values(sequences.value).sort((a, b) => b.createdAt - a.createdAt),
+  )
+
   /** 进行中（未结束）的任务数量 */
   const activeCount = computed(
     () =>
@@ -37,10 +48,19 @@ export const useVideoStore = defineStore('video', () => {
     return tasks.value[id] ?? null
   }
 
+  /** 获取指定序列 */
+  function getSequence(id: string): VideoSequence | null {
+    return sequences.value[id] ?? null
+  }
+
   // ─── Internal ────────────────────────────────────────────────
 
   function upsert(task: VideoTask): void {
     tasks.value = { ...tasks.value, [task.id]: task }
+  }
+
+  function upsertSequence(sequence: VideoSequence): void {
+    sequences.value = { ...sequences.value, [sequence.id]: sequence }
   }
 
   function handleEvent(event: VideoAsyncEvent): void {
@@ -53,6 +73,8 @@ export const useVideoStore = defineStore('video', () => {
     } else if (event.type === 'failed') {
       upsert({ ...existing, status: 'failed', errorMessage: event.message })
     }
+    // 子任务进度/终态会影响父序列聚合状态，周期性刷新序列列表
+    void refreshSequences()
   }
 
   // ─── Actions ─────────────────────────────────────────────────
@@ -89,17 +111,41 @@ export const useVideoStore = defineStore('video', () => {
     }
   }
 
+  /** 刷新多镜头序列列表 */
+  async function refreshSequences(limit = 50): Promise<VideoSequence[]> {
+    const result = (await window.electron.video.listSequences(limit)) as VideoSequence[]
+    const map: Record<string, VideoSequence> = {}
+    for (const s of result) map[s.id] = s
+    sequences.value = { ...sequences.value, ...map }
+    return result
+  }
+
+  /** 获取序列详情（含镜头子任务），带本地缓存 */
+  async function getSequenceDetail(id: string): Promise<VideoSequenceDetail | null> {
+    const cached = sequenceDetails.value[id]
+    if (cached) return cached
+    const detail = (await window.electron.video.getSequenceDetail(id)) as
+      | VideoSequenceDetail
+      | null
+    if (detail) {
+      upsertSequence(detail.sequence)
+      sequenceDetails.value = { ...sequenceDetails.value, [id]: detail }
+    }
+    return detail
+  }
+
   /** 读取配置回显 */
   async function getConfig(): Promise<VideoConfigView> {
     return (await window.electron.video.getConfig()) as VideoConfigView
   }
 
-  /** 初始化：订阅事件流并拉取任务列表 */
+  /** 初始化：订阅事件流并拉取任务与序列列表 */
   function init(): void {
     if (!stopEvent) {
       stopEvent = window.electron.video.onEvent(handleEvent)
     }
     void refresh()
+    void refreshSequences()
   }
 
   /** 测试指定厂商配置（校验 key 解密与配置完整性） */
@@ -115,15 +161,20 @@ export const useVideoStore = defineStore('video', () => {
   return {
     // State
     tasks,
+    sequences,
     loading,
     // Getters
     list,
+    sequenceList,
     activeCount,
     getTask,
+    getSequence,
     // Actions
     generate,
     cancel,
     refresh,
+    refreshSequences,
+    getSequenceDetail,
     getConfig,
     testConfig,
     init,

@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useVideoStore } from './video'
-import type { VideoTask } from '@shared/types'
+import type { VideoSequence, VideoTask } from '@shared/types'
 
 const BASE_TASK: VideoTask = {
   id: 't1',
@@ -21,12 +21,30 @@ const BASE_TASK: VideoTask = {
   errorMessage: null,
   downloadUrl: null,
   outputPath: null,
+  sequenceId: null,
+  shotIndex: null,
   createdAt: 1000,
   updatedAt: 1000,
 }
 
 function task(overrides: Partial<VideoTask>): VideoTask {
   return { ...BASE_TASK, ...overrides }
+}
+
+function sequence(overrides: Partial<VideoSequence>): VideoSequence {
+  return {
+    id: 'seq-1',
+    title: 'My story',
+    provider: 'seedance',
+    status: 'running',
+    totalCount: 2,
+    succeededCount: 1,
+    failedCount: 0,
+    cancelledCount: 0,
+    createdAt: 2000,
+    updatedAt: 2000,
+    ...overrides,
+  }
 }
 
 /** 构造 window.electron.video mock */
@@ -38,6 +56,8 @@ function mockElectronVideo(overrides?: Record<string, unknown>): Record<string, 
     cancel: vi.fn(),
     getConfig: vi.fn(),
     testConfig: vi.fn(),
+    listSequences: vi.fn().mockResolvedValue([]),
+    getSequenceDetail: vi.fn().mockResolvedValue(null),
     onEvent: vi.fn().mockReturnValue(() => {}),
   }
   const api = { ...base, ...(overrides ?? {}) }
@@ -198,5 +218,38 @@ describe('video store', () => {
 
     expect(store.list.map((t) => t.id)).toEqual(['b', 'c', 'a'])
     expect(store.activeCount).toBe(1)
+  })
+
+  it('refreshSequences 填充序列列表并按创建时间倒序', async () => {
+    mockElectronVideo({
+      listSequences: vi.fn().mockResolvedValue([
+        sequence({ id: 'seq-a', createdAt: 1000 }),
+        sequence({ id: 'seq-b', createdAt: 2000 }),
+      ]),
+    })
+    const store = useVideoStore()
+
+    await store.refreshSequences()
+
+    expect(store.sequenceList.map((s) => s.id)).toEqual(['seq-b', 'seq-a'])
+    expect(store.getSequence('seq-a')?.totalCount).toBe(2)
+  })
+
+  it('getSequenceDetail 拉取详情并写入缓存，重复调用不二次请求', async () => {
+    const detailSpy = vi.fn().mockResolvedValue({
+      sequence: sequence({ id: 'seq-a' }),
+      tasks: [task({ id: 'shot-0', sequenceId: 'seq-a', shotIndex: 0 })],
+    })
+    const api = mockElectronVideo({ getSequenceDetail: detailSpy })
+    const store = useVideoStore()
+
+    const first = await store.getSequenceDetail('seq-a')
+    const second = await store.getSequenceDetail('seq-a')
+
+    expect(first?.tasks).toHaveLength(1)
+    expect(second).toEqual(first)
+    expect(detailSpy).toHaveBeenCalledTimes(1)
+    expect(api.getSequenceDetail).toHaveBeenCalledWith('seq-a')
+    expect(store.getSequence('seq-a')?.status).toBe('running')
   })
 })

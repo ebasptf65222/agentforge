@@ -21,6 +21,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useVideoStore } from '@/stores/video'
 import { showToast } from '@/utils/toast'
 import VideoTaskCard from '@/components/video/VideoTaskCard.vue'
+import SequenceCard from '@/components/video/SequenceCard.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUiStore } from '@/stores/ui'
 
@@ -199,6 +200,25 @@ function handleOpenVideo(relativePath: string): void {
           </NButton>
         </NSpace>
       </NForm>
+    </NCard>
+
+    <NCard title="多镜头序列" size="small" class="video-config__card" :bordered="false">
+      <div v-if="videoStore.loading" class="video-config__loading">
+        <NSpin size="small" />
+      </div>
+      <NEmpty
+        v-else-if="videoStore.sequenceList.length === 0"
+        description="暂无多镜头序列"
+        class="video-config__empty"
+      />
+      <div v-else class="video-config__tasks">
+        <SequenceCard
+          v-for="sequence in videoStore.sequenceList"
+          :key="sequence.id"
+          :sequence="sequence"
+          @open="handleOpenVideo"
+        />
+      </div>
     </NCard>
 
     <NCard title="任务历史" size="small" class="video-config__card" :bordered="false">

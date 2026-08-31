@@ -427,6 +427,12 @@ const video = {
 
   getConfig: (): Promise<unknown> => ipcRenderer.invoke('video:get-config'),
 
+  listSequences: (limit?: number): Promise<unknown[]> =>
+    ipcRenderer.invoke('video:list-sequences', limit !== undefined ? { limit } : undefined),
+
+  getSequenceDetail: (id: string): Promise<unknown> =>
+    ipcRenderer.invoke('video:sequence-detail', { id }),
+
   testConfig: (): Promise<unknown> => ipcRenderer.invoke('video:test-config'),
 
   // 引擎异步推送 progress / completed / failed

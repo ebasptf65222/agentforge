@@ -9,9 +9,13 @@ import type {
   VideoConfigView,
   VideoProvider,
   VideoResolution,
+  VideoSequence,
+  VideoSequenceDetail,
   VideoTask,
 } from '@shared/types'
 import { getVideoEngine, loadVideoConfig } from '../services/video-engine'
+import { getVideoSequenceById, listVideoSequences } from '../db/repos/video-sequence'
+import { listVideoTasksBySequence } from '../db/repos/video-task'
 import { DEFAULT_ARK_BASE_URL } from '../services/video-provider/seedance'
 import { DEFAULT_KLING_BASE_URL, DEFAULT_KLING_MODEL } from '../services/video-provider/kling'
 import {
@@ -91,6 +95,24 @@ export async function handleVideoTestConfig(provider?: VideoProvider): Promise<{
   return { ok: true, provider: config.provider, baseUrl: config.baseUrl, model: config.model }
 }
 
+/**
+ * 获取多镜头序列列表。
+ */
+export async function handleVideoListSequences(limit?: number): Promise<VideoSequence[]> {
+  return listVideoSequences(limit)
+}
+
+/**
+ * 获取多镜头序列详情（含镜头子任务）。
+ */
+export async function handleVideoSequenceDetail(
+  id: string,
+): Promise<VideoSequenceDetail | null> {
+  const sequence = getVideoSequenceById(id)
+  if (!sequence) return null
+  return { sequence, tasks: listVideoTasksBySequence(id) }
+}
+
 // ─── IPC 通道注册 ─────────────────────────────────────────────
 
 /**
@@ -155,6 +177,28 @@ export function registerVideoHandlers(): void {
 
   ipcMain.removeHandler('video:get-config')
   ipcMain.handle('video:get-config', () => handleVideoConfig())
+
+  ipcMain.removeHandler('video:list-sequences')
+  ipcMain.handle(
+    'video:list-sequences',
+    (_event, ...args) => {
+      const params = args[0]
+      const obj =
+        params === undefined || params === null
+          ? undefined
+          : (params as Record<string, unknown>)
+      const limit = obj ? validateOptionalNumber(obj['limit'], 'limit') : undefined
+      return handleVideoListSequences(limit)
+    },
+  )
+
+  ipcMain.removeHandler('video:sequence-detail')
+  ipcMain.handle(
+    'video:sequence-detail',
+    createValidatedHandler(p => ({ id: validateNonEmptyString(p['id'], 'id') }), ({ id }) =>
+      handleVideoSequenceDetail(id),
+    ),
+  )
 
   ipcMain.removeHandler('video:test-config')
   ipcMain.handle('video:test-config', (_event, provider) =>
