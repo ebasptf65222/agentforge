@@ -13,8 +13,10 @@ import {
   NSpace,
   NInputNumber,
   NEmpty,
+  NPopconfirm,
   NSpin,
   NSelect,
+  NTag,
 } from 'naive-ui'
 import type {
   VideoProvider,
@@ -365,7 +367,16 @@ const logRows = computed(() =>
           />
         </NFormItem>
 
-        <NFormItem :label="apiKeyLabel">
+        <NFormItem>
+          <template #label>
+            {{ apiKeyLabel }}
+            <NTag v-if="currentApiKey" size="tiny" type="warning" :bordered="false" class="video-config__key-state">
+              待保存
+            </NTag>
+            <NTag v-else size="tiny" :bordered="false" class="video-config__key-state">
+              留空保留已存密钥
+            </NTag>
+          </template>
           <NInput
             v-model:value="currentApiKey"
             :type="apiKeyVisible ? 'text' : 'password'"
@@ -461,7 +472,12 @@ const logRows = computed(() =>
           <NButton @click="loadRoutingConfig">重置</NButton>
           <NButton :loading="logsLoading" @click="refreshRoutingLogs">刷新日志</NButton>
           <NButton @click="logsVisible = true">查看路由日志</NButton>
-          <NButton quaternary @click="clearRoutingLogs">清空日志</NButton>
+          <NPopconfirm @positive-click="clearRoutingLogs">
+            <template #trigger>
+              <NButton quaternary type="error">清空日志</NButton>
+            </template>
+            将清空全部路由决策日志（不可恢复），确认？
+          </NPopconfirm>
         </NSpace>
       </NForm>
     </NCard>
@@ -472,7 +488,14 @@ const logRows = computed(() =>
       title="路由决策日志"
       style="width: 860px; max-width: 92vw"
     >
-      <NButton size="small" quaternary @click="clearRoutingLogs">清空日志</NButton>
+      <NSpace style="margin-bottom: 8px">
+        <NPopconfirm @positive-click="clearRoutingLogs">
+          <template #trigger>
+            <NButton size="small" quaternary type="error">清空日志</NButton>
+          </template>
+          将清空全部路由决策日志（不可恢复），确认？
+        </NPopconfirm>
+      </NSpace>
       <NDataTable
         :columns="logColumns"
         :data="logRows"
@@ -536,6 +559,11 @@ const logRows = computed(() =>
 
 .video-config__provider {
   width: 100%;
+}
+
+.video-config__key-state {
+  margin-left: 8px;
+  vertical-align: middle;
 }
 
 .video-config__eye {

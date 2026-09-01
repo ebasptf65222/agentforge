@@ -8,25 +8,25 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import {
   NButton,
   NCard,
+  NDropdown,
   NEmpty,
   NForm,
   NFormItem,
   NInput,
   NInputNumber,
   NModal,
-  NPopconfirm,
   NSpace,
   NSpin,
   NSelect,
+  NSwitch,
   NTag,
   NText,
   NTooltip,
+  useDialog,
 } from 'naive-ui'
 import {
   PlusOutlined,
   PlayCircleOutlined,
-  DeleteOutlined,
-  HistoryOutlined,
   EditOutlined,
   ScheduleOutlined,
 } from '@vicons/material'
@@ -39,8 +39,37 @@ import { useVideoStore } from '@/stores/video'
 import { showToast } from '@/utils/toast'
 
 const videoStore = useVideoStore()
+const dialog = useDialog()
 
 const loading = computed(() => videoStore.schedulesLoading)
+
+/** 表单中批量任务行数（实时反馈） */
+const promptRowCount = computed(
+  () => form.prompts.split('\n').map((line) => line.trim()).filter((line) => line.length > 0).length,
+)
+
+/** 卡片「更多」下拉：执行历史 / 删除 */
+const scheduleMoreOptions: { label: string; key: string }[] = [
+  { label: '执行历史', key: 'history' },
+  { label: '删除', key: 'delete' },
+]
+
+function confirmDeleteSchedule(schedule: VideoSchedule): void {
+  dialog.warning({
+    title: '删除定时任务',
+    content: `确认删除「${schedule.name}」？已生成的视频不受影响。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      void videoStore.deleteSchedule(schedule.id)
+    },
+  })
+}
+
+function handleScheduleMore(schedule: VideoSchedule, key: string | number): void {
+  if (key === 'history') void openHistory(schedule)
+  else if (key === 'delete') confirmDeleteSchedule(schedule)
+}
 
 // ─── 常用 cron 预设 ─────────────────────────────────────────────
 const CRON_PRESETS = [
@@ -209,14 +238,18 @@ onMounted(() => {
               </NTag>
               <span class="schedule-card__title">{{ schedule.name }}</span>
             </div>
-            <NSpace size="small">
+            <NSpace size="small" align="center">
               <NTooltip>
                 <template #trigger>
-                  <NButton size="tiny" quaternary @click="openEdit(schedule)">
-                    <template #icon><EditOutlined /></template>
-                  </NButton>
+                  <NSwitch
+                    size="small"
+                    :value="schedule.enabled"
+                    :disabled="schedule.runningAtMs !== null"
+                    :aria-label="schedule.enabled ? '停用调度' : '启用调度'"
+                    @update:value="videoStore.toggleSchedule(schedule.id, !schedule.enabled)"
+                  />
                 </template>
-                编辑
+                <span>{{ schedule.enabled ? '已启用（点击停用）' : '已停用（点击启用）' }}</span>
               </NTooltip>
               <NTooltip>
                 <template #trigger>
@@ -228,28 +261,21 @@ onMounted(() => {
               </NTooltip>
               <NTooltip>
                 <template #trigger>
-                  <NButton size="tiny" quaternary @click="openHistory(schedule)">
-                    <template #icon><HistoryOutlined /></template>
+                  <NButton size="tiny" quaternary @click="openEdit(schedule)">
+                    <template #icon><EditOutlined /></template>
                   </NButton>
                 </template>
-                执行历史
+                编辑
               </NTooltip>
-              <NPopconfirm @positive-click="videoStore.deleteSchedule(schedule.id)">
-                <template #trigger>
-                  <NButton size="tiny" quaternary type="error">
-                    <template #icon><DeleteOutlined /></template>
-                  </NButton>
-                </template>
-                确认删除该定时任务？
-              </NPopconfirm>
-              <NButton
-                size="tiny"
-                :type="schedule.enabled ? 'default' : 'primary'"
-                :disabled="schedule.runningAtMs !== null"
-                @click="videoStore.toggleSchedule(schedule.id, !schedule.enabled)"
+              <NDropdown
+                trigger="click"
+                :options="scheduleMoreOptions"
+                @select="(key: string | number) => handleScheduleMore(schedule, key)"
               >
-                {{ schedule.enabled ? '停用' : '启用' }}
-              </NButton>
+                <NButton size="tiny" quaternary aria-label="更多操作">
+                  更多
+                </NButton>
+              </NDropdown>
             </NSpace>
           </div>
 
@@ -310,13 +336,19 @@ onMounted(() => {
         <NFormItem label="时区">
           <NSelect v-model:value="form.timezone" :options="TIMEZONES" />
         </NFormItem>
-        <NFormItem label="批量任务行（每行一个 prompt）">
+        <NFormItem>
           <NInput
             v-model:value="form.prompts"
             type="textarea"
             :rows="6"
             placeholder="逐行输入视频 prompt，一行一个任务"
           />
+          <template #label>
+            批量任务行（每行一个 prompt）
+            <NTag size="tiny" :bordered="false" :type="promptRowCount > 0 ? 'primary' : 'default'">
+              {{ promptRowCount }} 行
+            </NTag>
+          </template>
         </NFormItem>
         <NFormItem label="并发上限（可选）">
           <NInputNumber v-model:value="form.concurrency" :min="1" :max="10" style="width: 120px" />

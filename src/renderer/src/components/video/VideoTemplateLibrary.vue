@@ -17,9 +17,9 @@ import {
   NSelect,
   NSpace,
   NSpin,
+  NSwitch,
   NTag,
   NText,
-  NTooltip,
 } from 'naive-ui'
 import {
   AddPhotoAlternateOutlined,
@@ -41,6 +41,18 @@ import { showToast } from '@/utils/toast'
 const videoStore = useVideoStore()
 
 const loading = computed(() => videoStore.templatesLoading)
+
+/** 模板搜索（名称 / 标签，前端过滤） */
+const search = ref('')
+const filteredTemplates = computed(() => {
+  const k = search.value.trim().toLowerCase()
+  if (!k) return videoStore.templates
+  return videoStore.templates.filter(
+    (t) =>
+      t.name.toLowerCase().includes(k) ||
+      (t.tags ?? []).some((tag) => tag.toLowerCase().includes(k)),
+  )
+})
 
 const RESOLUTION_OPTIONS = [
   { label: '480P', value: '480P' },
@@ -177,6 +189,7 @@ async function saveTemplate(): Promise<void> {
 
 async function generateFrom(template: VideoTemplate): Promise<void> {
   await videoStore.generateFromTemplate(template.id)
+  showToast(`已按模板「${template.name}」提交生成任务`, 'success')
 }
 
 onMounted(() => {
@@ -191,10 +204,19 @@ onMounted(() => {
         <CollectionsBookmarkOutlined class="template-panel__title-icon" />
         分镜模板库
       </h3>
-      <NButton type="primary" size="small" :disabled="loading" @click="openCreate">
-        <template #icon><AddPhotoAlternateOutlined /></template>
-        新建模板
-      </NButton>
+      <div class="template-panel__actions">
+        <NInput
+          v-model:value="search"
+          size="small"
+          clearable
+          placeholder="搜索模板名称 / 标签…"
+          class="template-panel__search"
+        />
+        <NButton type="primary" size="small" :disabled="loading" @click="openCreate">
+          <template #icon><AddPhotoAlternateOutlined /></template>
+          新建模板
+        </NButton>
+      </div>
     </div>
 
     <NSpin :show="loading">
@@ -207,9 +229,15 @@ onMounted(() => {
         </template>
       </NEmpty>
 
+      <NEmpty
+        v-else-if="!loading && filteredTemplates.length === 0"
+        description="没有匹配的模板"
+        style="padding: 16px 0"
+      />
+
       <div v-else class="template-panel__grid">
         <NCard
-          v-for="template in videoStore.templates"
+          v-for="template in filteredTemplates"
           :key="template.id"
           class="template-card"
           :bordered="true"
@@ -221,20 +249,16 @@ onMounted(() => {
               </NTag>
               <span class="template-card__title">{{ template.name }}</span>
             </div>
-            <NSpace size="small">
-              <NTooltip>
+            <NSpace size="small" align="center">
+              <NPopconfirm @positive-click="generateFrom(template)">
                 <template #trigger>
-                  <NButton
-                    size="tiny"
-                    type="primary"
-                    quaternary
-                    @click="generateFrom(template)"
-                  >
+                  <NButton size="tiny" type="primary" secondary>
                     <template #icon><PlayCircleOutlined /></template>
+                    一键生成
                   </NButton>
                 </template>
-                一键生成
-              </NTooltip>
+                按该模板提交生成任务？
+              </NPopconfirm>
               <NButton size="tiny" quaternary @click="openEdit(template)">
                 <template #icon><EditOutlined /></template>
               </NButton>
@@ -263,7 +287,7 @@ onMounted(() => {
           <div class="template-card__prompts">
             <div v-for="(shot, i) in template.shots" :key="i" class="template-card__prompt">
               <NTag size="tiny" type="warning">{{ i + 1 }}</NTag>
-              <NText depth="2">{{ shot.prompt }}</NText>
+              <NText depth="2" class="template-card__prompt-text">{{ shot.prompt }}</NText>
             </div>
           </div>
 
@@ -307,14 +331,7 @@ onMounted(() => {
           />
         </NFormItem>
         <NFormItem v-if="form.type === 'sequence'" label="连续性衔接（镜头尾帧作为下个镜头首帧）">
-          <NSelect
-            :value="form.continuity"
-            :options="[
-              { label: '开启', value: true },
-              { label: '关闭', value: false },
-            ]"
-            @update:value="(v: boolean) => (form.continuity = v)"
-          />
+          <NSwitch v-model:value="form.continuity" size="small" />
         </NFormItem>
         <NFormItem label="镜头提示词（每行一个镜头）">
           <NInput
@@ -352,6 +369,14 @@ onMounted(() => {
   margin: 0;
   font-size: 15px;
 }
+.template-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.template-panel__search {
+  width: 220px;
+}
 .template-panel__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -386,14 +411,20 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 140px;
-  overflow: auto;
 }
 .template-card__prompt {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   font-size: 12px;
+}
+.template-card__prompt-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  word-break: break-all;
 }
 .template-card__tags {
   margin-top: 10px;

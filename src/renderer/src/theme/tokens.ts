@@ -32,7 +32,7 @@ export const darkCssVars: Record<string, string> = {
   '--af-text-primary': '#f1f5f9',
   '--af-text-secondary': '#cbd5e1',
   '--af-text-tertiary': '#94a3b8',
-  '--af-text-muted': '#64748b',
+  '--af-text-muted': '#8494ad',
   '--af-brand': BRAND_COLOR_DARK,
   '--af-brand-hover': '#6366f1',
   '--af-success': SUCCESS_COLOR,
@@ -81,6 +81,15 @@ export const darkCssVars: Record<string, string> = {
   '--af-panel-checkpoint': '360px',
   '--af-panel-drawer': 'min(480px, 40vw)',
   '--af-rail-width': '56px',
+  // ── 视频域：封面网格 / 悬浮层级 / 状态语义 ──
+  '--af-video-cover-radius': '12px',
+  '--af-video-card-hover-shadow': '0 8px 24px rgba(0, 0, 0, 0.5)',
+  '--af-scrim':
+    'linear-gradient(180deg, rgba(2, 6, 23, 0) 40%, rgba(2, 6, 23, 0.85) 100%)',
+  '--af-state-running': WARNING_COLOR,
+  '--af-state-success': SUCCESS_COLOR,
+  '--af-state-error': ERROR_COLOR,
+  '--af-state-warning': WARNING_COLOR,
 }
 
 /** 深色主题 naive-ui 覆盖 */
@@ -108,7 +117,7 @@ export const darkThemeOverrides: GlobalThemeOverrides = {
     textColor1: '#f1f5f9',
     textColor2: '#cbd5e1',
     textColor3: '#94a3b8',
-    placeholderColor: '#64748b',
+    placeholderColor: '#8494ad',
     borderRadius: '8px',
     borderRadiusSmall: '6px',
     fontFamily:
@@ -119,6 +128,13 @@ export const darkThemeOverrides: GlobalThemeOverrides = {
     textColorHoverPrimary: '#ffffff',
     textColorPressedPrimary: '#ffffff',
     textColorFocusPrimary: '#ffffff',
+  },
+  Tabs: {
+    colorSegment: '#1f2937',
+    tabColorSegment: '#334155',
+    tabTextColorSegment: '#8494ad',
+    tabTextColorHoverSegment: '#cbd5e1',
+    tabTextColorActiveSegment: '#f1f5f9',
   },
   Tag: {
     colorPrimary: 'rgba(99, 102, 241, 0.15)',
@@ -162,7 +178,7 @@ export const lightCssVars: Record<string, string> = {
   '--af-text-primary': '#0f172a',
   '--af-text-secondary': '#334155',
   '--af-text-tertiary': '#64748b',
-  '--af-text-muted': '#94a3b8',
+  '--af-text-muted': '#64748b',
   '--af-brand': BRAND_COLOR,
   '--af-brand-hover': '#4338ca',
   '--af-success': SUCCESS_COLOR,
@@ -211,6 +227,15 @@ export const lightCssVars: Record<string, string> = {
   '--af-panel-checkpoint': '360px',
   '--af-panel-drawer': 'min(480px, 40vw)',
   '--af-rail-width': '56px',
+  // ── 视频域（与深色同名，视觉值适配浅色）──
+  '--af-video-cover-radius': '12px',
+  '--af-video-card-hover-shadow': '0 8px 24px rgba(15, 23, 42, 0.16)',
+  '--af-scrim':
+    'linear-gradient(180deg, rgba(15, 23, 42, 0) 40%, rgba(15, 23, 42, 0.78) 100%)',
+  '--af-state-running': WARNING_COLOR,
+  '--af-state-success': SUCCESS_COLOR,
+  '--af-state-error': ERROR_COLOR,
+  '--af-state-warning': WARNING_COLOR,
 }
 
 /** 浅色主题 naive-ui 覆盖 */
@@ -238,7 +263,7 @@ export const lightThemeOverrides: GlobalThemeOverrides = {
     textColor1: '#0f172a',
     textColor2: '#334155',
     textColor3: '#64748b',
-    placeholderColor: '#94a3b8',
+    placeholderColor: '#64748b',
     borderRadius: '8px',
     borderRadiusSmall: '6px',
     fontFamily:
@@ -249,6 +274,13 @@ export const lightThemeOverrides: GlobalThemeOverrides = {
     textColorHoverPrimary: '#ffffff',
     textColorPressedPrimary: '#ffffff',
     textColorFocusPrimary: '#ffffff',
+  },
+  Tabs: {
+    colorSegment: '#f1f5f9',
+    tabColorSegment: '#ffffff',
+    tabTextColorSegment: '#64748b',
+    tabTextColorHoverSegment: '#334155',
+    tabTextColorActiveSegment: '#0f172a',
   },
   Tag: {
     colorPrimary: 'rgba(99, 102, 241, 0.1)',

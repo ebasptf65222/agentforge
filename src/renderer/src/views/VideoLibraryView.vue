@@ -9,18 +9,42 @@ import { computed, onMounted, ref, watch } from 'vue'
 import {
   NButton,
   NCheckbox,
+  NDropdown,
   NEmpty,
+  NFormItem,
   NIcon,
   NInput,
+  NInputNumber,
   NModal,
   NPopconfirm,
   NSelect,
+  NSkeleton,
   NSpace,
   NSpin,
+  NTab,
+  NTabs,
   NTag,
   NTooltip,
 } from 'naive-ui'
-import { RefreshOutlined, DeleteOutlined, CheckBoxOutlined, UploadFileOutlined, VideoLibraryOutlined, BarChartOutlined, FileDownloadOutlined, PauseCircleOutlined, PlayCircleOutlined, StarOutlined, LabelOutlined, RestoreFromTrashOutlined, DeleteForeverOutlined, Inventory2Outlined, ImageSearchOutlined, ConstructionOutlined } from '@vicons/material'
+import {
+  RefreshOutlined,
+  DeleteOutlined,
+  CheckBoxOutlined,
+  UploadFileOutlined,
+  VideoLibraryOutlined,
+  BarChartOutlined,
+  FileDownloadOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
+  StarOutlined,
+  RestoreFromTrashOutlined,
+  DeleteForeverOutlined,
+  Inventory2Outlined,
+  ImageSearchOutlined,
+  AddOutlined,
+  GridViewOutlined,
+  ViewListOutlined,
+} from '@vicons/material'
 import type { CreateVideoTaskParams, VideoImageRef, VideoTask, VideoTaskStatus, VideoSequence, VideoStatsBucket } from '@shared/types'
 import type { VideoCsvParseResult } from '@/types/electron-api'
 import { useVideoStore } from '@/stores/video'
@@ -55,6 +79,26 @@ const viewMode = ref<ViewMode>('library')
 const workbenchTab = ref<WorkbenchTab>('schedule')
 const favoriteOnly = ref(false)
 const activeTag = ref<string | null>(null)
+
+/** 单视频展示形态：封面网格 / 列表（偏好持久化在 localStorage） */
+const VIEW_STYLE_KEY = 'af-video-view-style'
+const viewStyle = ref<'grid' | 'list'>(
+  localStorage.getItem(VIEW_STYLE_KEY) === 'list' ? 'list' : 'grid',
+)
+watch(viewStyle, (v) => {
+  localStorage.setItem(VIEW_STYLE_KEY, v)
+})
+
+/** 头部「新建」下拉：参考图生成 / CSV 批量造片 */
+const createOptions: { label: string; key: string }[] = [
+  { label: '参考图生成', key: 'ref' },
+  { label: 'CSV 批量造片', key: 'csv' },
+]
+
+function handleCreateAction(key: string | number): void {
+  if (key === 'ref') openRefModal()
+  else if (key === 'csv') openCsvModal()
+}
 
 // ─── 筛选选项 ─────────────────────────────────────────────────
 const STATUS_OPTIONS: { label: string; value: StatusFilter }[] = [
@@ -230,13 +274,7 @@ function exitSelection(): void {
 }
 
 // ─── 操作 ─────────────────────────────────────────────────────
-function handleRetry(taskId: string): void {
-  void videoStore.retry(taskId)
-}
-
-function handleDeleteTask(taskId: string): void {
-  void videoStore.deleteTask(taskId)
-}
+// 单视频的重试/标签/删除已内聚到 VideoTaskCard（list 形态下拉），此处仅保留序列级操作。
 
 function handleDeleteSequence(sequenceId: string): void {
   void videoStore.deleteSequence(sequenceId)
@@ -379,6 +417,9 @@ const batchRunning = ref(false)
 /** 预览前 8 行（超出折叠，避免长列表撑爆模态） */
 const previewRows = computed<CreateVideoTaskParams[]>(() => csvResult.value?.rows.slice(0, 8) ?? [])
 
+/** 跳过明细折叠态（默认收起，仅展示前 3 条） */
+const showSkippedDetail = ref(false)
+
 /** 可提交判定：已解析且至少有一行合法任务 */
 const canRunBatch = computed(
   () => !csvParsing.value && (csvResult.value?.rows.length ?? 0) > 0,
@@ -486,21 +527,55 @@ function formatElapsed(seconds: number | null): string {
   return s > 0 ? `${m} 分 ${s} 秒` : `${m} 分钟`
 }
 
-/** 汇总指标卡 */
-const summaryCards = computed(() => {
+/** 核心指标（大卡）：总数 / 成功率 / 平均耗时 */
+const primaryStatCards = computed(() => {
   const s = videoStore.stats
   return [
     { label: '任务总数', value: s ? String(s.total) : '—' },
+    { label: '成功率', value: s ? `${s.successRate}%` : '—' },
+    { label: '平均耗时', value: s ? formatElapsed(s.avgElapsedSeconds) : '—' },
+  ]
+})
+
+/** 次要指标（紧凑行） */
+const secondaryStatCards = computed(() => {
+  const s = videoStore.stats
+  return [
     { label: '成功', value: s ? String(s.succeeded) : '—' },
     { label: '失败', value: s ? String(s.failed) : '—' },
     { label: '取消', value: s ? String(s.cancelled) : '—' },
     { label: '进行中', value: s ? String(s.active) : '—' },
-    { label: '成功率', value: s ? `${s.successRate}%` : '—' },
     { label: '失败率', value: s ? `${s.failureRate}%` : '—' },
-    { label: '平均耗时', value: s ? formatElapsed(s.avgElapsedSeconds) : '—' },
     { label: '用量（视频时长）', value: s ? formatElapsed(s.videoSeconds) : '—' },
   ]
 })
+
+/** 分桶明细表列定义（按厂商 / 模型 / 天 共用） */
+const statsColumns = [
+  { title: '维度', key: 'key', minWidth: 110, ellipsis: { tooltip: true } as const },
+  { title: '总数', key: 'total', width: 62 },
+  { title: '成功', key: 'succeeded', width: 62 },
+  { title: '失败', key: 'failed', width: 62 },
+  {
+    title: '成功率',
+    key: 'successRate',
+    width: 74,
+    render: (row: VideoStatsBucket) => `${row.successRate}%`,
+  },
+  {
+    title: '失败率',
+    key: 'failureRate',
+    width: 74,
+    render: (row: VideoStatsBucket) => `${row.failureRate}%`,
+  },
+  {
+    title: '平均耗时',
+    key: 'avgElapsedSeconds',
+    width: 92,
+    render: (row: VideoStatsBucket) => formatElapsed(row.avgElapsedSeconds),
+  },
+  { title: '用量(秒)', key: 'videoSeconds', width: 82 },
+]
 
 /** 分桶明细表结构（按厂商 / 模型 / 天） */
 const bucketTables = computed<{ title: string; buckets: VideoStatsBucket[] }[]>(() => {
@@ -607,6 +682,13 @@ function buildRefImages(): VideoImageRef[] {
   return refs
 }
 
+/** 参考图三档选择卡（横排网格） */
+const refSlots = computed(() => [
+  { key: 'first' as const, name: '首帧', path: refFirstFrame.value },
+  { key: 'last' as const, name: '尾帧', path: refLastFrame.value },
+  { key: 'style' as const, name: '风格参考', path: refStyle.value },
+])
+
 const canSubmitRef = computed(
   () => !refSubmitting.value && refPrompt.value.trim() !== '' && buildRefImages().length > 0,
 )
@@ -677,68 +759,32 @@ onMounted(() => {
         </span>
       </div>
       <div class="video-library__header-actions">
-        <!-- M14：资产库 / 回收站视图切换 -->
-        <div class="video-library__views">
-          <NButton
-            size="small"
-            :secondary="viewMode === 'library'"
-            :quaternary="viewMode !== 'library'"
-            :type="viewMode === 'library' ? 'primary' : 'default'"
-            round
-            @click="viewMode = 'library'"
-          >
-            <template #icon><VideoLibraryOutlined :size="15" /></template>
-            资产库
+        <!-- 视图切换：资产库 / 回收站 / 工作台 -->
+        <NTabs
+          :value="viewMode"
+          type="segment"
+          size="small"
+          class="video-library__view-tabs"
+          @update:value="(v: string | number) => (viewMode = v as ViewMode)"
+        >
+          <NTab name="library">资产库</NTab>
+          <NTab name="trash">回收站</NTab>
+          <NTab name="workbench">工作台</NTab>
+        </NTabs>
+        <!-- 新建：参考图生成 / CSV 批量造片 -->
+        <NDropdown trigger="click" :options="createOptions" @select="handleCreateAction">
+          <NButton size="small" type="primary">
+            <template #icon><AddOutlined :size="16" /></template>
+            新建
           </NButton>
-          <NButton
-            size="small"
-            :secondary="viewMode === 'trash'"
-            :quaternary="viewMode !== 'trash'"
-            :type="viewMode === 'trash' ? 'primary' : 'default'"
-            round
-            @click="viewMode = 'trash'"
-          >
-            <template #icon><Inventory2Outlined :size="15" /></template>
-            回收站
-          </NButton>
-          <NButton
-            size="small"
-            :secondary="viewMode === 'workbench'"
-            :quaternary="viewMode !== 'workbench'"
-            :type="viewMode === 'workbench' ? 'primary' : 'default'"
-            round
-            @click="viewMode = 'workbench'"
-          >
-            <template #icon><ConstructionOutlined :size="15" /></template>
-            工作台
-          </NButton>
-        </div>
+        </NDropdown>
         <NTooltip placement="left" :delay="400">
           <template #trigger>
-            <NButton size="small" quaternary round type="primary" @click="openStatsModal">
-              <template #icon><BarChartOutlined :size="16" /></template>
-              统计
+            <NButton size="small" quaternary circle aria-label="生成统计" @click="openStatsModal">
+              <template #icon><BarChartOutlined :size="17" /></template>
             </NButton>
           </template>
-          <span>生成历史统计与 CSV 报表导出（M12）</span>
-        </NTooltip>
-        <NTooltip placement="left" :delay="400">
-          <template #trigger>
-            <NButton size="small" quaternary round type="primary" @click="openCsvModal">
-              <template #icon><UploadFileOutlined :size="16" /></template>
-              批量造片
-            </NButton>
-          </template>
-          <span>从 CSV 批量导入提示词生成视频（M11）</span>
-        </NTooltip>
-        <NTooltip placement="left" :delay="400">
-          <template #trigger>
-            <NButton size="small" quaternary round type="primary" @click="openRefModal">
-              <template #icon><ImageSearchOutlined :size="16" /></template>
-              参考图生成
-            </NButton>
-          </template>
-          <span>本地上传参考图（首帧/尾帧/风格）生成视频（M16）</span>
+          <span>生成历史统计与 CSV 报表导出</span>
         </NTooltip>
         <NTooltip placement="left" :delay="400">
           <template #trigger>
@@ -752,11 +798,11 @@ onMounted(() => {
               <template #icon><CheckBoxOutlined /></template>
             </NButton>
           </template>
-          <span>{{ selectionMode ? '退出选择' : '进入选择' }}</span>
+          <span>{{ selectionMode ? '退出多选' : '多选管理' }}</span>
         </NTooltip>
         <NTooltip placement="left" :delay="400">
           <template #trigger>
-            <NButton size="small" quaternary circle @click="handleRefresh">
+            <NButton size="small" quaternary circle aria-label="刷新" @click="handleRefresh">
               <template #icon><RefreshOutlined /></template>
             </NButton>
           </template>
@@ -793,6 +839,39 @@ onMounted(() => {
         </template>
         <span>只看收藏</span>
       </NTooltip>
+      <!-- 展示形态：封面网格 / 列表 -->
+      <div class="video-library__style-toggle">
+        <NTooltip placement="top" :delay="400">
+          <template #trigger>
+            <NButton
+              size="small"
+              quaternary
+              circle
+              :type="viewStyle === 'grid' ? 'primary' : 'default'"
+              aria-label="封面网格视图"
+              @click="viewStyle = 'grid'"
+            >
+              <template #icon><GridViewOutlined :size="16" /></template>
+            </NButton>
+          </template>
+          <span>封面网格</span>
+        </NTooltip>
+        <NTooltip placement="top" :delay="400">
+          <template #trigger>
+            <NButton
+              size="small"
+              quaternary
+              circle
+              :type="viewStyle === 'list' ? 'primary' : 'default'"
+              aria-label="列表视图"
+              @click="viewStyle = 'list'"
+            >
+              <template #icon><ViewListOutlined :size="16" /></template>
+            </NButton>
+          </template>
+          <span>列表</span>
+        </NTooltip>
+      </div>
     </div>
 
     <!-- M14：回收站工具条 -->
@@ -819,45 +898,20 @@ onMounted(() => {
       </NSpace>
     </div>
 
-    <!-- M17-M20：工作台子页签工具条 -->
-    <div v-else-if="viewMode === 'workbench'" class="video-library__workbench-tabs">
-      <NButton
-        size="small"
-        :type="workbenchTab === 'schedule' ? 'primary' : 'default'"
-        :secondary="workbenchTab === 'schedule'"
-        round
-        @click="workbenchTab = 'schedule'"
-      >
-        定时批量
-      </NButton>
-      <NButton
-        size="small"
-        :type="workbenchTab === 'postprocess' ? 'primary' : 'default'"
-        :secondary="workbenchTab === 'postprocess'"
-        round
-        @click="workbenchTab = 'postprocess'"
-      >
-        成片后处理
-      </NButton>
-      <NButton
-        size="small"
-        :type="workbenchTab === 'template' ? 'primary' : 'default'"
-        :secondary="workbenchTab === 'template'"
-        round
-        @click="workbenchTab = 'template'"
-      >
-        分镜模板
-      </NButton>
-      <NButton
-        size="small"
-        :type="workbenchTab === 'billing' ? 'primary' : 'default'"
-        :secondary="workbenchTab === 'billing'"
-        round
-        @click="workbenchTab = 'billing'"
-      >
-        成本计费
-      </NButton>
-    </div>
+    <!-- M17-M20：工作台子页签（NTabs） -->
+    <NTabs
+      v-else-if="viewMode === 'workbench'"
+      :value="workbenchTab"
+      type="line"
+      size="small"
+      class="video-library__workbench-tabs"
+      @update:value="(v: string | number) => (workbenchTab = v as WorkbenchTab)"
+    >
+      <NTab name="schedule">定时批量</NTab>
+      <NTab name="postprocess">成片后处理</NTab>
+      <NTab name="template">分镜模板</NTab>
+      <NTab name="billing">成本计费</NTab>
+    </NTabs>
 
     <!-- M13: 生成队列面板（仅资产库视图） -->
     <div v-if="viewMode === 'library' && queueVisible && videoStore.queue" class="video-library__queue" :class="{ 'video-library__queue--paused': videoStore.queue.paused }">
@@ -978,8 +1032,17 @@ onMounted(() => {
     <!-- 列表区域 -->
     <div class="video-library__body">
       <!-- 资产库视图 -->
-      <NSpin v-if="viewMode === 'library'" :show="videoStore.loading" size="small">
-        <div v-if="!hasResults && !videoStore.loading" class="video-library__empty">
+      <div v-if="viewMode === 'library'">
+        <!-- 首次加载：封面骨架 -->
+        <div v-if="videoStore.loading && !hasAnyData" class="video-library__skeleton">
+          <div v-for="i in 6" :key="i" class="video-library__skeleton-card">
+            <NSkeleton height="110px" width="100%" :sharp="false" />
+            <NSkeleton text width="85%" />
+            <NSkeleton text width="45%" />
+          </div>
+        </div>
+
+        <div v-else-if="!hasResults" class="video-library__empty">
           <!-- 库为空：引导生成 -->
           <template v-if="!hasAnyData">
             <div class="video-library__empty-icon">
@@ -1059,7 +1122,7 @@ onMounted(() => {
             </div>
           </section>
 
-          <!-- 单视频 -->
+          <!-- 单视频：封面网格 / 列表双形态 -->
           <section
             v-if="standaloneTasks.length > 0"
             class="video-library__section"
@@ -1069,7 +1132,19 @@ onMounted(() => {
               单视频
               <span class="video-library__section-count">{{ standaloneTasks.length }}</span>
             </h3>
-            <div class="video-library__list">
+            <div v-if="viewStyle === 'grid'" class="video-library__grid">
+              <VideoTaskCard
+                v-for="task in standaloneTasks"
+                :key="task.id"
+                variant="grid"
+                :task="task"
+                :selection-mode="selectionMode"
+                :selected="videoStore.isTaskSelected(task.id)"
+                @toggle-select="videoStore.toggleSelectTask(task.id)"
+                @open="handleOpenVideo"
+              />
+            </div>
+            <div v-else class="video-library__list">
               <div v-for="task in standaloneTasks" :key="task.id" class="video-library__row">
                 <NCheckbox
                   v-if="selectionMode"
@@ -1078,42 +1153,18 @@ onMounted(() => {
                   @update:checked="videoStore.toggleSelectTask(task.id)"
                 />
                 <div class="video-library__item">
-                  <VideoTaskCard :task="task" @open="handleOpenVideo" />
-                  <div v-if="!selectionMode" class="video-library__actions">
-                    <NButton
-                      v-if="canRetry(task.status)"
-                      size="tiny"
-                      quaternary
-                      @click="handleRetry(task.id)"
-                    >
-                      重试
-                    </NButton>
-                    <NButton size="tiny" quaternary @click="openTagModal(task)">
-                      <template #icon><LabelOutlined :size="14" /></template>
-                      标签
-                    </NButton>
-                    <NPopconfirm
-                      positive-text="移入回收站"
-                      negative-text="取消"
-                      :positive-button-props="{ type: 'error' }"
-                      :negative-button-props="{ type: 'default' }"
-                      @positive-click="handleDeleteTask(task.id)"
-                    >
-                      <template #trigger>
-                        <NButton size="tiny" quaternary type="error">
-                          <template #icon><DeleteOutlined :size="14" /></template>
-                          删除
-                        </NButton>
-                      </template>
-                      将把该视频移入回收站（保留文件，可恢复），确认？
-                    </NPopconfirm>
-                  </div>
+                  <VideoTaskCard
+                    variant="list"
+                    :task="task"
+                    @open="handleOpenVideo"
+                    @edit-tags="openTagModal(task)"
+                  />
                 </div>
               </div>
             </div>
           </section>
         </template>
-      </NSpin>
+      </div>
 
       <!-- M14：回收站视图 -->
       <NSpin v-else-if="viewMode === 'trash'" :show="videoStore.trashLoading" size="small">
@@ -1285,7 +1336,10 @@ onMounted(() => {
       <NSpace vertical :size="14">
         <!-- 步骤 1：选择文件 -->
         <div class="video-library__csv-step">
-          <span class="video-library__csv-label">1. 选择 CSV 文件（UTF-8）</span>
+          <span class="video-library__csv-label">
+            <span class="video-library__step-no">1</span>
+            选择 CSV 文件（UTF-8）
+          </span>
           <div class="video-library__csv-file">
             <NButton size="small" tertiary :loading="csvParsing" @click="handleSelectCsv">
               <template #icon><UploadFileOutlined :size="16" /></template>
@@ -1299,7 +1353,10 @@ onMounted(() => {
 
         <!-- 步骤 2：解析预览 -->
         <div class="video-library__csv-step">
-          <span class="video-library__csv-label">2. 解析预览</span>
+          <span class="video-library__csv-label">
+            <span class="video-library__step-no">2</span>
+            解析预览
+          </span>
           <NSpin :show="csvParsing" size="small">
             <div v-if="csvResult" class="video-library__csv-preview">
               <div v-if="csvResult.headerMissingPrompt" class="video-library__csv-error">
@@ -1330,15 +1387,22 @@ onMounted(() => {
                 </div>
                 <div v-if="csvResult.skipped.length > 0" class="video-library__csv-skipped">
                   <div
-                    v-for="item in csvResult.skipped.slice(0, 5)"
+                    v-for="item in csvResult.skipped.slice(0, showSkippedDetail ? undefined : 3)"
                     :key="item.line"
                     class="video-library__csv-skip-item"
                   >
                     第 {{ item.line }} 行：{{ item.reason }}
                   </div>
-                  <div v-if="csvResult.skipped.length > 5" class="video-library__csv-more">
-                    …其余 {{ csvResult.skipped.length - 5 }} 条跳过明细
-                  </div>
+                  <NButton
+                    v-if="csvResult.skipped.length > 3"
+                    size="tiny"
+                    text
+                    type="primary"
+                    class="video-library__csv-more-toggle"
+                    @click="showSkippedDetail = !showSkippedDetail"
+                  >
+                    {{ showSkippedDetail ? '收起明细' : `展开其余 ${csvResult.skipped.length - 3} 条明细` }}
+                  </NButton>
                 </div>
               </template>
             </div>
@@ -1401,10 +1465,22 @@ onMounted(() => {
 
         <NSpin :show="videoStore.statsLoading" size="small">
           <div v-if="videoStore.stats" class="video-library__stats-body">
-            <!-- 汇总指标卡 -->
-            <div class="video-library__stats-cards">
+            <!-- 核心指标（大卡） -->
+            <div class="video-library__stats-primary">
               <div
-                v-for="card in summaryCards"
+                v-for="card in primaryStatCards"
+                :key="card.label"
+                class="video-library__stats-card video-library__stats-card--primary"
+              >
+                <span class="video-library__stats-card-value">{{ card.value }}</span>
+                <span class="video-library__stats-card-label">{{ card.label }}</span>
+              </div>
+            </div>
+
+            <!-- 次要指标（紧凑） -->
+            <div class="video-library__stats-secondary">
+              <div
+                v-for="card in secondaryStatCards"
                 :key="card.label"
                 class="video-library__stats-card"
               >
@@ -1420,26 +1496,13 @@ onMounted(() => {
               class="video-library__stats-table"
             >
               <h4 class="video-library__stats-table-title">{{ table.title }}</h4>
-              <template v-if="table.buckets.length > 0">
-                <div class="video-library__stats-row video-library__stats-row--head">
-                  <span>维度</span><span>总数</span><span>成功</span><span>失败</span>
-                  <span>成功率</span><span>失败率</span><span>平均耗时</span><span>用量(秒)</span>
-                </div>
-                <div
-                  v-for="bucket in table.buckets"
-                  :key="bucket.key"
-                  class="video-library__stats-row"
-                >
-                  <span :title="bucket.key" class="video-library__stats-key">{{ bucket.key }}</span>
-                  <span>{{ bucket.total }}</span>
-                  <span>{{ bucket.succeeded }}</span>
-                  <span>{{ bucket.failed }}</span>
-                  <span>{{ bucket.successRate }}%</span>
-                  <span>{{ bucket.failureRate }}%</span>
-                  <span>{{ formatElapsed(bucket.avgElapsedSeconds) }}</span>
-                  <span>{{ bucket.videoSeconds }}</span>
-                </div>
-              </template>
+              <NDataTable
+                v-if="table.buckets.length > 0"
+                size="small"
+                :columns="statsColumns"
+                :data="table.buckets"
+                :bordered="false"
+              />
               <div v-else class="video-library__stats-empty">该范围内暂无数据</div>
             </div>
           </div>
@@ -1459,51 +1522,33 @@ onMounted(() => {
       @update:show="(v: boolean) => { if (!v) showRefModal = v }"
     >
       <NSpace vertical :size="14">
-        <!-- 参考图选择 -->
+        <!-- 参考图选择（横排三档卡片） -->
         <div class="video-library__ref-section">
           <span class="video-library__csv-label">参考图（首帧 / 尾帧 / 风格，至少选择一个）</span>
           <div class="video-library__ref-grid">
-            <div class="video-library__ref-field">
-              <span class="video-library__ref-name">首帧</span>
-              <div class="video-library__ref-control">
-                <NButton size="tiny" tertiary @click="pickRefImage('first')">
-                  <template #icon><ImageSearchOutlined :size="14" /></template>
-                  选择
-                </NButton>
-                <span v-if="refFirstFrame" class="video-library__ref-file" :title="refFirstFrame">
-                  {{ refFileName(refFirstFrame) }}
-                </span>
-                <NButton v-if="refFirstFrame" size="tiny" quaternary type="error" @click="clearRefSelection('first')">
-                  清除
-                </NButton>
+            <div
+              v-for="slot in refSlots"
+              :key="slot.key"
+              class="video-library__ref-card"
+              :class="{ 'video-library__ref-card--filled': Boolean(slot.path) }"
+            >
+              <span class="video-library__ref-name">{{ slot.name }}</span>
+              <div v-if="slot.path" class="video-library__ref-filled">
+                <NIcon :size="15" class="video-library__ref-filled-icon"><ImageSearchOutlined /></NIcon>
+                <span class="video-library__ref-file" :title="slot.path">{{ refFileName(slot.path) }}</span>
               </div>
-            </div>
-            <div class="video-library__ref-field">
-              <span class="video-library__ref-name">尾帧</span>
-              <div class="video-library__ref-control">
-                <NButton size="tiny" tertiary @click="pickRefImage('last')">
-                  <template #icon><ImageSearchOutlined :size="14" /></template>
-                  选择
+              <span v-else class="video-library__ref-none">未选择</span>
+              <div class="video-library__ref-card-actions">
+                <NButton size="tiny" tertiary @click="pickRefImage(slot.key)">
+                  {{ slot.path ? '更换' : '选择' }}
                 </NButton>
-                <span v-if="refLastFrame" class="video-library__ref-file" :title="refLastFrame">
-                  {{ refFileName(refLastFrame) }}
-                </span>
-                <NButton v-if="refLastFrame" size="tiny" quaternary type="error" @click="clearRefSelection('last')">
-                  清除
-                </NButton>
-              </div>
-            </div>
-            <div class="video-library__ref-field">
-              <span class="video-library__ref-name">风格参考</span>
-              <div class="video-library__ref-control">
-                <NButton size="tiny" tertiary @click="pickRefImage('style')">
-                  <template #icon><ImageSearchOutlined :size="14" /></template>
-                  选择
-                </NButton>
-                <span v-if="refStyle" class="video-library__ref-file" :title="refStyle">
-                  {{ refFileName(refStyle) }}
-                </span>
-                <NButton v-if="refStyle" size="tiny" quaternary type="error" @click="clearRefSelection('style')">
+                <NButton
+                  v-if="slot.path"
+                  size="tiny"
+                  quaternary
+                  type="error"
+                  @click="clearRefSelection(slot.key)"
+                >
                   清除
                 </NButton>
               </div>
@@ -1519,12 +1564,15 @@ onMounted(() => {
 
         <!-- 生成参数 -->
         <div class="video-library__ref-row">
-          <span class="video-library__ref-name">时长(秒)</span>
-          <NInputNumber v-model:value="refDuration" :min="4" :max="15" size="small" class="video-library__ref-duration" />
-          <span class="video-library__ref-name">分辨率</span>
-          <NSelect v-model:value="refResolution" :options="RESOLUTION_OPTIONS" size="small" class="video-library__ref-select" />
-          <span class="video-library__ref-name">比例</span>
-          <NSelect v-model:value="refAspect" :options="ASPECT_OPTIONS" size="small" class="video-library__ref-select" />
+          <NFormItem label="时长(秒)" label-placement="left" :show-feedback="false" class="video-library__ref-item">
+            <NInputNumber v-model:value="refDuration" :min="4" :max="15" size="small" class="video-library__ref-duration" />
+          </NFormItem>
+          <NFormItem label="分辨率" label-placement="left" :show-feedback="false" class="video-library__ref-item">
+            <NSelect v-model:value="refResolution" :options="RESOLUTION_OPTIONS" size="small" class="video-library__ref-select" />
+          </NFormItem>
+          <NFormItem label="比例" label-placement="left" :show-feedback="false" class="video-library__ref-item">
+            <NSelect v-model:value="refAspect" :options="ASPECT_OPTIONS" size="small" class="video-library__ref-select" />
+          </NFormItem>
         </div>
 
         <div class="video-library__ref-hint">
@@ -1556,7 +1604,7 @@ onMounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  max-width: 860px;
+  max-width: 1100px;
   width: 100%;
   margin: 0 auto;
   padding: 20px 24px;
@@ -1609,7 +1657,13 @@ onMounted(() => {
 .video-library__header-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+}
+
+.video-library__view-tabs {
+  width: 300px;
+  flex-shrink: 0;
+  margin-right: 4px;
 }
 
 .video-library__toolbar {
@@ -1633,13 +1687,50 @@ onMounted(() => {
   min-width: 140px;
 }
 
-/* ─── M14: 视图切换 / 收藏筛选 / 标签筛选 / 回收站 ──────── */
+/* ─── 展示形态切换 / 封面网格 / 骨架屏 ──────────────────── */
 
-.video-library__views {
+.video-library__style-toggle {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-right: 6px;
+  gap: 2px;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+.video-library__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.video-library__skeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.video-library__skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .video-library__grid,
+  .video-library__skeleton {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+
+  .video-library__view-tabs {
+    width: auto;
+    min-width: 240px;
+  }
+}
+
+/* ─── M17-M20: 工作台子页签 / 内容 ───────────────────────── */
+
+.video-library__workbench-tabs {
+  margin-bottom: 14px;
 }
 
 .video-library__tag {
@@ -1653,13 +1744,6 @@ onMounted(() => {
 }
 
 /* ─── M17-M20: 工作台子页签 / 内容 ───────────────────────── */
-
-.video-library__workbench-tabs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
 
 .video-library__workbench {
   animation: videoWbFadeIn 0.2s ease;
@@ -1959,9 +2043,27 @@ onMounted(() => {
 }
 
 .video-library__csv-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
   font-weight: 600;
   color: var(--af-text-primary, #f1f5f9);
+}
+
+/* 步骤数字徽标 */
+.video-library__step-no {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--af-radius-full, 999px);
+  background: var(--af-brand-dim, rgba(129, 140, 248, 0.12));
+  color: var(--af-brand, #818cf8);
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .video-library__csv-file {
@@ -2039,9 +2141,14 @@ onMounted(() => {
   color: var(--af-warning, #f59e0b);
 }
 
-.video-library__csv-more {
-  font-size: 11px;
-  color: var(--af-text-muted, #94a3b8);
+.video-library__csv-row:nth-child(even) {
+  background: color-mix(in srgb, var(--af-text-primary, #f1f5f9) 3%, transparent);
+  border-radius: 4px;
+}
+
+.video-library__csv-more-toggle {
+  align-self: flex-start;
+  margin-top: 2px;
 }
 
 .video-library__csv-hint {
@@ -2078,9 +2185,15 @@ onMounted(() => {
   gap: 16px;
 }
 
-.video-library__stats-cards {
+.video-library__stats-primary {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.video-library__stats-secondary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   gap: 8px;
 }
 
@@ -2089,16 +2202,25 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 10px 6px;
+  padding: 8px 6px;
   border-radius: 10px;
-  background: var(--af-surface-muted, #1e293b);
+  background: var(--af-bg-input, #1f2937);
+}
+
+.video-library__stats-card--primary {
+  padding: 16px 6px;
+  gap: 4px;
 }
 
 .video-library__stats-card-value {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--af-text-primary, #f1f5f9);
   font-variant-numeric: tabular-nums;
+}
+
+.video-library__stats-card--primary .video-library__stats-card-value {
+  font-size: 22px;
 }
 
 .video-library__stats-card-label {
@@ -2125,40 +2247,13 @@ onMounted(() => {
   background: var(--af-brand, #818cf8);
 }
 
-.video-library__stats-row {
-  display: grid;
-  grid-template-columns: minmax(90px, 1.6fr) repeat(7, minmax(52px, 1fr));
-  gap: 6px;
-  font-size: 12px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  color: var(--af-text-secondary, #cbd5e1);
-  font-variant-numeric: tabular-nums;
-}
-
-.video-library__stats-row:nth-child(even) {
-  background: var(--af-surface-muted, #1e293b);
-}
-
-.video-library__stats-row--head {
-  color: var(--af-text-muted, #94a3b8);
-  font-weight: 600;
-}
-
-.video-library__stats-key {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--af-text-primary, #f1f5f9);
-}
-
 .video-library__stats-empty {
   font-size: 12px;
   color: var(--af-text-muted, #94a3b8);
   padding: 8px 0;
 }
 
-/* ─── M16: 参考图生成模态 ───────────────────────────────── */
+/* ─── M16: 参考图生成模态（横排三档卡片） ───────────────── */
 
 .video-library__ref-section {
   display: flex;
@@ -2167,33 +2262,59 @@ onMounted(() => {
 }
 
 .video-library__ref-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  background: var(--af-surface-muted, #1e293b);
-  border-radius: 8px;
-  padding: 10px 12px;
 }
 
-.video-library__ref-field {
+.video-library__ref-card {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px dashed var(--af-border, #334155);
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 0;
+}
+
+.video-library__ref-card--filled {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--af-brand, #818cf8) 45%, transparent);
+  background: var(--af-brand-dim, rgba(129, 140, 248, 0.12));
 }
 
 .video-library__ref-name {
-  flex: none;
-  width: 64px;
   font-size: 12px;
+  font-weight: 600;
   color: var(--af-text-secondary, #cbd5e1);
 }
 
-.video-library__ref-control {
-  flex: 1;
-  min-width: 0;
+.video-library__ref-filled {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
+}
+
+.video-library__ref-filled-icon {
+  color: var(--af-brand, #818cf8);
+  flex: none;
+}
+
+.video-library__ref-none {
+  font-size: 11px;
+  color: var(--af-text-muted, #94a3b8);
+}
+
+.video-library__ref-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.video-library__ref-item {
+  flex: 1;
+  min-width: 0;
 }
 
 .video-library__ref-file {

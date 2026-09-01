@@ -9,20 +9,14 @@ import {
   NCard,
   NEmpty,
   NInput,
-  NModal,
-  NRadio,
-  NRadioGroup,
   NSelect,
   NSpace,
+  NTab,
+  NTabs,
   NTag,
   NText,
 } from 'naive-ui'
 import {
-  ClosedCaptionOutlined,
-  BrandingWatermarkOutlined,
-  MergeTypeOutlined,
-  DriveFileRenameOutlineOutlined,
-  ArchiveOutlined,
   ImageOutlined,
   HistoryOutlined,
 } from '@vicons/material'
@@ -123,34 +117,28 @@ async function doConcat(): Promise<void> {
   }
   await videoStore.postprocessConcat({ taskIds: [...multiTaskIds.value] })
   multiTaskIds.value = []
+  void videoStore.fetchPostprocessRuns()
 }
 
-// ─── 重命名 ───────────────────────────────────────────────────
-const renameTarget = ref<string | null>(null)
+// ─── 重命名（就地表单） ───────────────────────────────────────
 const renameNewName = ref('')
-function openRenameModal(): void {
+async function doRename(): Promise<void> {
   if (!singleTaskId.value) {
     showToast('请先选择一个成片', 'warning')
     return
   }
-  renameTarget.value = singleTaskId.value
-  renameNewName.value = ''
-  showRenameModal.value = true
-}
-const showRenameModal = ref(false)
-async function doRename(): Promise<void> {
-  if (!renameTarget.value) return
   if (!renameNewName.value.trim()) {
     showToast('请输入新的文件名', 'warning')
     return
   }
   const ok = await videoStore.postprocessRename({
-    taskId: renameTarget.value,
+    taskId: singleTaskId.value,
     newName: renameNewName.value.trim(),
   })
   if (ok) {
-    showRenameModal.value = false
+    renameNewName.value = ''
     void videoStore.refresh()
+    void videoStore.fetchPostprocessRuns()
   }
 }
 
@@ -164,6 +152,7 @@ async function doArchive(): Promise<void> {
   if (ok) {
     multiTaskIds.value = []
     void videoStore.refresh()
+    void videoStore.fetchPostprocessRuns()
   }
 }
 
@@ -177,12 +166,12 @@ const TYPE_LABEL: Record<VideoPostprocessRun['type'], string> = {
   archive: '归档',
 }
 
-const OPERATIONS: { value: OpType; label: string; icon: typeof ClosedCaptionOutlined }[] = [
-  { value: 'subtitle', label: '字幕烧录', icon: ClosedCaptionOutlined },
-  { value: 'watermark', label: '水印叠加', icon: BrandingWatermarkOutlined },
-  { value: 'concat', label: '成片拼接', icon: MergeTypeOutlined },
-  { value: 'rename', label: '重命名', icon: DriveFileRenameOutlineOutlined },
-  { value: 'archive', label: '归档', icon: ArchiveOutlined },
+const OPERATIONS: { value: OpType; label: string }[] = [
+  { value: 'subtitle', label: '字幕烧录' },
+  { value: 'watermark', label: '水印叠加' },
+  { value: 'concat', label: '成片拼接' },
+  { value: 'rename', label: '重命名' },
+  { value: 'archive', label: '归档' },
 ]
 
 onMounted(() => {
@@ -203,16 +192,17 @@ onMounted(() => {
 
     <NSpace vertical :size="14">
       <!-- 操作类型切换 -->
-      <NRadioGroup v-model:value="opType" class="postprocess-panel__ops">
-        <NRadio
-          v-for="op in OPERATIONS"
-          :key="op.value"
-          :value="op.value"
-          class="postprocess-panel__op"
-        >
+      <NTabs
+        :value="opType"
+        type="segment"
+        size="small"
+        class="postprocess-panel__ops"
+        @update:value="(v: string | number) => (opType = v as OpType)"
+      >
+        <NTab v-for="op in OPERATIONS" :key="op.value" :name="op.value">
           {{ op.label }}
-        </NRadio>
-      </NRadioGroup>
+        </NTab>
+      </NTabs>
 
       <NCard size="small" :bordered="true">
         <template v-if="succeededTasks.length === 0">
@@ -261,9 +251,20 @@ onMounted(() => {
             <NSelect v-model:value="watermarkPosition" :options="POSITION_OPTIONS" />
           </div>
 
-          <!-- 重命名 -->
+          <!-- 重命名（就地表单） -->
           <div v-if="opType === 'rename'" class="postprocess-panel__field">
-            <NButton type="primary" size="small" @click="openRenameModal">设置新文件名</NButton>
+            <NText depth="3" class="postprocess-panel__label">新文件名（不含扩展名）</NText>
+            <NSpace>
+              <NInput
+                v-model:value="renameNewName"
+                placeholder="输入新的文件名"
+                style="width: 280px"
+                @keydown.enter="doRename"
+              />
+              <NButton type="primary" :loading="postprocessLoading" @click="doRename">
+                重命名
+              </NButton>
+            </NSpace>
           </div>
 
           <!-- 操作按钮 -->
@@ -339,22 +340,6 @@ onMounted(() => {
         </div>
       </div>
     </NSpace>
-
-    <!-- 重命名模态 -->
-    <NModal
-      v-model:show="showRenameModal"
-      preset="card"
-      :style="{ width: '420px' }"
-      title="重命名成片"
-    >
-      <NInput v-model:value="renameNewName" placeholder="输入新的文件名（不含扩展名）" />
-      <template #footer>
-        <NSpace justify="end">
-          <NButton @click="showRenameModal = false">取消</NButton>
-          <NButton type="primary" :loading="postprocessLoading" @click="doRename">重命名</NButton>
-        </NSpace>
-      </template>
-    </NModal>
   </div>
 </template>
 
@@ -373,12 +358,7 @@ onMounted(() => {
   font-size: 15px;
 }
 .postprocess-panel__ops {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.postprocess-panel__op {
-  margin-right: 0;
+  margin-bottom: 2px;
 }
 .postprocess-panel__field {
   margin-top: 12px;

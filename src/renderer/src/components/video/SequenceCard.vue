@@ -47,6 +47,20 @@ function statusType(status: VideoTaskStatus): 'success' | 'error' | 'info' | 'de
   }
 }
 
+/** 序列状态圆点色（语义 token） */
+const statusDotColor = computed(() => {
+  switch (props.sequence.status) {
+    case 'succeeded':
+      return 'var(--af-state-success, #10b981)'
+    case 'failed':
+      return 'var(--af-state-error, #ef4444)'
+    case 'cancelled':
+      return 'var(--af-text-muted, #8494ad)'
+    default:
+      return 'var(--af-state-running, #f59e0b)'
+  }
+})
+
 function formatRelativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp
   const minute = 60 * 1000
@@ -118,9 +132,10 @@ function isTerminal(status: VideoTaskStatus): boolean {
         <ExpandMoreOutlined />
       </NIcon>
       <span class="sequence-card__title">
-        <NTag :type="statusType(sequence.status)" size="small" :bordered="false">
+        <span class="sequence-card__status">
+          <span class="sequence-card__dot" :style="{ background: statusDotColor }"></span>
           {{ STATUS_LABEL[sequence.status] }}
-        </NTag>
+        </span>
         <span class="sequence-card__name">{{ sequence.title || '多镜头序列' }}</span>
         <NTag v-if="sequence.continuity" type="success" size="tiny" :bordered="false">
           顺序衔接
@@ -179,13 +194,22 @@ function isTerminal(status: VideoTaskStatus): boolean {
           </p>
 
           <template v-if="playUrl(task)">
-            <video class="shot-row__player" :src="playUrl(task)" controls preload="metadata" />
-            <div class="shot-row__foot">
-              <span class="shot-row__file">{{ fileName(task) }}</span>
-              <NButton size="tiny" text type="primary" @click="handleOpen(task)">
-                <template #icon><NIcon :size="14"><PlayArrowOutlined /></NIcon></template>
-                打开
-              </NButton>
+            <div class="shot-row__media">
+              <video
+                class="shot-row__thumb"
+                :src="playUrl(task)"
+                muted
+                playsinline
+                preload="metadata"
+                @click="handleOpen(task)"
+              ></video>
+              <div class="shot-row__media-info">
+                <span class="shot-row__file">{{ fileName(task) }}</span>
+                <NButton size="tiny" text type="primary" @click="handleOpen(task)">
+                  <template #icon><NIcon :size="14"><PlayArrowOutlined /></NIcon></template>
+                  打开
+                </NButton>
+              </div>
             </div>
           </template>
         </div>
@@ -237,6 +261,23 @@ function isTerminal(status: VideoTaskStatus): boolean {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.sequence-card__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--af-text-secondary, #cbd5e1);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sequence-card__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex: none;
 }
 
 .sequence-card__name {
@@ -305,10 +346,14 @@ function isTerminal(status: VideoTaskStatus): boolean {
 
 .shot-row__prompt {
   font-size: 12px;
+  line-height: 1.55;
   color: var(--af-text-secondary, #cbd5e1);
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-all;
 }
 
 .shot-row__progress {
@@ -321,14 +366,26 @@ function isTerminal(status: VideoTaskStatus): boolean {
   color: var(--af-error, #ef4444);
 }
 
-.shot-row__player {
-  width: 100%;
-  max-height: 280px;
-  border-radius: 8px;
-  background-color: #000;
+.shot-row__media {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
-.shot-row__foot {
+.shot-row__thumb {
+  flex: none;
+  width: 96px;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--af-radius-sm, 6px);
+  background-color: #000;
+  object-fit: contain;
+  cursor: pointer;
+}
+
+.shot-row__media-info {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -339,5 +396,14 @@ function isTerminal(status: VideoTaskStatus): boolean {
   font-size: 12px;
   font-family: ui-monospace, Menlo, Consolas, monospace;
   color: var(--af-text-tertiary, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sequence-card__arrow {
+    transition: none;
+  }
 }
 </style>

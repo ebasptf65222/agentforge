@@ -3,6 +3,8 @@
 // 通过消息元数据 videoTaskId 定位视频任务；若任务仍在进行，持续展示进度卡。
 
 import { computed, onMounted } from 'vue'
+import { NButton } from 'naive-ui'
+import { RefreshOutlined } from '@vicons/material'
 import { useVideoStore } from '@/stores/video'
 import VideoTaskCard from '@/components/video/VideoTaskCard.vue'
 
@@ -22,6 +24,11 @@ onMounted(() => {
 })
 
 const task = computed(() => videoStore.getTask(props.taskId))
+
+/** 任务缺失时允许手动重新拉取（可能尚未同步或刚恢复） */
+function handleReload(): void {
+  void videoStore.refresh()
+}
 </script>
 
 <template>
@@ -29,7 +36,11 @@ const task = computed(() => videoStore.getTask(props.taskId))
     <VideoTaskCard v-if="task" :task="task" @open="(p) => emit('open', p)" />
     <div v-else class="video-message__missing">
       <span class="video-message__label">视频任务 {{ taskId }}</span>
-      <span class="video-message__hint">任务数据不存在，可能已被删除。</span>
+      <span class="video-message__hint">任务数据不存在，可能已被删除或尚未同步。</span>
+      <NButton size="tiny" quaternary type="primary" class="video-message__reload" @click="handleReload">
+        <template #icon><RefreshOutlined :size="14" /></template>
+        重新检查
+      </NButton>
     </div>
   </div>
 </template>
@@ -42,11 +53,12 @@ const task = computed(() => videoStore.getTask(props.taskId))
 .video-message__missing {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
   font-size: 13px;
-  color: var(--af-text-secondary, #9ca3af);
+  color: var(--af-text-secondary, #cbd5e1);
   background-color: var(--af-bg-surface, #1e293b);
-  border: 1px dashed var(--af-border, #334155);
+  border: 1px solid var(--af-border, #334155);
   border-radius: 10px;
   padding: 12px 14px;
 }
@@ -57,6 +69,10 @@ const task = computed(() => videoStore.getTask(props.taskId))
 
 .video-message__hint {
   font-size: 12px;
-  color: var(--af-text-muted, #6b7280);
+  color: var(--af-text-muted, #8494ad);
+}
+
+.video-message__reload {
+  margin-top: 2px;
 }
 </style>

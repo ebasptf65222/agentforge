@@ -49,6 +49,22 @@ const byProvider = computed(() => overview.value?.byProvider ?? [])
 const byModel = computed(() => overview.value?.byModel ?? [])
 const byDay = computed(() => overview.value?.byDay ?? [])
 
+/** 按日期桶折叠：默认仅展示前 N 行 */
+const DAY_VISIBLE = 10
+const dayExpanded = ref(false)
+
+/** 三组明细统一渲染（消除重复模板；空桶渲染占位防布局跳动） */
+const bucketGroups = computed(() => [
+  { title: '按厂商', list: byProvider.value, fmt: providerFmt.value, more: 0 },
+  { title: '按模型', list: byModel.value, fmt: modelFmt.value, more: 0 },
+  {
+    title: '按日期',
+    list: dayExpanded.value ? byDay.value : byDay.value.slice(0, DAY_VISIBLE),
+    fmt: dayFmt.value,
+    more: Math.max(0, byDay.value.length - DAY_VISIBLE),
+  },
+])
+
 watch(range, (v) => {
   void videoStore.fetchBilling(v)
 })
@@ -97,55 +113,39 @@ onMounted(() => {
           </NGi>
         </NGrid>
 
-        <!-- 按厂商 -->
-        <div v-if="byProvider.length > 0" class="billing-table">
-          <h4 class="billing-table__title">按厂商</h4>
-          <div class="billing-table__rows">
-            <div v-for="(bucket) in byProvider" :key="bucket.key" class="billing-table__row">
-              <div class="billing-table__key">
-                <NTag size="small">{{ bucket.key }}</NTag>
-                <NText depth="3">{{ bucket.tasks }} 个 · {{ fmtSeconds(bucket.videoSeconds) }}</NText>
+        <!-- 用量与成本明细：按厂商 / 模型 / 日期 -->
+        <div
+          v-for="group in bucketGroups"
+          :key="group.title"
+          class="billing-table"
+          :class="{ 'billing-table--empty': group.list.length === 0 }"
+        >
+          <h4 class="billing-table__title">{{ group.title }}</h4>
+          <template v-if="group.list.length > 0">
+            <div class="billing-table__rows">
+              <div v-for="bucket in group.list" :key="bucket.key" class="billing-table__row">
+                <div class="billing-table__key">
+                  <NTag size="small">{{ bucket.key }}</NTag>
+                  <NText depth="3">{{ bucket.tasks }} 个 · {{ fmtSeconds(bucket.videoSeconds) }}</NText>
+                </div>
+                <div class="billing-table__bar-track">
+                  <div class="billing-table__bar" :style="{ width: `${group.fmt(bucket)}%` }" />
+                </div>
+                <div class="billing-table__cost">{{ fmtCost(bucket.cost) }}</div>
               </div>
-              <div class="billing-table__bar-track">
-                <div class="billing-table__bar" :style="{ width: `${providerFmt(bucket)}%` }" />
-              </div>
-              <div class="billing-table__cost">{{ fmtCost(bucket.cost) }}</div>
             </div>
-          </div>
-        </div>
-
-        <!-- 按模型 -->
-        <div v-if="byModel.length > 0" class="billing-table">
-          <h4 class="billing-table__title">按模型</h4>
-          <div class="billing-table__rows">
-            <div v-for="(bucket) in byModel" :key="bucket.key" class="billing-table__row">
-              <div class="billing-table__key">
-                <NTag size="small">{{ bucket.key }}</NTag>
-                <NText depth="3">{{ bucket.tasks }} 个 · {{ fmtSeconds(bucket.videoSeconds) }}</NText>
-              </div>
-              <div class="billing-table__bar-track">
-                <div class="billing-table__bar" :style="{ width: `${modelFmt(bucket)}%` }" />
-              </div>
-              <div class="billing-table__cost">{{ fmtCost(bucket.cost) }}</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 按日期 -->
-        <div v-if="byDay.length > 0" class="billing-table">
-          <h4 class="billing-table__title">按日期</h4>
-          <div class="billing-table__rows">
-            <div v-for="(bucket) in byDay" :key="bucket.key" class="billing-table__row">
-              <div class="billing-table__key">
-                <NTag size="small">{{ bucket.key }}</NTag>
-                <NText depth="3">{{ bucket.tasks }} 个 · {{ fmtSeconds(bucket.videoSeconds) }}</NText>
-              </div>
-              <div class="billing-table__bar-track">
-                <div class="billing-table__bar" :style="{ width: `${dayFmt(bucket)}%` }" />
-              </div>
-              <div class="billing-table__cost">{{ fmtCost(bucket.cost) }}</div>
-            </div>
-          </div>
+            <NButton
+              v-if="group.more > 0"
+              size="tiny"
+              text
+              type="primary"
+              class="billing-table__more"
+              @click="dayExpanded = !dayExpanded"
+            >
+              {{ dayExpanded ? '收起' : `展开其余 ${group.more} 行` }}
+            </NButton>
+          </template>
+          <div v-else class="billing-table__empty">该范围内暂无数据</div>
         </div>
       </template>
       <NEmpty v-else description="暂无计费数据（需要至少一个成功任务）" style="padding: 32px 0" />
@@ -232,5 +232,13 @@ onMounted(() => {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+.billing-table__more {
+  margin-top: 6px;
+}
+.billing-table--empty .billing-table__empty {
+  font-size: 12px;
+  color: var(--af-text-muted, #8494ad);
+  padding: 4px 0;
 }
 </style>
