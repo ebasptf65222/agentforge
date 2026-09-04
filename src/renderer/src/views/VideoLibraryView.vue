@@ -48,11 +48,11 @@ import {
 import type { CreateVideoTaskParams, VideoImageRef, VideoTask, VideoTaskStatus, VideoSequence, VideoStatsBucket } from '@shared/types'
 import type { VideoCsvParseResult } from '@/types/electron-api'
 import { useVideoStore } from '@/stores/video'
-import { useWorkspaceStore } from '@/stores/workspace'
 import { useUiStore } from '@/stores/ui'
 import { showToast } from '@/utils/toast'
 import SequenceCard from '@/components/video/SequenceCard.vue'
 import VideoTaskCard from '@/components/video/VideoTaskCard.vue'
+import VideoPlayerModal from '@/components/video/VideoPlayerModal.vue'
 import VideoSchedulePanel from '@/components/video/VideoSchedulePanel.vue'
 import VideoPostprocessPanel from '@/components/video/VideoPostprocessPanel.vue'
 import VideoTemplateLibrary from '@/components/video/VideoTemplateLibrary.vue'
@@ -66,7 +66,6 @@ type ViewMode = 'library' | 'trash' | 'workbench'
 type WorkbenchTab = 'schedule' | 'postprocess' | 'template' | 'billing'
 
 const videoStore = useVideoStore()
-const workspaceStore = useWorkspaceStore()
 const uiStore = useUiStore()
 
 const filterType = ref<FilterType>('all')
@@ -284,9 +283,13 @@ function handleCancelSequence(sequenceId: string): void {
   void videoStore.cancelSequence(sequenceId)
 }
 
-function handleOpenVideo(relativePath: string): void {
-  workspaceStore.openFilePreview(relativePath)
-  uiStore.openPreviewPanel()
+/** 弹窗播放器：点击封面就地播放，不跳转页面 */
+const playerShow = ref(false)
+const playerTask = ref<VideoTask | null>(null)
+
+function openPlayer(task: VideoTask): void {
+  playerTask.value = task
+  playerShow.value = true
 }
 
 // ─── M10: 批量动作 ───────────────────────────────────────────
@@ -1088,7 +1091,7 @@ onMounted(() => {
                   @update:checked="videoStore.toggleSelectSequence(sequence.id)"
                 />
                 <div class="video-library__item">
-                  <SequenceCard :sequence="sequence" @open="handleOpenVideo" />
+                  <SequenceCard :sequence="sequence" @open="openPlayer" />
                   <div v-if="!selectionMode" class="video-library__actions">
                     <NPopconfirm
                       v-if="!isTerminal(sequence.status)"
@@ -1141,7 +1144,7 @@ onMounted(() => {
                 :selection-mode="selectionMode"
                 :selected="videoStore.isTaskSelected(task.id)"
                 @toggle-select="videoStore.toggleSelectTask(task.id)"
-                @open="handleOpenVideo"
+                @open="openPlayer(task)"
               />
             </div>
             <div v-else class="video-library__list">
@@ -1156,7 +1159,7 @@ onMounted(() => {
                   <VideoTaskCard
                     variant="list"
                     :task="task"
-                    @open="handleOpenVideo"
+                    @open="openPlayer(task)"
                     @edit-tags="openTagModal(task)"
                   />
                 </div>
@@ -1296,6 +1299,9 @@ onMounted(() => {
         <VideoBillingPanel v-else-if="workbenchTab === 'billing'" />
       </div>
     </div>
+
+    <!-- 弹窗播放器：点击封面就地播放 -->
+    <VideoPlayerModal v-model:show="playerShow" :task="playerTask" />
 
     <!-- M14：标签编辑模态 -->
     <NModal
@@ -2351,5 +2357,4 @@ onMounted(() => {
   border-radius: 8px;
   padding: 10px 12px;
 }
-
 </style>

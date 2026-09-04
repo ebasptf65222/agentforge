@@ -188,7 +188,8 @@ onErrorCaptured((err) => {
 // ─── Viewer options ──────────────────────────────────────────
 
 const viewerOptions = computed(() => ({
-  preset: 'office' as const,
+  // office + lite 双预设：office 渲染 pdf/word 等，lite 渲染图片/音频/视频（media renderer）
+  preset: ['office', 'lite'] as const,
   rendererMode: 'replace' as const,
   theme: effectiveTheme.value,
   toolbar: {

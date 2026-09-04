@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // M7: SequenceCard - 多镜头序列展示卡
 // 头部展示序列标题/状态/聚合进度；展开后按镜头序号列出子任务各自的
-// 状态、进度与生成结果（可播放）。点击镜头可跳转到文件预览面板。
+// 状态、进度与生成结果（可播放）。点击镜头打开弹窗播放器。
 
 import { computed, ref } from 'vue'
 import { NButton, NCollapseTransition, NIcon, NProgress, NTag, NTooltip } from 'naive-ui'
@@ -14,8 +14,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  /** 点击镜头「打开」的相对路径 */
-  open: [relativePath: string]
+  /** 点击镜头「打开」，携带镜头任务供弹窗播放器展示元信息 */
+  open: [task: VideoTask]
 }>()
 
 const videoStore = useVideoStore()
