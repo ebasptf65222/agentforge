@@ -80,7 +80,18 @@ function parseBatchConfig(raw: string): VideoBatchConfig {
     if (parsed === null || typeof parsed !== 'object') return { rows: [] }
     const obj = parsed as Record<string, unknown>
     const rows = Array.isArray(obj['rows']) ? (obj['rows'] as VideoBatchConfig['rows']) : []
-    return { rows, concurrency: typeof obj['concurrency'] === 'number' ? obj['concurrency'] : undefined }
+    const sequences = Array.isArray(obj['sequences'])
+      ? (obj['sequences'] as VideoBatchConfig['sequences'])
+      : undefined
+    const templateIds = Array.isArray(obj['templateIds'])
+      ? (obj['templateIds'] as VideoBatchConfig['templateIds'])
+      : undefined
+    return {
+      rows,
+      concurrency: typeof obj['concurrency'] === 'number' ? obj['concurrency'] : undefined,
+      sequences,
+      templateIds,
+    }
   } catch {
     return { rows: [] }
   }

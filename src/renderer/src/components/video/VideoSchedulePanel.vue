@@ -2,6 +2,7 @@
 // M17: VideoSchedulePanel - 定时/脚本化批量造片面板
 //  - 列出所有视频批量调度（cron 定时 / 手动批量）。
 //  - 支持创建/编辑调度：cron 表达式（含常用预设）、批量任务行（每行一个 prompt）、并发上限。
+//  - 支持连续性序列批次：粘贴分段或绑定序列模板，到点触发首尾帧衔接的长视频序列。
 //  - 支持启停 / 删除 / 立即执行 / 查看执行历史。
 
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -15,9 +16,11 @@ import {
   NInput,
   NInputNumber,
   NModal,
+  NRadio,
+  NRadioGroup,
+  NSelect,
   NSpace,
   NSpin,
-  NSelect,
   NSwitch,
   NTag,
   NText,
@@ -34,6 +37,9 @@ import type {
   CreateVideoScheduleParams,
   UpdateVideoScheduleParams,
   VideoSchedule,
+  VideoBatchConfig,
+  VideoResolution,
+  VideoAspect,
 } from '@shared/types'
 import { useVideoStore } from '@/stores/video'
 import { showToast } from '@/utils/toast'
@@ -96,6 +102,16 @@ interface ScheduleForm {
   timezone: string
   concurrency: number | null
   prompts: string
+  /** 批量类型：tasks=单视频批量 / sequence=连续性序列（长视频） */
+  batchKind: 'tasks' | 'sequence'
+  /** 序列模式镜头来源：text=粘贴分段 / template=绑定分镜模板 */
+  sourceKind: 'text' | 'template'
+  seqTitle: string
+  seqShotsText: string
+  seqDuration: number | null
+  seqResolution: VideoResolution
+  seqAspect: VideoAspect
+  selectedTemplateIds: string[]
 }
 
 const showModal = ref(false)
@@ -107,6 +123,14 @@ const form = reactive<ScheduleForm>({
   timezone: '',
   concurrency: 2,
   prompts: '',
+  batchKind: 'tasks',
+  sourceKind: 'text',
+  seqTitle: '',
+  seqShotsText: '',
+  seqDuration: 5,
+  seqResolution: '720P',
+  seqAspect: '16:9',
+  selectedTemplateIds: [],
 })
 
 function resetForm(): void {
@@ -116,6 +140,14 @@ function resetForm(): void {
   form.timezone = ''
   form.concurrency = 2
   form.prompts = ''
+  form.batchKind = 'tasks'
+  form.sourceKind = 'text'
+  form.seqTitle = ''
+  form.seqShotsText = ''
+  form.seqDuration = 5
+  form.seqResolution = '720P'
+  form.seqAspect = '16:9'
+  form.selectedTemplateIds = []
 }
 
 function openCreate(): void {
@@ -133,6 +165,27 @@ function openEdit(schedule: VideoSchedule): void {
     .map((r) => r.prompt)
     .filter(Boolean)
     .join('\n')
+
+  // 序列/模板模式回填（旧数据两者皆空 → tasks 模式）
+  const seq = schedule.batch.sequences?.[0]
+  if (seq) {
+    form.batchKind = 'sequence'
+    form.sourceKind = 'text'
+    form.seqTitle = seq.title ?? ''
+    form.seqShotsText = (seq.shots ?? []).join('\n\n')
+    form.seqDuration = seq.duration ?? 5
+    form.seqResolution = seq.resolution ?? '720P'
+    form.seqAspect = seq.aspect ?? '16:9'
+    form.selectedTemplateIds = []
+  } else if ((schedule.batch.templateIds?.length ?? 0) > 0) {
+    form.batchKind = 'sequence'
+    form.sourceKind = 'template'
+    form.selectedTemplateIds = [...(schedule.batch.templateIds ?? [])]
+    form.seqShotsText = ''
+  } else {
+    form.batchKind = 'tasks'
+    form.sourceKind = 'text'
+  }
   showModal.value = true
 }
 
@@ -144,18 +197,75 @@ function promptsToRows(): { prompt: string }[] {
     .map((prompt) => ({ prompt }))
 }
 
+/** 序列分段：按空行拆分镜头 prompt */
+function parseSeqShots(): string[] {
+  return form.seqShotsText
+    .split(/\n\s*\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
+/** 镜头数实时徽标 */
+const seqShotCount = computed(() => parseSeqShots().length)
+
+/** 序列模板选项（仅 sequence 类型模板） */
+const sequenceTemplateOptions = computed(() =>
+  videoStore.templates
+    .filter((t) => t.type === 'sequence')
+    .map((t) => ({ label: `${t.name}（${t.shots.length} 镜头）`, value: t.id })),
+)
+
+/** 卡片批次摘要文案 */
+function batchSummary(schedule: VideoSchedule): string {
+  const seqs = schedule.batch.sequences ?? []
+  if (seqs.length > 0) {
+    const shotTotal = seqs.reduce((acc, s) => acc + (s.shots?.length ?? 0), 0)
+    return `连续性序列 ${seqs.length} 个（共 ${shotTotal} 镜头）`
+  }
+  const tplCount = schedule.batch.templateIds?.length ?? 0
+  if (tplCount > 0) return `模板 × ${tplCount}`
+  return `共 ${(schedule.batch.rows ?? []).length} 行任务`
+}
+
 async function saveSchedule(): Promise<void> {
   if (!form.name.trim()) {
     showToast('请输入调度名称', 'warning')
     return
   }
-  if (promptsToRows().length === 0) {
-    showToast('至少输入一条任务 prompt', 'warning')
-    return
-  }
-  const batch = {
-    rows: promptsToRows(),
-    concurrency: form.concurrency ?? undefined,
+  let batch: VideoBatchConfig
+  if (form.batchKind === 'tasks') {
+    if (promptsToRows().length === 0) {
+      showToast('至少输入一条任务 prompt', 'warning')
+      return
+    }
+    batch = {
+      rows: promptsToRows(),
+      concurrency: form.concurrency ?? undefined,
+    }
+  } else if (form.sourceKind === 'text') {
+    const shots = parseSeqShots()
+    if (shots.length < 2) {
+      showToast('连续性序列至少需要 2 个镜头（用空行分段）', 'warning')
+      return
+    }
+    batch = {
+      rows: [],
+      sequences: [
+        {
+          title: form.seqTitle.trim() || undefined,
+          shots,
+          duration: form.seqDuration ?? undefined,
+          resolution: form.seqResolution,
+          aspect: form.seqAspect,
+        },
+      ],
+    }
+  } else {
+    if (form.selectedTemplateIds.length === 0) {
+      showToast('请至少绑定一个序列模板', 'warning')
+      return
+    }
+    batch = { rows: [], templateIds: [...form.selectedTemplateIds] }
   }
   modalSaving.value = true
   try {
@@ -206,6 +316,7 @@ const runStatusMap: Record<string, { color: string; text: string }> = {
 
 onMounted(() => {
   void videoStore.fetchSchedules()
+  void videoStore.fetchTemplates()
 })
 </script>
 
@@ -290,7 +401,7 @@ onMounted(() => {
 
           <div class="schedule-card__meta">
             <NText depth="3">
-              共 {{ (schedule.batch.rows ?? []).length }} 行任务
+              {{ batchSummary(schedule) }}
               <template v-if="schedule.batch.concurrency">
                 · 并发 {{ schedule.batch.concurrency }}
               </template>
@@ -336,23 +447,110 @@ onMounted(() => {
         <NFormItem label="时区">
           <NSelect v-model:value="form.timezone" :options="TIMEZONES" />
         </NFormItem>
-        <NFormItem>
-          <NInput
-            v-model:value="form.prompts"
-            type="textarea"
-            :rows="6"
-            placeholder="逐行输入视频 prompt，一行一个任务"
-          />
-          <template #label>
-            批量任务行（每行一个 prompt）
-            <NTag size="tiny" :bordered="false" :type="promptRowCount > 0 ? 'primary' : 'default'">
-              {{ promptRowCount }} 行
-            </NTag>
+        <NFormItem label="批量类型">
+          <NRadioGroup v-model:value="form.batchKind">
+            <NRadio value="tasks">单视频批量</NRadio>
+            <NRadio value="sequence">连续性序列（长视频）</NRadio>
+          </NRadioGroup>
+        </NFormItem>
+
+        <!-- 单视频批量：逐行 prompt -->
+        <template v-if="form.batchKind === 'tasks'">
+          <NFormItem>
+            <NInput
+              v-model:value="form.prompts"
+              type="textarea"
+              :rows="6"
+              placeholder="逐行输入视频 prompt，一行一个任务"
+            />
+            <template #label>
+              批量任务行（每行一个 prompt）
+              <NTag size="tiny" :bordered="false" :type="promptRowCount > 0 ? 'primary' : 'default'">
+                {{ promptRowCount }} 行
+              </NTag>
+            </template>
+          </NFormItem>
+          <NFormItem label="并发上限（可选）">
+            <NInputNumber v-model:value="form.concurrency" :min="1" :max="10" style="width: 120px" />
+          </NFormItem>
+        </template>
+
+        <!-- 连续性序列：首尾帧衔接串成长视频 -->
+        <template v-else>
+          <NFormItem label="镜头来源">
+            <NRadioGroup v-model:value="form.sourceKind">
+              <NRadio value="text">粘贴分段</NRadio>
+              <NRadio value="template">绑定模板</NRadio>
+            </NRadioGroup>
+          </NFormItem>
+
+          <template v-if="form.sourceKind === 'text'">
+            <NFormItem label="序列标题（可选）">
+              <NInput v-model:value="form.seqTitle" placeholder="缺省取首镜头 prompt 截断" />
+            </NFormItem>
+            <NFormItem>
+              <NInput
+                v-model:value="form.seqShotsText"
+                type="textarea"
+                :rows="8"
+                placeholder="粘贴一大段话，用空行分段：每段 = 一个镜头 prompt，生成时上一镜头尾帧自动作为下一镜头首帧"
+              />
+              <template #label>
+                镜头分段（空行分隔，至少 2 段）
+                <NTag
+                  size="tiny"
+                  :bordered="false"
+                  :type="seqShotCount >= 2 ? 'primary' : 'warning'"
+                >
+                  {{ seqShotCount }} 镜头
+                </NTag>
+              </template>
+            </NFormItem>
+            <NFormItem label="每镜时长（秒）">
+              <NInputNumber v-model:value="form.seqDuration" :min="1" :max="15" style="width: 120px" />
+            </NFormItem>
+            <NFormItem label="分辨率">
+              <NSelect
+                v-model:value="form.seqResolution"
+                :options="[
+                  { label: '480P', value: '480P' },
+                  { label: '720P', value: '720P' },
+                  { label: '1080P', value: '1080P' },
+                ]"
+                style="width: 160px"
+              />
+            </NFormItem>
+            <NFormItem label="画面比例">
+              <NSelect
+                v-model:value="form.seqAspect"
+                :options="[
+                  { label: '16:9', value: '16:9' },
+                  { label: '9:16', value: '9:16' },
+                  { label: '4:3', value: '4:3' },
+                  { label: '3:4', value: '3:4' },
+                  { label: '1:1', value: '1:1' },
+                ]"
+                style="width: 160px"
+              />
+            </NFormItem>
           </template>
-        </NFormItem>
-        <NFormItem label="并发上限（可选）">
-          <NInputNumber v-model:value="form.concurrency" :min="1" :max="10" style="width: 120px" />
-        </NFormItem>
+
+          <template v-else>
+            <NFormItem label="选择序列模板（可多选，到点逐个生成）">
+              <NSelect
+                v-model:value="form.selectedTemplateIds"
+                multiple
+                clearable
+                :options="sequenceTemplateOptions"
+                :placeholder="
+                  sequenceTemplateOptions.length === 0
+                    ? '暂无序列模板，请先在 工作台 → 分镜模板 创建'
+                    : '选择要执行的序列模板'
+                "
+              />
+            </NFormItem>
+          </template>
+        </template>
       </NForm>
       <template #footer>
         <NSpace justify="end">

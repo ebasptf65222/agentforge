@@ -348,8 +348,29 @@ export type VideoScheduleRunStatus = 'ok' | 'error' | 'running' | 'skipped'
 export interface VideoBatchConfig {
   /** 批量任务行（每条 prompt 一个单视频任务） */
   rows: CreateVideoTaskParams[]
-  /** 本批出队并发上限（可选，用队列当前上限） */
+  /** 本批出队并发上限（可选，用队列当前上限；仅作用于 rows 单视频批量） */
   concurrency?: number
+  /**
+   * 序列行（可选）：到点逐个触发连续性衔接序列（长视频），
+   * 镜头 i 尾帧自动作为镜头 i+1 首帧。与 rows/templateIds 至少一者非空。
+   */
+  sequences?: VideoBatchSequenceRow[]
+  /** 绑定的分镜模板 id（可选，到点逐个 generateFromTemplate） */
+  templateIds?: string[]
+}
+
+/** 调度批量中的序列行：到点触发一个连续性衔接序列（长视频） */
+export interface VideoBatchSequenceRow {
+  /** 序列标题（缺省取首镜头 prompt 截断） */
+  title?: string
+  /** 镜头 prompt 列表（表单按空行分段产生），至少 2 段 */
+  shots: string[]
+  /** 每镜时长（秒），缺省 5 */
+  duration?: number
+  /** 分辨率，缺省 720P */
+  resolution?: VideoResolution
+  /** 画面比例，缺省 16:9 */
+  aspect?: VideoAspect
 }
 
 /** 视频批量调度实体（持久化到 video_schedules 表） */

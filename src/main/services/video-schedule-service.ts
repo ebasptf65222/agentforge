@@ -15,6 +15,7 @@ import type {
   VideoScheduleRunStatus,
   VideoScheduleTrigger,
   VideoBatchConfig,
+  VideoTask,
 } from '@shared/types'
 import {
   createVideoSchedule as repoCreate,
@@ -30,6 +31,7 @@ import {
 } from '../db/repos/video-schedule'
 import { calculateNextRun } from './scheduler-service'
 import { getVideoEngine } from './video-engine'
+import { generateFromTemplate } from './video-template'
 import { getMainWindowWebContents } from '../utils/electron-helpers'
 import { AppError, ErrorCodes } from '../utils/error'
 
@@ -160,10 +162,12 @@ export async function executeSchedule(
   try {
     const batch = schedule.batch
     const rows = batch.rows ?? []
-    if (rows.length === 0) {
+    const sequenceRows = batch.sequences ?? []
+    const templateIds = batch.templateIds ?? []
+    if (rows.length === 0 && sequenceRows.length === 0 && templateIds.length === 0) {
       throw new AppError(
         ErrorCodes.VALIDATION_ERROR,
-        'Video schedule has an empty batch (no task rows).',
+        'Video schedule has an empty batch (no task rows, sequences or templates).',
       )
     }
     // 校验批量行：过滤空 prompt，转成引擎 generateRows 可消费的参数
@@ -171,14 +175,68 @@ export async function executeSchedule(
     const skipped = rows.length - validRows.length
 
     const concurrency = concurrencyOverride ?? batch.concurrency
-    const result = await getVideoEngine().generateRows(validRows, concurrency)
-    const taskCount = result.succeeded.length
-    const failedCount = result.failed.length
 
-    const summary =
-      skipped > 0
-        ? `提交 ${taskCount} 个任务，跳过 ${skipped} 个空行，失败 ${failedCount} 个`
-        : `提交 ${taskCount} 个任务，失败 ${failedCount} 个`
+    let rowTaskCount = 0
+    let sequenceCount = 0
+    let sequenceShotCount = 0
+    let templateOutputCount = 0
+    let failedCount = 0
+
+    // 1) 单视频批量行（队列化并行跑批）
+    if (validRows.length > 0) {
+      const result = await getVideoEngine().generateRows(validRows, concurrency)
+      rowTaskCount = result.succeeded.length
+      failedCount += result.failed.length
+    }
+
+    // 2) 连续性序列行：逐个触发（序列内部按镜头串行推进，
+    //    锚点提交即返回，不阻塞 cron 重排；镜头间自动尾帧→首帧衔接）
+    for (const row of sequenceRows) {
+      const shots = (row.shots ?? [])
+        .filter((p) => typeof p === 'string' && p.trim() !== '')
+        .map((p) => ({ prompt: p, duration: row.duration }))
+      try {
+        const result = await getVideoEngine().generateSequence({
+          title: row.title,
+          shots,
+          resolution: row.resolution,
+          aspect: row.aspect,
+          continuity: true,
+        })
+        sequenceCount += 1
+        sequenceShotCount += result.tasks.length
+      } catch (error) {
+        failedCount += 1
+        console.error(`[VideoSchedule] Sequence row failed in "${schedule.name}":`, error)
+      }
+    }
+
+    // 3) 分镜模板：逐个一键生成（sequence 模板走衔接序列，shot 模板产出单视频）
+    for (const templateId of templateIds) {
+      try {
+        const produced = await generateFromTemplate(templateId)
+        templateOutputCount += Array.isArray(produced)
+          ? produced.length
+          : (produced as { sequence: unknown; tasks: VideoTask[] }).tasks.length
+      } catch (error) {
+        failedCount += 1
+        console.error(
+          `[VideoSchedule] Template "${templateId}" failed in "${schedule.name}":`,
+          error,
+        )
+      }
+    }
+
+    const taskCount = rowTaskCount + sequenceShotCount + templateOutputCount
+
+    // summary：按来源分段描述（为 0 的段省略）
+    const parts: string[] = []
+    if (rowTaskCount > 0) parts.push(`提交 ${rowTaskCount} 个任务`)
+    if (skipped > 0) parts.push(`跳过 ${skipped} 个空行`)
+    if (sequenceCount > 0) parts.push(`触发 ${sequenceCount} 个连续性序列（共 ${sequenceShotCount} 镜头）`)
+    if (templateOutputCount > 0) parts.push(`模板产物 ${templateOutputCount} 项`)
+    if (failedCount > 0) parts.push(`失败 ${failedCount} 个`)
+    const summary = parts.length > 0 ? parts.join('，') : '本批无可执行内容'
 
     // 更新调度状态
     const status: VideoScheduleRunStatus = failedCount > 0 ? 'error' : 'ok'
@@ -339,7 +397,8 @@ export function getScheduleHistory(id: string, limit?: number): VideoScheduleRun
 }
 
 /**
- * 规整创建参数：name 非空、trigger 合法、cron 触发须提供有效 cron 表达式。
+ * 规整创建参数：name 非空、trigger 合法、cron 触发须提供有效 cron 表达式；
+ * 批次要求 rows / sequences / templateIds 至少一者非空，序列行至少 2 个非空镜头。
  */
 function normalizeCreateParams(params: CreateVideoScheduleParams): {
   name: string
@@ -355,10 +414,27 @@ function normalizeCreateParams(params: CreateVideoScheduleParams): {
   }
   const trigger = params.trigger ?? 'cron'
   const rows = Array.isArray(params.batch?.rows) ? params.batch.rows : []
-  if (rows.length === 0 || rows.some((r) => !r?.prompt || !r.prompt.trim())) {
+  const validRows = rows.filter((r) => r?.prompt && r.prompt.trim() !== '')
+
+  const sequences = Array.isArray(params.batch?.sequences) ? params.batch.sequences : []
+  for (const seq of sequences) {
+    const shots = (seq?.shots ?? []).filter((p) => typeof p === 'string' && p.trim() !== '')
+    if (shots.length < 2) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_ERROR,
+        'Video schedule sequence row requires at least 2 non-empty shot prompts.',
+      )
+    }
+  }
+
+  const templateIds = Array.isArray(params.batch?.templateIds)
+    ? params.batch.templateIds.filter((id) => typeof id === 'string' && id.trim() !== '')
+    : []
+
+  if (validRows.length === 0 && sequences.length === 0 && templateIds.length === 0) {
     throw new AppError(
       ErrorCodes.VALIDATION_ERROR,
-      'Video schedule batch must contain at least one non-empty prompt.',
+      'Video schedule batch must contain at least one task row, sequence, or template.',
     )
   }
   if (trigger === 'cron') {
@@ -375,7 +451,12 @@ function normalizeCreateParams(params: CreateVideoScheduleParams): {
     trigger,
     cronExpr: params.cronExpr ?? null,
     timezone: params.timezone ?? null,
-    batch: { rows, concurrency: params.batch?.concurrency },
+    batch: {
+      rows: validRows,
+      concurrency: params.batch?.concurrency,
+      sequences,
+      templateIds,
+    },
   }
 }
 

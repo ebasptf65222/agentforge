@@ -23,6 +23,11 @@ export function resolveFfmpegPath(): string {
   } catch {
     bundled = ''
   }
+  // electron-builder asarUnpack 后二进制实际位于 app.asar.unpacked，
+  // child_process 无法直接执行 asar 内的 exe，需重写路径。
+  if (bundled.includes('app.asar')) {
+    bundled = bundled.replace('app.asar', 'app.asar.unpacked')
+  }
   return bundled || process.env.FFMPEG_PATH || 'ffmpeg'
 }
 

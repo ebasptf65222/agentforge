@@ -121,6 +121,7 @@
     "asarUnpack": [
       "**/*.{node,dll}",
       "**/node_modules/@github/copilot-*/**",
+      "**/node_modules/ffmpeg-static/**",
       "out/renderer/vendor/**"
     ],
     "linux": {
