@@ -181,6 +181,7 @@
       "better-sqlite3",
       "electron",
       "esbuild",
+      "ffmpeg-static",
       "vue-demi"
     ]
   }
